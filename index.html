@@ -1,0 +1,2221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Solve Energy — Training Portal</title>
+<link rel="icon" href="solve_icon.png" type="image/png">
+<style>
+  :root {
+    --green:       #4eca5a;
+    --green-light: rgba(78,202,90,0.13);
+    --green-mid:   #3db34d;
+    --gray:        rgba(255,255,255,0.45);
+    --gray-light:  rgba(255,255,255,0.07);
+    --text:        #ffffff;
+    --border:      rgba(255,255,255,0.1);
+    --white:       #162a1a;    /* dark card surface */
+    --card-deep:   #0f1f12;    /* deeper card/input bg */
+    --warning:     #fbbf24;
+    --danger:      #f87171;
+    --success:     #4eca5a;
+    --page-bg:     #0b1a0e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background:
+      radial-gradient(ellipse at 82% 4%,  #1d4d25 0%, transparent 42%),
+      radial-gradient(ellipse at 12% 92%, #243b16 0%, transparent 42%),
+      var(--page-bg);
+    background-attachment: fixed;
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ─── Light mode: active app (post-login) ─── */
+  body.logged-in {
+    --green:       #2a9640;
+    --green-light: rgba(42,150,64,0.1);
+    --green-mid:   #217832;
+    --gray:        rgba(0,0,0,0.48);
+    --gray-light:  rgba(0,0,0,0.04);
+    --text:        #152219;
+    --border:      rgba(0,0,0,0.1);
+    --white:       #ffffff;
+    --card-deep:   #f4f7f4;
+    --warning:     #b45309;
+    --danger:      #c62828;
+    --success:     #2a9640;
+    --page-bg:     #f2f5f2;
+    background:
+      radial-gradient(ellipse at 82% 4%,  rgba(42,150,64,0.07) 0%, transparent 42%),
+      radial-gradient(ellipse at 12% 92%, rgba(42,150,64,0.05) 0%, transparent 42%),
+      #f2f5f2 !important;
+    background-attachment: fixed !important;
+  }
+  /* Fix hardcoded white-based opacities for light mode */
+  body.logged-in .option-btn {
+    background: rgba(0,0,0,0.03);
+    border-color: rgba(0,0,0,0.12);
+    color: var(--text);
+  }
+  body.logged-in .btn-gray {
+    background: rgba(0,0,0,0.05);
+    color: rgba(0,0,0,0.5);
+    border-color: rgba(0,0,0,0.1);
+  }
+  body.logged-in .badge-gray {
+    background: rgba(0,0,0,0.07);
+    color: rgba(0,0,0,0.5);
+  }
+  body.logged-in .role-card:hover {
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1), 0 0 0 1px rgba(42,150,64,0.3);
+  }
+  body.logged-in .form-input {
+    background: #fff;
+    border-color: rgba(0,0,0,0.15);
+    color: var(--text);
+  }
+  /* Badges — all need darker text on white */
+  body.logged-in .badge-blue   { background: rgba(37,99,235,0.09);  color: #1d4ed8; }
+  body.logged-in .badge-orange { background: rgba(194,65,12,0.09);  color: #c2410c; }
+  body.logged-in .badge-purple { background: rgba(109,40,217,0.09); color: #6d28d9; }
+  body.logged-in .badge-red    { background: rgba(185,28,28,0.09);  color: #b91c1c; }
+  /* yellow → orange per design intent */
+  body.logged-in .badge-yellow { background: rgba(192,86,0,0.09);   color: #c05600; }
+  /* block notes — was white text */
+  body.logged-in .block-notes  { color: rgba(0,0,0,0.72); }
+  /* no-link warning box — was yellow text */
+  body.logged-in .no-link-box {
+    background: rgba(180,83,9,0.07);
+    border-color: rgba(180,83,9,0.25);
+    color: #b45309;
+  }
+
+  /* ── Header ── */
+  .header {
+    background: rgba(11, 26, 14, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(78, 202, 90, 0.18);
+    color: white;
+    padding: 0 24px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.4);
+  }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  .header-logo { display: flex; align-items: center; gap: 10px; }
+  .header-logo img { height: 28px; width: auto; display: block; }
+  .header-logo span { opacity: 0.6; font-weight: 400; font-size: 14px; color: #fff; }
+  /* ── Shared nav element sizing ── */
+  .header-back,
+  .header-stage,
+  .header-btn {
+    height: 32px;
+    box-sizing: border-box;
+    display: none; /* JS shows these as inline-flex */
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    border-radius: 6px;
+  }
+  .header-back {
+    background: rgba(78,202,90,0.12);
+    border: 1px solid rgba(78,202,90,0.3);
+    color: var(--green); padding: 0 14px;
+    cursor: pointer;
+    appearance: none; -webkit-appearance: none;
+  }
+  .header-back:hover { background: rgba(78,202,90,0.22); }
+  .header-right { display: flex; align-items: center; gap: 8px; }
+  .header-user {
+    font-size: 13px; opacity: 0.65; display: none; color: #fff;
+    height: 32px; line-height: 32px;
+  }
+  .header-stage {
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+    font-size: 11px;
+    padding: 0 10px; border-radius: 20px;
+    background: rgba(78,202,90,0.15); color: var(--green); border: 1px solid rgba(78,202,90,0.3);
+  }
+  .header-btn {
+    background: rgba(78,202,90,0.1);
+    border: 1px solid rgba(78,202,90,0.25);
+    color: var(--green); padding: 0 12px;
+    cursor: pointer;
+    appearance: none; -webkit-appearance: none;
+  }
+  .header-btn:hover { background: rgba(78,202,90,0.2); }
+
+  /* ── Login ── */
+  .login-wrap {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+  }
+  .login-card {
+    background: rgba(22, 42, 26, 0.95);
+    border: 1px solid rgba(78,202,90,0.2);
+    border-radius: 16px;
+    padding: 40px 36px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 8px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(78,202,90,0.08);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .login-logo { margin-bottom: 12px; text-align: center; }
+  .login-logo img { height: 44px; width: auto; display: inline-block; }
+  .login-sub { font-size: 14px; color: var(--gray); margin-bottom: 28px; text-align: center; }
+  .login-platform {
+    margin-top: 28px; padding-top: 18px;
+    border-top: 1px solid var(--border);
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; color: rgba(255,255,255,0.2); text-align: center;
+  }
+  .forgot-link {
+    display: block; text-align: center; margin-top: 14px;
+    font-size: 12px; color: rgba(255,255,255,0.45); cursor: pointer;
+    background: none; border: none; padding: 0;
+  }
+  .forgot-link:hover { color: var(--green); text-decoration: underline; }
+  .forgot-success {
+    background: rgba(78,202,90,0.1); border: 1px solid rgba(78,202,90,0.35);
+    border-radius: 8px; padding: 10px 14px;
+    font-size: 13px; color: #4eca5a;
+    margin-bottom: 14px; display: none; text-align: center;
+  }
+  .forgot-success.show { display: block; }
+  .form-group { margin-bottom: 16px; }
+  .form-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text); }
+  .form-input {
+    width: 100%; padding: 10px 14px;
+    border: 2px solid rgba(255,255,255,0.1);
+    border-radius: 8px; font-size: 14px; outline: none;
+    background: rgba(0,0,0,0.3);
+    color: var(--text);
+    transition: border-color 0.15s;
+  }
+  .form-input::placeholder { color: rgba(255,255,255,0.3); }
+  .form-input:focus { border-color: var(--green); background: rgba(78,202,90,0.05); }
+  .login-error {
+    background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.35);
+    border-radius: 8px; padding: 10px 14px;
+    font-size: 13px; color: var(--danger);
+    margin-bottom: 14px; display: none;
+  }
+  .login-error.show { display: block; }
+  .btn-login {
+    width: 100%; padding: 12px;
+    background: var(--green); color: #0b1a0e;
+    border: none; border-radius: 8px;
+    font-size: 15px; font-weight: 700;
+    cursor: pointer; transition: background 0.15s, box-shadow 0.15s;
+    letter-spacing: 0.3px;
+  }
+  .btn-login:hover { background: #5dd96a; box-shadow: 0 0 20px rgba(78,202,90,0.35); }
+  .btn-login:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── Screens ── */
+  .screen { display: none; max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  .screen.active { display: block; }
+  .page-title { font-size: 26px; font-weight: 700; margin-bottom: 6px; }
+  .page-sub { color: var(--gray); font-size: 15px; margin-bottom: 28px; }
+
+  /* ── Course overview ── */
+  .course-header {
+    background: var(--white); border-radius: 12px;
+    border: 1px solid var(--border); padding: 24px; margin-bottom: 20px;
+  }
+  .course-role-name { font-size: 22px; font-weight: 700; }
+  .course-meta { display: flex; gap: 20px; margin-top: 10px; flex-wrap: wrap; }
+  .course-meta-item { font-size: 13px; color: var(--gray); }
+  .course-meta-item strong { color: var(--text); }
+  .progress-bar-wrap { margin-top: 16px; }
+  .progress-bar-label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; }
+  .progress-bar { height: 8px; background: var(--border); border-radius: 99px; overflow: hidden; }
+  .progress-bar-fill { height: 100%; background: var(--green); border-radius: 99px; transition: width 0.4s ease; }
+  .module-list { display: flex; flex-direction: column; gap: 8px; }
+  .module-item {
+    background: var(--white); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 18px;
+    display: flex; align-items: center; gap: 14px;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .module-item:hover { border-color: var(--green); box-shadow: 0 2px 12px rgba(0,0,0,0.3), 0 0 0 1px rgba(78,202,90,0.12); }
+  .module-item.locked { opacity: 0.5; cursor: not-allowed; }
+  .module-item.locked:hover { border-color: var(--border); box-shadow: none; }
+  .module-item.completed { border-color: rgba(78,202,90,0.35); background: rgba(78,202,90,0.07); }
+  .module-item.current { border-color: var(--green); border-width: 2px; background: rgba(78,202,90,0.06); }
+  .module-item.overdue { border-color: rgba(248,113,113,0.4); border-width: 2px; background: rgba(248,113,113,0.06); }
+  .module-num {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--gray-light);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600; color: var(--gray); flex-shrink: 0;
+  }
+  .module-item.completed .module-num { background: var(--success); color: white; }
+  .module-item.current .module-num { background: var(--green); color: white; }
+  .module-item.overdue .module-num { background: var(--danger); color: white; }
+  .module-info { flex: 1; }
+  .module-name { font-weight: 600; font-size: 14px; }
+  .module-type { font-size: 12px; color: var(--gray); margin-top: 2px; }
+  .module-status { font-size: 12px; font-weight: 600; }
+  .module-item.completed .module-status { color: var(--success); }
+  .module-item.current .module-status { color: var(--green); }
+  .module-item.locked .module-status { color: var(--gray); }
+  .module-item.overdue .module-status { color: var(--danger); }
+
+  /* ── Block ── */
+  .block-card {
+    background: var(--white); border-radius: 12px;
+    border: 1px solid var(--border); padding: 24px; margin-bottom: 16px;
+  }
+  .block-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+  .block-title { font-size: 20px; font-weight: 700; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; padding: 3px 10px; border-radius: 20px; white-space: nowrap;
+  }
+  .badge-green  { background: var(--green-light); color: var(--green); }
+  .badge-blue   { background: rgba(59,130,246,0.15); color: #93c5fd; }
+  .badge-orange { background: rgba(251,146,60,0.15); color: #fdba74; }
+  .badge-purple { background: rgba(167,139,250,0.15); color: #c4b5fd; }
+  .badge-gray   { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); }
+  .badge-red    { background: rgba(248,113,113,0.15); color: #fca5a5; }
+  .badge-yellow { background: rgba(251,191,36,0.15); color: #fcd34d; }
+  .block-notes {
+    font-size: 14px; line-height: 1.6; color: rgba(255,255,255,0.7);
+    background: var(--gray-light); border-left: 3px solid var(--green);
+    padding: 12px 16px; border-radius: 0 6px 6px 0; margin-bottom: 16px;
+  }
+  .block-policy { font-size: 12px; color: var(--gray); margin-bottom: 16px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 22px; border-radius: 8px; font-size: 14px;
+    font-weight: 600; cursor: pointer; border: none; transition: all 0.15s;
+  }
+  .btn-primary { background: var(--green); color: #0b1a0e; font-weight: 700; }
+  .btn-primary:hover { background: #5dd96a; box-shadow: 0 0 20px rgba(78,202,90,0.3); }
+  .btn-outline { background: transparent; color: var(--green); border: 2px solid var(--green); }
+  .btn-outline:hover { background: var(--green-light); }
+  .btn-gray { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); border: 1px solid var(--border); }
+  .btn-danger { background: var(--danger); color: white; }
+  .btn-danger:hover { background: #dc2626; }
+  .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .link-box {
+    display: flex; align-items: center; gap: 12px;
+    border: 2px dashed var(--green); background: var(--green-light);
+    border-radius: 8px; padding: 14px 18px; margin-bottom: 16px;
+  }
+  .link-box-icon { font-size: 22px; }
+  .link-box-text { flex: 1; }
+  .link-box-label { font-size: 12px; color: var(--gray); }
+  .link-box-url { font-size: 13px; font-weight: 600; color: var(--green); word-break: break-all; }
+  .link-box a { color: var(--green); text-decoration: none; }
+  .link-box a:hover { text-decoration: underline; }
+  .no-link-box {
+    background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.25);
+    border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #fcd34d; margin-bottom: 16px;
+  }
+  .viewed-confirm {
+    background: rgba(78,202,90,0.08); border: 2px solid rgba(78,202,90,0.35);
+    border-radius: 8px; padding: 16px; margin-bottom: 16px; display: none;
+  }
+  .viewed-confirm.show { display: block; }
+
+  /* ── Quiz ── */
+  .quiz-section { display: none; }
+  .quiz-section.show { display: block; }
+  .quiz-title { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  .quiz-sub { font-size: 13px; color: var(--gray); margin-bottom: 20px; }
+  .question-card { background: var(--gray-light); border-radius: 10px; padding: 18px; margin-bottom: 12px; }
+  .question-text { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+  .option-list { display: flex; flex-direction: column; gap: 7px; }
+  .option-btn {
+    background: rgba(255,255,255,0.05); border: 2px solid var(--border);
+    border-radius: 7px; padding: 10px 14px;
+    font-size: 14px; text-align: left; cursor: pointer; transition: all 0.15s;
+    color: var(--text);
+  }
+  .option-btn:hover:not(:disabled) { border-color: var(--green); background: var(--green-light); }
+  .option-btn.selected { border-color: var(--green); background: var(--green-light); }
+  .option-btn.correct { border-color: var(--success); background: rgba(78,202,90,0.15); color: var(--green); font-weight: 600; }
+  .option-btn.incorrect { border-color: var(--danger); background: rgba(248,113,113,0.12); color: var(--danger); }
+  .option-btn.show-correct { border-color: var(--success); background: rgba(78,202,90,0.1); }
+  .option-btn:disabled { cursor: default; }
+  .quiz-submit { margin-top: 20px; }
+  .quiz-result { border-radius: 10px; padding: 20px; margin-top: 16px; display: none; }
+  .quiz-result.show { display: block; }
+  .quiz-result.pass { background: rgba(78,202,90,0.1); border: 2px solid rgba(78,202,90,0.4); }
+  .quiz-result.fail { background: rgba(248,113,113,0.1); border: 2px solid rgba(248,113,113,0.4); }
+  .quiz-result-title { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+  .quiz-result.pass .quiz-result-title { color: var(--green); }
+  .quiz-result.fail .quiz-result-title { color: var(--danger); }
+  .quiz-result-msg { font-size: 14px; margin-bottom: 14px; }
+
+  /* ── Saving indicator ── */
+  .saving-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--green-light); color: var(--green);
+    font-size: 12px; font-weight: 600; padding: 4px 12px;
+    border-radius: 20px; margin-left: 8px;
+  }
+
+  /* ── Completion ── */
+  .completion-card {
+    background: var(--white); border-radius: 16px;
+    border: 1px solid var(--border); padding: 48px 32px; text-align: center;
+  }
+  .completion-icon { font-size: 64px; margin-bottom: 16px; }
+  .completion-title { font-size: 28px; font-weight: 700; margin-bottom: 8px; color: var(--green); }
+  .completion-sub { font-size: 16px; color: var(--gray); margin-bottom: 32px; }
+  .completion-list { text-align: left; max-width: 400px; margin: 0 auto 32px; }
+  .completion-item {
+    display: flex; gap: 10px; font-size: 14px;
+    padding: 6px 0; border-bottom: 1px solid var(--border);
+  }
+  .completion-item:last-child { border-bottom: none; }
+
+  /* ── Step indicator ── */
+  .step-indicator {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--gray); margin-bottom: 20px;
+  }
+  .step-indicator .sep { opacity: 0.4; }
+  .step-indicator .current-step { color: var(--text); font-weight: 600; }
+
+  /* ── Loading / error states ── */
+  .loading-screen {
+    text-align: center; padding: 80px 24px;
+  }
+  .spinner {
+    width: 40px; height: 40px;
+    border: 4px solid var(--border);
+    border-top-color: var(--green);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-size: 15px; color: var(--gray); }
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #1e293b; color: white;
+    padding: 10px 20px; border-radius: 8px;
+    font-size: 13px; font-weight: 500;
+    opacity: 0; transition: opacity 0.3s;
+    pointer-events: none; z-index: 999;
+    white-space: nowrap;
+  }
+  .toast.show { opacity: 1; }
+
+  /* ── Section headers ── */
+  .section-header {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.7px; padding: 8px 4px 6px;
+    margin-top: 20px; margin-bottom: 4px;
+    border-bottom: 2px solid var(--border);
+  }
+  .section-header:first-child { margin-top: 0; }
+  .section-header.overdue { color: var(--danger); border-color: #fecaca; }
+  .section-header.todo    { color: var(--gray);   border-color: var(--border); }
+  .section-header.done    { color: var(--success); border-color: #bbf7d0; }
+  /* Pipeline stage headers — primary grouping */
+  .section-header.stage {
+    margin-top: 28px;
+    font-size: 14px; font-weight: 800; letter-spacing: 0; text-transform: none;
+    color: var(--text);
+    border-bottom: 2px solid rgba(78,202,90,0.35);
+    padding-bottom: 10px;
+  }
+  .section-header.stage:first-child { margin-top: 0; }
+  .section-header.stage .stage-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--green); color: #0b1a0e;
+    font-size: 11px; font-weight: 800; flex-shrink: 0;
+  }
+  .section-header.stage .section-count {
+    background: rgba(78,202,90,0.12); color: var(--green);
+  }
+  .section-count {
+    margin-left: auto; font-size: 11px; font-weight: 500;
+    background: var(--gray-light); padding: 2px 8px; border-radius: 20px;
+  }
+  .section-header.overdue .section-count { background: rgba(248,113,113,0.15); color: var(--danger); }
+  .section-header.done    .section-count { background: rgba(78,202,90,0.15); color: var(--success); }
+  /* ── Sync info bar ── */
+  .sync-bar {
+    background: var(--white); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 14px;
+    font-size: 12px; color: var(--gray);
+    margin-bottom: 16px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .sync-bar button {
+    background: none; border: none; color: var(--green);
+    font-size: 12px; font-weight: 600; cursor: pointer; padding: 0;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .sync-bar button:hover:not(:disabled) { text-decoration: underline; }
+  .sync-bar button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .sync-spin {
+    width: 11px; height: 11px;
+    border: 2px solid rgba(42,150,64,0.25);
+    border-top-color: var(--green);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+  .sync-bar button.syncing .sync-spin { display: inline-block; }
+
+  /* ── Roles screen ── */
+  .roles-page-header {
+    padding: 24px 24px 8px;
+  }
+  .roles-title { font-size: 20px; font-weight: 700; color: var(--text); }
+  .roles-subtitle { font-size: 13px; color: var(--gray); margin-top: 4px; }
+  .roles-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    padding: 16px 24px 32px;
+  }
+  .role-card {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 20px 16px;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+  }
+  .role-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(78,202,90,0.2);
+    border-color: var(--green);
+  }
+  .role-card-name { font-size: 15px; font-weight: 700; margin-bottom: 12px; color: var(--text); }
+  .role-card-stats { display: flex; justify-content: space-between; font-size: 12px; color: var(--gray); margin-bottom: 8px; }
+  .role-card-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .role-card-fill { height: 100%; background: var(--green); border-radius: 3px; transition: width 0.3s; }
+  .role-card-overdue { font-size: 11px; color: var(--danger); margin-top: 6px; font-weight: 600; }
+
+  /* ── Training materials ── */
+  .materials-section {
+    margin-top: 20px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  .materials-title {
+    font-size: 12px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--gray); margin-bottom: 10px;
+  }
+  .material-group { margin-bottom: 12px; }
+  .material-group-label {
+    font-size: 11px; font-weight: 600; color: var(--gray);
+    text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 6px;
+  }
+  .material-link {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; border-radius: 8px; text-decoration: none;
+    background: var(--gray-light); color: var(--text); font-size: 13px;
+    margin-bottom: 6px; transition: background 0.15s;
+  }
+  .material-link:hover { background: var(--green-light); color: var(--green); }
+  .material-link-icon { font-size: 16px; flex-shrink: 0; }
+  .materials-loading { font-size: 13px; color: var(--gray); padding: 8px 0; }
+
+  /* ── Responsive ── */
+  @media (max-width: 480px) {
+    .course-meta { gap: 10px; }
+    .block-header { flex-direction: column; }
+    .login-card { padding: 28px 20px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ─── Header ──────────────────────────────────────────── -->
+<div class="header" id="appHeader" style="display:none">
+  <div class="header-left">
+    <div class="header-logo">
+      <img src="solve_logo.png" alt="Solve Energy">
+      <span>Training Portal</span>
+    </div>
+    <span class="header-stage" id="headerStage"></span>
+  </div>
+  <div class="header-right">
+    <span class="header-user" id="headerUser"></span>
+    <button class="header-back" id="headerBack" onclick="goBack()">← Back</button>
+    <button class="header-btn" id="btnLogout" onclick="logout()">Sign Out</button>
+  </div>
+</div>
+
+<!-- ─── Login Screen ─────────────────────────────────────── -->
+<div id="loginScreen" class="login-wrap">
+
+  <!-- Sign-in card -->
+  <div class="login-card" id="loginCard">
+    <div class="login-logo">
+      <img src="solve_logo.png" alt="Solve Energy">
+    </div>
+    <div class="login-sub">Training Portal — Sign in to continue</div>
+    <div class="login-error" id="loginError"></div>
+    <div class="form-group">
+      <label class="form-label" for="loginEmail">Email address</label>
+      <input class="form-input" type="email" id="loginEmail" placeholder="you@solveenergy.ca" autocomplete="email">
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="loginPassword">Password</label>
+      <input class="form-input" type="password" id="loginPassword" placeholder="Enter your password" autocomplete="current-password">
+    </div>
+    <button class="btn-login" id="btnLogin" onclick="doLogin()">Sign In</button>
+    <button class="forgot-link" onclick="showForgot()">Forgot your password?</button>
+    <div class="login-platform">Solve Energy Platform</div>
+  </div>
+
+  <!-- Forgot-password card -->
+  <div class="login-card" id="forgotCard" style="display:none">
+    <div class="login-logo">
+      <img src="solve_logo.png" alt="Solve Energy">
+    </div>
+    <div class="login-sub">Enter your email and we'll send your password.</div>
+    <div class="forgot-success" id="forgotSuccess"></div>
+    <div class="login-error" id="forgotError"></div>
+    <div class="form-group">
+      <label class="form-label" for="forgotEmail">Email address</label>
+      <input class="form-input" type="email" id="forgotEmail" placeholder="you@solveenergy.ca" autocomplete="email">
+    </div>
+    <button class="btn-login" id="btnForgot" onclick="doForgot()">Send Password</button>
+    <button class="forgot-link" onclick="showLogin()">← Back to sign in</button>
+    <div class="login-platform">Solve Energy Platform</div>
+  </div>
+
+</div>
+
+<!-- ─── Loading Screen ───────────────────────────────────── -->
+<div class="screen" id="screenLoading">
+  <div class="loading-screen">
+    <div class="spinner"></div>
+    <div class="loading-text" id="loadingText">Loading your training data…</div>
+  </div>
+</div>
+
+<!-- ─── Roles Screen ──────────────────────────────────────── -->
+<div class="screen" id="screenRoles">
+  <div class="roles-page-header">
+    <div id="rolesTitle" class="roles-title"></div>
+    <div id="rolesSubtitle" class="roles-subtitle"></div>
+  </div>
+  <div class="roles-grid" id="rolesGrid"></div>
+</div>
+
+<!-- ─── SCREEN 1: Course Overview ───────────────────────── -->
+<div class="screen" id="screenCourse">
+  <div class="sync-bar" id="syncBar">
+    <span id="syncBarText">Training data up to date</span>
+    <button id="syncNowBtn" onclick="manualSync()"><span class="sync-spin"></span>Sync now</button>
+  </div>
+  <div class="course-header">
+    <div id="courseRoleName" class="course-role-name"></div>
+    <div class="course-meta">
+      <div class="course-meta-item"><strong id="courseTotalCount">0</strong> training modules</div>
+      <div class="course-meta-item"><strong id="courseCompletedCount">0</strong> completed</div>
+    </div>
+    <div class="progress-bar-wrap">
+      <div class="progress-bar-label">
+        <span>Overall Progress</span>
+        <span id="progressPct">0%</span>
+      </div>
+      <div class="progress-bar"><div class="progress-bar-fill" id="progressFill" style="width:0%"></div></div>
+    </div>
+  </div>
+  <div class="module-list" id="moduleList"></div>
+</div>
+
+<!-- ─── SCREEN 2: Training Block ────────────────────────── -->
+<div class="screen" id="screenBlock">
+  <div class="step-indicator">
+    <span id="stepRoleName"></span>
+    <span class="sep">›</span>
+    <span id="stepModuleNum"></span>
+    <span class="sep">›</span>
+    <span class="current-step" id="stepBlockName"></span>
+  </div>
+
+  <div class="block-card" id="blockCard">
+    <div class="block-header">
+      <div class="block-title" id="blockTitle"></div>
+      <span class="badge" id="blockBadge"></span>
+    </div>
+    <div class="block-policy" id="blockPolicy"></div>
+    <div class="block-notes" id="blockNotes" style="display:none"></div>
+    <div class="link-box" id="linkBox" style="display:none">
+      <div class="link-box-icon">🔗</div>
+      <div class="link-box-text">
+        <div class="link-box-label">Training Resource</div>
+        <div class="link-box-url"><a id="trainingLink" href="#" target="_blank" rel="noopener"></a></div>
+      </div>
+    </div>
+    <div class="no-link-box" id="noLinkBox" style="display:none">
+      📄 This training is delivered in-person or via your manager. Review the materials below and confirm with your trainer before proceeding.
+    </div>
+    <div class="viewed-confirm" id="viewedConfirm">
+      ✅ <strong>Training acknowledged.</strong> Now complete the quiz below to advance.
+    </div>
+    <div id="blockActions">
+      <button class="btn btn-primary" id="btnViewed" onclick="markViewed()">✓ I've reviewed this training — start quiz</button>
+    </div>
+  </div>
+
+  <div class="block-card">
+    <div id="blockMaterials"></div>
+  </div>
+
+  <div class="block-card quiz-section" id="quizSection">
+    <div class="quiz-title">📝 Knowledge Check</div>
+    <div class="quiz-sub">Answer all questions correctly to advance to the next module. You may retry as many times as needed.</div>
+    <div id="quizQuestions"></div>
+    <div class="quiz-submit">
+      <button class="btn btn-primary" id="btnSubmitQuiz" onclick="submitQuiz()">Submit Answers</button>
+    </div>
+    <div class="quiz-result" id="quizResult">
+      <div class="quiz-result-title" id="quizResultTitle"></div>
+      <div class="quiz-result-msg" id="quizResultMsg"></div>
+      <div id="quizResultActions"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── SCREEN 3: Completion ─────────────────────────────── -->
+<div class="screen" id="screenComplete">
+  <div class="completion-card">
+    <div class="completion-icon">🎉</div>
+    <div class="completion-title">Training Complete!</div>
+    <div class="completion-sub" id="completionSub"></div>
+    <div class="completion-list" id="completionList"></div>
+  </div>
+</div>
+
+<!-- ─── Toast ────────────────────────────────────────────── -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================================
+// QUIZ MAP — Notion block UUID (no hyphens) → quiz questions
+// ============================================================
+const QUIZ_MAP = {
+  // Safety Policy
+  'b2173c305eb64513a12b66929cd56b1a': [
+    { q: "What is the primary purpose of the Solve Energy Safety Policy?", options: ["To limit the company's legal liability","To establish the company's commitment to health and safety and define everyone's responsibilities","To outline the pay structure for safety roles","To document accident statistics"], correct: 1 },
+    { q: "Who is responsible for maintaining a safe workplace at Solve Energy?", options: ["Only the safety officer","Only senior managers","Every employee and contractor on site","Only WorkSafe BC inspectors"], correct: 2 },
+    { q: "If you identify an unsafe condition, what should you do?", options: ["Wait until the end of the day to report it","Ignore it if it seems minor","Report it immediately to your supervisor and remove yourself from danger if needed","Only report it if someone is injured"], correct: 2 }
+  ],
+  // First Aid Procedure
+  '41a1f933baa741d4b50c40fff145aec3': [
+    { q: "What is the first thing you should do when encountering a workplace injury?", options: ["Begin treatment immediately without assessing the scene","Ensure the scene is safe before approaching","Call a meeting to discuss the incident","Continue working until the shift ends"], correct: 1 },
+    { q: "After providing first aid, what must be completed?", options: ["Nothing additional is required","A first aid record / incident report must be filed","The injured worker must sign a waiver","The manager must be informed only if the worker misses a day"], correct: 1 },
+    { q: "When should you call 911 for a workplace injury?", options: ["Only for broken bones","For any injury no matter how minor","When the injury is serious, life-threatening, or the person is unconscious","Only after consulting a manager"], correct: 2 }
+  ],
+  // PPE Policy
+  '7b8c2a071a8c4389bf83a79d1dbb1340': [
+    { q: "Who is responsible for ensuring PPE is worn correctly?", options: ["Only the site supervisor","Both the worker and the supervisor share responsibility","Only the worker wearing it","Only the safety manager"], correct: 1 },
+    { q: "What should you do if your PPE is damaged or worn?", options: ["Continue using it until it breaks completely","Tag it out of service and request a replacement","Use a colleague's PPE instead","Report it at the end of the month"], correct: 1 },
+    { q: "Which of the following is typically mandatory PPE on a Solve solar installation site?", options: ["Sunglasses only","Hard hat, high-vis vest, safety boots, and gloves","Regular running shoes and a t-shirt","Lab coat and goggles only"], correct: 1 }
+  ],
+  // Disciplinary Process
+  '2aab73d8b43a8033a146cc49c3bfd35b': [
+    { q: "What is the typical first formal step in Solve's disciplinary process?", options: ["Immediate termination","A verbal warning, documented in writing","A written warning without prior discussion","Suspension without pay"], correct: 1 },
+    { q: "An employee has the right to:", options: ["Refuse to attend a disciplinary meeting","Bring a support person or representative to a disciplinary meeting","Share disciplinary outcomes with other staff","Bypass management and go directly to WorkSafe BC"], correct: 1 },
+    { q: "What is the purpose of the disciplinary process?", options: ["To punish employees","To find grounds for termination","To correct behaviour and support improvement, with dismissal only as a last resort","To reduce the workforce"], correct: 2 }
+  ],
+  // Drugs and Alcohol
+  '2aab73d8b43a80849f0ec3fd786cf51e': [
+    { q: "Is it acceptable to consume alcohol during a lunch break and return to work on a Solve Energy site?", options: ["Yes, if you feel fine","Yes, if you are in an office role","No — Solve operates a zero-tolerance policy during work hours and on all work sites","Only acceptable if no one can smell it"], correct: 2 },
+    { q: "If you suspect a colleague is under the influence of drugs or alcohol at work, you should:", options: ["Ignore it — it's none of your business","Report it to a supervisor immediately as it's a safety issue","Wait to see if their performance suffers","Ask them about it privately after work"], correct: 1 },
+    { q: "Prescription medication that may affect performance should be:", options: ["Kept completely private from your employer","Disclosed to your supervisor so safe work arrangements can be made","Taken only after work hours","Not a workplace concern if a doctor prescribed it"], correct: 1 }
+  ],
+  // Fatigue Policy
+  '2aab73d8b43a803694cdd85bfd6c04cb': [
+    { q: "Why is fatigue considered a serious workplace safety issue?", options: ["It only affects office workers","It reduces concentration, reaction times, and judgement, increasing accident risk","It is only a concern for night shift workers","It mainly affects older employees"], correct: 1 },
+    { q: "If you feel too fatigued to work safely, you should:", options: ["Push through — performance matters","Report your condition to your supervisor before commencing or continuing work","Take a 5-minute break and carry on","Switch to a less physically demanding task without telling anyone"], correct: 1 },
+    { q: "Which of the following contributes to workplace fatigue?", options: ["Getting 8+ hours of sleep","Working long hours without adequate breaks and rest periods","Eating regular meals","Staying hydrated throughout the day"], correct: 1 }
+  ],
+  // Work at Heights
+  '2aab73d8b43a8020b66ede4d4e675a6f': [
+    { q: "Before beginning work at heights, what must be completed?", options: ["Nothing special is needed unless you are above 5 metres","A Point of Work Risk Assessment (POWRA) and fall protection plan","A verbal check-in with a colleague","Only a review of the weather forecast"], correct: 1 },
+    { q: "What is the minimum requirement for fall protection at Solve Energy sites?", options: ["Fall protection is only needed above 6 metres","A harness and lanyard must be worn whenever there is a risk of falling, regardless of height","Only guardrails are required","Fall protection is the worker's personal choice"], correct: 1 },
+    { q: "If a fall protection anchor point appears to be damaged or inadequate, you should:", options: ["Use it anyway if the job needs to be done","Attach your lanyard to a nearby pipe instead","Stop work and report the issue to your supervisor","Use a shorter lanyard to reduce the load"], correct: 2 }
+  ],
+  // Risk Management and Fall Protection Planning
+  'e3e7f312278543808f438f1f8749e430': [
+    { q: "What is the hierarchy of controls for fall protection, from most to least preferred?", options: ["PPE → guardrails → elimination","Elimination of the hazard → passive protection (guardrails) → fall restraint → fall arrest (harness)","Harness first, then guardrails if harness fails","All methods are equally acceptable"], correct: 1 },
+    { q: "A fall protection plan must include:", options: ["Only the names of workers involved","Identification of hazards, control measures, anchor points, equipment used, and a rescue plan","Just the signature of the site supervisor","Only the date and location of the work"], correct: 1 },
+    { q: "Why is a rescue plan required as part of fall protection planning?", options: ["WorkSafe BC requires paperwork to be filed monthly","A suspended worker in a harness can suffer suspension trauma within minutes if not rescued promptly","It is only required for work above 10 metres","Rescue plans are optional if there are 3 or more workers on site"], correct: 1 }
+  ],
+  // Near Miss
+  '2aab73d8b43a80a88464dd889c7a75a4': [
+    { q: "What is a near miss?", options: ["An incident that results in a minor injury","An unsafe condition or event that could have caused injury or damage but did not","A complaint from a customer","A product defect discovered after installation"], correct: 1 },
+    { q: "Why is reporting near misses important?", options: ["It is only required for insurance purposes","Near misses reveal systemic hazards and allow corrective action before someone is actually hurt","Only serious accidents need to be reported","Near misses show which workers are careless"], correct: 1 },
+    { q: "When should a near miss be reported?", options: ["Only if witnessed by a supervisor","As soon as possible — ideally the same day it occurs","At the next monthly safety meeting","Only if it happens twice to the same person"], correct: 1 }
+  ],
+  // Vehicle Policy
+  '2aab73d8b43a80f0956deacc78ed232c': [
+    { q: "Who is permitted to drive a Solve Energy company vehicle?", options: ["Any employee, regardless of licence status","Only authorised, licenced employees who have been added to the company's vehicle use list","Any family member of an employee","Any person with a valid licence, including visitors"], correct: 1 },
+    { q: "If you are involved in a minor collision in a company vehicle, what must you do?", options: ["Fix any minor damage yourself without reporting it","Report the incident to your manager immediately, regardless of the extent of damage","Only report it if the damage exceeds $1,000","Decide with the other driver to handle it privately"], correct: 1 },
+    { q: "Personal use of a company vehicle is:", options: ["Always permitted as a staff benefit","Prohibited unless expressly authorised by management","Permitted for journeys under 10km","Permitted after hours only"], correct: 1 }
+  ],
+  // APCN Code of Conduct
+  '2aab73d8b43a8004b5f8c7beec2eae97': [
+    { q: "The APCN Code of Conduct applies to:", options: ["Senior management only","Only full-time employees","All staff, subcontractors, and partners representing Solve Energy","Only customer-facing roles"], correct: 2 },
+    { q: "Which of the following is covered by the Code of Conduct?", options: ["Technical installation specifications","Professional behaviour, respect, conflict of interest, and representation of the company","Personal financial matters","Only behaviour within the office"], correct: 1 },
+    { q: "What should you do if you witness a breach of the Code of Conduct?", options: ["Ignore it if it doesn't affect you directly","Handle it personally without involving management","Report it to your supervisor or through the appropriate channel","Post about it on social media"], correct: 2 }
+  ],
+  // Information Documents
+  '2abb73d8b43a80f6adf6e3e02000a95e': [
+    { q: "What is the purpose of Information Documents at Solve Energy?", options: ["They require formal sign-off and legal acknowledgement","They are for general reference and awareness — no signature required but you are expected to have read them","They are only shared with management","They are archived and rarely used"], correct: 1 },
+    { q: "Where are Information Documents stored for Solve Energy staff?", options: ["On a public website","In the Solve Energy Notion workspace","On individual hard drives","Printed and stored in the office"], correct: 1 }
+  ],
+  // Toolbox Talks
+  '2aab73d8b43a8092aafee671611b4118': [
+    { q: "What is a toolbox talk?", options: ["A talk about which tools to use on a job","A short, focused safety briefing held with the team before or during a shift","A weekly management meeting","A customer-facing product presentation"], correct: 1 },
+    { q: "How must Solve Energy toolbox talks be acknowledged?", options: ["A verbal 'yes' to the supervisor is sufficient","Attendance is optional","With a digital signature from each attendee","By emailing HR after attendance"], correct: 2 }
+  ],
+  // Complaints Procedure
+  '2aab73d8b43a8060a053d26880c079e3': [
+    { q: "When a customer complaint is received, what is the expected first step?", options: ["Escalate immediately to a director","Acknowledge the complaint promptly and log it in the system","Ignore minor complaints","Forward it to the complaints inbox and take no further action"], correct: 1 },
+    { q: "What is the goal of the complaints procedure?", options: ["To minimise the number of complaints recorded","To resolve issues fairly, promptly, and with learning applied to prevent recurrence","To shift responsibility to the complainant","To build a legal defence file"], correct: 1 }
+  ],
+  // Inspection and Recording of Safety Equipment
+  '2aab73d8b43a800baa7ddf258abb0f3e': [
+    { q: "How often should fall protection harnesses be inspected?", options: ["Once a year by a third party only","Before each use and periodically by a competent person","Monthly, regardless of use","Only after a fall event"], correct: 1 },
+    { q: "If a harness has been involved in a fall arrest, what should happen to it?", options: ["Clean it and put it back into service","Inspect it visually — if it looks fine, reuse it","Remove it from service immediately — it must not be used again until formally cleared","Store it as a backup harness"], correct: 2 }
+  ],
+  // Safety and Quality Inspections
+  '2aab73d8b43a8019a782fcb72a6513e1': [
+    { q: "What is the purpose of a site safety and quality inspection?", options: ["To generate paperwork for compliance purposes only","To identify hazards, verify quality of work, and ensure standards are being met","To report workers to management","To delay work progress"], correct: 1 },
+    { q: "When a safety inspection identifies a non-conformance, the correct response is to:", options: ["Note it and review it at the end of the project","Issue a corrective action and ensure it is closed out in a timely manner","Discuss it informally but not document it","Pass it to the customer to resolve"], correct: 1 }
+  ],
+  // Sub Contractor Vetting
+  '2b0b73d8b43a80dd87c2ddec9fb973a5': [
+    { q: "Before a subcontractor can work on a Solve Energy project, they must:", options: ["Simply agree verbally to follow site rules","Provide proof of insurance, relevant qualifications, and pass the Solve vetting process","Only provide their business name","Be recommended by another Solve employee"], correct: 1 },
+    { q: "Why is subcontractor vetting important?", options: ["It creates more paperwork for the office","Solve Energy is responsible for the safety of all workers on its sites, including subcontractors","It is only done for large contracts","It is a preference, not a requirement"], correct: 1 }
+  ],
+  // Notion Guide 1
+  '2aab73d8b43a8081a5afe20082d5e040': [
+    { q: "What is Notion used for at Solve Energy?", options: ["Email communication only","As the central workspace for databases, project tracking, SOPs, and team documentation","As the payroll system","Only for external customer-facing documents"], correct: 1 },
+    { q: "Where can you find the project pipeline in Notion?", options: ["It is not in Notion — it uses a separate system","From the main Solve dashboard, navigate to the Pipeline database","Only managers have access to the pipeline","It is emailed to you weekly"], correct: 1 }
+  ],
+  // Notion Guide 2
+  '2b0b73d8b43a80ea8b35eea7c4ad8963': [
+    { q: "When should you complete the Ops Checklist in Notion?", options: ["The following morning back at the office","During the install/commissioning process in real time, ideally connected to site WiFi","Only if the job takes longer than one day","After the customer has signed off"], correct: 1 },
+    { q: "Why is it recommended to connect to site WiFi before starting the Ops Checklist?", options: ["To download the latest firmware","To ensure the checklist saves and syncs in real time without connectivity issues","WiFi is required to log in to Notion","To share the checklist with the customer live"], correct: 1 }
+  ],
+  // Notion Guide 3
+  '2b0b73d8b43a8032969dda10c0fae957': [
+    { q: "How many Job Card video guides are there in Solve's Notion system?", options: ["One general guide","Two — one for Solar and one for Roofing","Three — Solar, Roofing, and Electrical","One — they are combined into a single guide"], correct: 1 },
+    { q: "What is the Job Card used for in Notion?", options: ["Recording employee timesheets","Tracking all details, tasks, and status updates for a specific customer project","Managing supplier invoices","Creating customer proposals"], correct: 1 }
+  ],
+  // Slack User Guide
+  '2aab73d8b43a80b3ad19c9d72c125aed': [
+    { q: "What is Slack used for at Solve Energy?", options: ["Sending invoices to customers","Team messaging and internal communication","Video calls with suppliers only","Time tracking"], correct: 1 },
+    { q: "When should you use Slack rather than email for internal communication?", options: ["Never — email is preferred for all communication","For quick team messages, project updates, and collaboration that benefits from real-time responses","Only for urgent emergencies","Only between managers"], correct: 1 }
+  ],
+  // Solve H&S Guide
+  '2aeb73d8b43a809e9633d2f9794b0fc9': [
+    { q: "What framework does the Solve Health & Safety Program Guide align to?", options: ["ISO 9001","The 14 CORR (Certificate of Recognition) elements required by WorkSafe BC","The Federal Canada Labour Code only","The BC Building Code"], correct: 1 },
+    { q: "When would you reference the Solve H&S Program Guide?", options: ["Only during formal WorkSafe BC inspections","For navigating safety program elements, answering safety questions, and ensuring compliance","Only when onboarding new staff","It is for HR use only"], correct: 1 }
+  ],
+  // Supervising for Safety
+  '2aab73d8b43a80898e09eeb5254d81fe': [
+    { q: "After completing the Supervising for Safety course, what must you do?", options: ["Simply note completion in Notion","Download your certificate and forward it to steven@solveenergy.ca","Present the certificate at a team meeting","Nothing — attendance alone is sufficient"], correct: 1 },
+    { q: "As a supervisor under WorkSafe BC regulations, you are responsible for:", options: ["Only your own personal safety","Ensuring workers under your direction are competent, protected, and working safely","Compliance paperwork only","Safety only when a WorkSafe inspector is on site"], correct: 1 },
+    { q: "What is a key duty of a supervisor under BC OHS regulations?", options: ["To set production targets above safety standards","To ensure workers have the training, equipment, and instruction needed to work safely","To approve all time-off requests","To manage the project budget"], correct: 1 }
+  ],
+  // Roofr Training
+  '2b0b73d8b43a80fb96fcc3e3c0e1cef2': [
+    { q: "What is Roofr used for at Solve Energy?", options: ["Solar panel design","Roofing project estimation, measurement, and management","Customer invoicing for all departments","Employee scheduling"], correct: 1 },
+    { q: "After watching the Roofr training videos, where should Roofr be accessed?", options: ["Via a dedicated mobile app only","Through the Roofr web platform as part of the roofing project workflow","Through Notion only","Through the Solve customer portal"], correct: 1 }
+  ],
+  // Solar Mounting and Racking
+  '2c0b73d8b43a80c799e5d5fb7658446c': [
+    { q: "When installing L-feet for a solar racking system, what is critical to verify?", options: ["The colour matches the roof","They are fastened into structural members (rafters), not just the decking","They are evenly spaced purely by visual judgement","Only the top row requires structural fixing"], correct: 1 },
+    { q: "What is the purpose of rail bonding in a solar installation?", options: ["To improve the visual appearance of the array","To ensure electrical continuity and grounding across the racking system for safety","To prevent the rails from expanding in heat","To attach the modules to the rails"], correct: 1 },
+    { q: "Before beginning any roof penetration for racking, you should:", options: ["Proceed as quickly as possible to save time","Confirm the structural layout, mark rafter positions, and follow the approved design layout","Only check the roof structure if it appears visually weak","Ask the customer where they want panels placed"], correct: 1 }
+  ],
+  // Solar Safety 2.0 Handbook
+  '2aab73d8b43a80758d01ee1228af5a40': [
+    { q: "The Solar Safety 2.0 handbook is intended to be used as:", options: ["A document memorised in full before your first job","A reference guide to consult when you have safety or procedural questions on site","A document only for senior electricians","A customer-facing product specification sheet"], correct: 1 },
+    { q: "After reviewing the Solar Safety 2.0 handbook, what practical activity follows?", options: ["A written exam","A mock installation in the office (not at height) with the Solar Assessment Tool used for feedback","A site visit with a customer","An online video quiz only"], correct: 1 }
+  ],
+  // Solve Installer Training Presentation
+  '2aab73d8b43a80c0823ada04408141f8': [
+    { q: "Who should ideally deliver the Solve Installer Training Presentation?", options: ["Any available team member","An electrically competent Solve employee","The newest team member as a learning exercise","The customer's on-site contact"], correct: 1 },
+    { q: "What components should the mock installation cover?", options: ["Solar panels only","Rails, inverter, L-feet, trunk, Solardecks, and other varying mount types","Only the electrical wiring","Only the roof penetration method"], correct: 1 }
+  ],
+  // Onboarding
+  '2aab73d8b43a806bb6c6efd147ba321d': [
+    { q: "What is the purpose of the Solve onboarding process?", options: ["To delay new starters beginning work","To ensure due diligence on training, qualifications, and safety checks before a new person begins work","To create paperwork for HR filing","To introduce new starters to customers on day one"], correct: 1 },
+    { q: "Who is responsible for completing the onboarding process for a new hire?", options: ["The new hire completes it themselves","The hiring manager, with support from HR, ensures onboarding is completed","It is automated by Notion","Only the safety officer"], correct: 1 }
+  ],
+  // Suitably Qualified
+  '2aab73d8b43a803e89a6d8333a140dac': [
+    { q: "What does 'suitably qualified and experienced' mean at Solve Energy?", options: ["Having a degree in a relevant field","Having the right combination of training, qualifications, and practical experience to safely perform a specific task","Having worked at the company for more than 6 months","Being confident enough to attempt the task"], correct: 1 },
+    { q: "Before assigning a worker to a task, what must the supervisor confirm?", options: ["The worker's availability only","That the worker has the necessary qualifications, training, and experience to carry out the task safely","That the worker has signed the attendance register","That the task is in the worker's job description"], correct: 1 }
+  ],
+  // POWRA
+  'e0d7000da8b84e3d9681b39cd2379f95': [
+    { q: "When should a POWRA be completed?", options: ["Once a year in the office","On the spot, at the location of the work, before each task or when conditions change","Only for high-risk jobs","Only by supervisors, not general workers"], correct: 1 },
+    { q: "A POWRA is different from a general risk assessment because it:", options: ["Only applies to electrical work","Is a live, on-the-spot assessment of actual conditions at that moment, not a pre-planned document","Requires a safety officer to be present","Takes several hours to complete"], correct: 1 },
+    { q: "If a POWRA identifies a hazard that cannot be adequately controlled, the correct action is:", options: ["Proceed with caution","Stop work and report the issue before proceeding","Use extra PPE and continue","Accept the risk and carry on — hazards are a normal part of the job"], correct: 1 }
+  ],
+  // Electrical Safety
+  '464bf51579634c5a9581ca248cf21000': [
+    { q: "Before working on any electrical system, what must always be done?", options: ["Ask a colleague to watch you work","Isolate and lock out / tag out the system to prevent accidental re-energisation","Simply switch off the circuit breaker without locking it","Test the system once and proceed if it seems safe"], correct: 1 },
+    { q: "What is the danger of arc flash?", options: ["It causes only mild burns","It can cause severe burns, blindness, and fatal injuries from the explosive release of energy from an electrical fault","It only occurs in industrial facilities","It is only a risk with high-voltage power lines"], correct: 1 }
+  ],
+  // Hazard Perception
+  '6fc09cd3ef5e475bb0b6a64ba73bff76': [
+    { q: "What is the first step in hazard management?", options: ["Install more PPE","Identify the hazard before it causes harm","Report it after someone is injured","Wait for a supervisor to identify hazards on your behalf"], correct: 1 },
+    { q: "On a rooftop solar installation, which of the following is a typical hazard to assess?", options: ["The colour of the tiles","Falling from height, brittle or slippery roof surfaces, and weather conditions","The customer's Wi-Fi signal strength","The direction the roof faces"], correct: 1 }
+  ],
+  // Asbestos Awareness
+  'feeda31ca6c64c11849bf52dbcc20da4': [
+    { q: "If you suspect asbestos-containing materials during roof work, what should you do?", options: ["Continue working carefully","Stop work immediately, do not disturb the material, and report it to your supervisor","Remove the material yourself wearing a standard dust mask","Cut around it and proceed"], correct: 1 },
+    { q: "Asbestos is most dangerous when:", options: ["It is intact and undisturbed","It is disturbed and fibres are released into the air and inhaled","It is wet","It is visible"], correct: 1 }
+  ],
+  // Ladder Safety
+  'a879afde6b8545399b25457bb010a435': [
+    { q: "What is the correct angle for setting up a straight/extension ladder?", options: ["45 degrees","75 degrees (1 out for every 4 up — the 4:1 rule)","60 degrees","90 degrees (vertical)"], correct: 1 },
+    { q: "Which of the following is prohibited when using a ladder?", options: ["Using three-point contact","Carrying tools in a tool belt","Overreaching beyond the side rails","Securing the ladder at the top"], correct: 2 }
+  ],
+  // Fuel Lift
+  '2aab73d8b43a805eb47aea01830cfff3': [
+    { q: "Before using the Fuel Lift unsupervised, what is required?", options: ["Just read the guidance document","Read the guidance document AND be taken through the setup by an experienced user","Watch a YouTube video on similar equipment","Only managers need to complete this training"], correct: 1 },
+    { q: "If the Fuel Lift develops a fault during use, you should:", options: ["Continue to use it carefully","Stop use immediately and report the fault to your supervisor","Fix it yourself if the fault seems minor","Ignore it unless fuel spills occur"], correct: 1 }
+  ],
+  // EG4 Installer Training
+  '2abb73d8b43a80c4bd8cf752c4d0ae8a': [
+    { q: "What is the EG4 string sizer tool used for?", options: ["Measuring physical cable lengths on site","Sizing solar panel strings and verifying inverter/battery system compatibility","Calibrating monitoring equipment","Billing customers for energy production"], correct: 1 },
+    { q: "When installing an EG4 inverter system, the installation must be carried out by:", options: ["Any Solve employee","A qualified and suitably experienced electrician following EG4 installation guidelines","The customer themselves with guidance","A WorkSafe BC inspector"], correct: 1 }
+  ],
+  // WHMIS Procedure (primary ID)
+  '2b6b73d8b43a80ad974bc12f9e691409': [
+    { q: "What does WHMIS stand for?", options: ["Workplace Handling and Management Information System","Workplace Hazardous Materials Information System","WorkSafe Hazard Monitoring and Inspection Standard","Worker Health Management and Incident System"], correct: 1 },
+    { q: "Where must Safety Data Sheets (SDS) for all hazardous products be accessible?", options: ["Only at head office","At every workplace where the product is used or stored","Only in the safety officer's office","Emailed to staff quarterly"], correct: 1 }
+  ],
+  // WHMIS (alternate ID)
+  '486e82616547432a86fe79ac31b672f4': [
+    { q: "What does WHMIS stand for?", options: ["Workplace Handling and Management Information System","Workplace Hazardous Materials Information System","WorkSafe Hazard Monitoring and Inspection Standard","Worker Health Management and Incident System"], correct: 1 },
+    { q: "Where must Safety Data Sheets (SDS) for all hazardous products be accessible?", options: ["Only at head office","At every workplace where the product is used or stored","Only in the safety officer's office","Emailed to staff quarterly"], correct: 1 }
+  ],
+  // Fall Protection — Sunbelt
+  '2b5b73d8b43a80c38c5be80e393ad2e2': [
+    { q: "Before using fall protection equipment for the first time, Solve Energy requires:", options: ["Only reading the equipment manual","Completion of the Sunbelt fall protection training or equivalent third-party certification","Watching a company video","Approval from the site manager on the day"], correct: 1 },
+    { q: "A full-body harness must fit:", options: ["Loosely so you can move freely","Snugly with all straps adjusted correctly — the harness should be tight enough to hold you but not restrict breathing","It only needs the chest strap fastened","One size fits all — no adjustment is needed"], correct: 1 }
+  ],
+  // Sub Contractor Agreement
+  '2c8b73d8b43a80bab0edccfadc2d0b21': [
+    { q: "When must the Sub Contractor Agreement be signed?", options: ["After the first job is completed","Before any work commences on a Solve Energy project","Only for contracts over $10,000","Once per year, not per project"], correct: 1 },
+    { q: "The Sub Contractor Agreement covers:", options: ["Only payment terms","Scope of work, safety obligations, insurance requirements, and payment terms","Only the project timeline","Customer contact details only"], correct: 1 }
+  ],
+  // Liability Insurance
+  '2c8b73d8b43a80c2bc34fc3271ca3422': [
+    { q: "What minimum liability insurance is required from Solve Energy subcontractors?", options: ["No insurance is required for subcontractors","General liability insurance at the level specified in the Sub Contractor Agreement","Personal health insurance only","Vehicle insurance only"], correct: 1 },
+    { q: "If a subcontractor's insurance expires during a project, what should happen?", options: ["They can continue work while they renew","Work must pause until current proof of insurance is provided","The project manager can grant a temporary exemption","Only notify HR at the end of the project"], correct: 1 }
+  ],
+  // WCB Coverage
+  '2c8b73d8b43a800bb1ccc1941d2b9da2': [
+    { q: "Why is WCB (WorkSafe BC) coverage required for subcontractors?", options: ["It is a nice-to-have but not mandatory","It ensures workers are covered for workplace injuries and that Solve meets its legal obligations as a prime contractor","It is only required for electrical work","It replaces the need for general liability insurance"], correct: 1 },
+    { q: "How should a subcontractor provide proof of WCB coverage?", options: ["By verbally confirming they are registered","By providing a current Clearance Letter from WorkSafe BC before work starts","By showing their WCB registration number verbally","Only needed if working on government contracts"], correct: 1 }
+  ],
+  // Business Registration
+  '2c8b73d8b43a808ea43cf334fc71a382': [
+    { q: "Why does Solve Energy require proof of business registration from subcontractors?", options: ["To add them to the company newsletter","To confirm they are a legitimate business entity and to meet legal and tax obligations","It is a formality with no practical purpose","Only required for companies employing more than 5 people"], correct: 1 }
+  ],
+  // Shadowing Period
+  '2c5b73d8b43a80a99d71e61e345e31b0': [
+    { q: "What is the primary purpose of the shadowing period at Solve Energy?", options: ["To evaluate workers before deciding whether to offer a permanent contract","To allow new team members to observe and learn from experienced workers before working independently","To reduce labour costs by delaying full employment","It is optional and only for workers who request it"], correct: 1 },
+    { q: "During the shadowing period, who is responsible for guiding the new team member?", options: ["The new team member is expected to learn independently","The designated experienced worker or supervisor assigned to shadow with them","HR only","The customer on site"], correct: 1 }
+  ],
+  // Battery Training
+  '2b0b73d8b43a8021bf48c8f6712d94e3': [
+    { q: "What is the main purpose of the Battery Training for Sales / Open Solar module?", options: ["To qualify staff to install battery systems","To equip sales staff with the knowledge to explain, present, and design battery storage options for customers","To replace the installer training","To provide technical troubleshooting skills"], correct: 1 },
+    { q: "Battery storage is typically offered to customers because:", options: ["It is required by BC regulations for all solar installations","It allows customers to store solar energy and use it when the sun isn't shining, increasing self-consumption and resilience","It reduces the size of the solar array needed","It is always the most cost-effective option"], correct: 1 }
+  ],
+  // Open Solar User Guide
+  '2b0b73d8b43a805ab636d7ee306b078a': [
+    { q: "What is Open Solar used for at Solve Energy?", options: ["Payroll management","Designing solar systems, generating proposals, and producing customer-facing documentation","Scheduling installations","Managing supplier orders"], correct: 1 },
+    { q: "Who at Solve Energy primarily uses Open Solar?", options: ["Only the CEO","Sales consultants and solar designers who need to create system designs and customer proposals","Only the installation crew","The accounts team"], correct: 1 }
+  ],
+  // Aurora User Guide
+  '2b1b73d8b43a8056b42ff10dedb988c6': [
+    { q: "What is the Aurora platform primarily used for in solar design?", options: ["Payroll and HR management","Solar system design, shading analysis, production modeling, and customer proposal generation","Scheduling service calls","Managing subcontractor payments"], correct: 1 },
+    { q: "A key advantage of Aurora over manual design methods is:", options: ["It is cheaper than all alternatives","It uses satellite imagery and AI to accurately model roof layouts, shading, and energy production without a site visit","It requires no training to use","It integrates directly with all BC utility meters"], correct: 1 }
+  ],
+  // Label Scheduling Training
+  '29cb73d8b43a8089b831ce4e7a535375': [
+    { q: "What does the label scheduling system manage in solar installations?", options: ["Customer communications","The scheduling and tracking of required safety and compliance labels for solar system installations","Payroll for installation teams","Marketing materials"], correct: 1 }
+  ],
+  // Label Scheduling Training (alternate)
+  '2dfb73d8b43a80ddb78befcaac761691': [
+    { q: "What does the label scheduling system manage in solar installations?", options: ["Customer communications","The scheduling and tracking of required safety and compliance labels for solar system installations","Payroll for installation teams","Marketing materials"], correct: 1 }
+  ],
+
+  // ── Newly added blocks ────────────────────────────────────
+
+  // Accident / Incident Investigation (SE052)
+  '2aab73d8b43a80fea0e4f35ef480a88d': [
+    { q: "What is the key difference between an 'accident' and an 'incident' under Solve's procedure?", options: ["An accident involves injury; incidents are near misses only","An incident is any unplanned event that caused or could have caused harm — accidents are a subset of incidents","Incidents are minor and don't need reporting","There is no distinction — they are recorded identically"], correct: 1 },
+    { q: "When must an accident or incident be reported to a supervisor at Solve Energy?", options: ["Within 48 hours","Only if a worker misses time from work","As soon as practicable — ideally immediately or the same shift","Only if WorkSafe BC requests the information"], correct: 2 },
+    { q: "What is the primary purpose of an incident investigation?", options: ["To assign blame and discipline the worker involved","To identify root causes and implement corrective actions to prevent recurrence","To provide evidence for insurance claims only","To document statistics for the annual report"], correct: 1 }
+  ],
+
+  // Drone Procedure (SE008)
+  '184363363af542a09033e0d20513850a': [
+    { q: "Under Transport Canada regulations, what does an operator of a commercially-used drone in Canada require?", options: ["No licence is needed for drones under 25 kg","A Basic or Advanced drone pilot certificate issued by Transport Canada, depending on the operating environment","Only a safety briefing from a supervisor","A provincial permit renewed annually"], correct: 1 },
+    { q: "Before flying a drone on or near a Solve Energy site, what must be completed first?", options: ["Only a visual weather check","A pre-flight risk assessment, confirmation of airspace authorisation, and compliance with SE008 Drone Procedure","Verbal approval from the nearest property owner","This is only required above 30 metres altitude"], correct: 1 },
+    { q: "If a drone crash, near-miss, or loss of control occurs on site, what must happen?", options: ["The operator can self-certify the drone as safe and continue","The incident must be reported internally per SE052, and to Transport Canada if required under the Aeronautics Act","Only log it in the vehicle inspection book","Wait 24 hours to assess damage before deciding whether to report"], correct: 1 }
+  ],
+
+  // Joint Safety Committee Meeting (SE062)
+  '2aab73d8b43a80fd815dc466297ba711': [
+    { q: "How often must a Joint Health and Safety Committee (JHSC) meeting be held under BC OHS regulations?", options: ["Once a year","At least monthly","At least once every three months","Whenever a WorkSafe BC inspector requests it"], correct: 2 },
+    { q: "What must happen with the minutes from a JHSC meeting?", options: ["Minutes are kept confidential by management","Minutes must be signed, retained for at least two years, and a copy posted in the workplace","Minutes are optional and only kept when an action is agreed","Minutes are emailed to WorkSafe BC after each meeting"], correct: 1 },
+    { q: "Who co-chairs a Joint Health and Safety Committee at Solve Energy?", options: ["The most senior manager only","Two co-chairs — one representing management and one representing workers","The safety officer chairs alone","Rotating between all committee members each meeting"], correct: 1 }
+  ],
+
+  // Injury Management and Return to Work (SE049)
+  '2aab73d8b43a80b39d82d221b8ddfcf4': [
+    { q: "What is the goal of a return-to-work programme after a workplace injury?", options: ["To close the WorkSafe BC claim as quickly as possible","To support the injured worker into suitable modified duties as early as is safely possible during recovery","To avoid paying wages while the worker is off","To document any fault before the worker returns"], correct: 1 },
+    { q: "Who is responsible for offering modified or alternative duties to an injured worker?", options: ["Only WorkSafe BC determines this","The employer, in consultation with the worker's healthcare provider and WorkSafe BC where applicable","It is the worker's sole responsibility to find suitable work","Only required for injuries lasting more than 30 days"], correct: 1 },
+    { q: "What form must be completed when a worker returns to work after an injury?", options: ["A new hire induction form","A Return to Work interview (SE011) confirming fitness for duties and any restrictions","A performance review","A liability waiver signed by the worker"], correct: 1 }
+  ],
+
+  // CertainTeed Shingle and Solar Shingle Training (SE068)
+  '2b0b73d8b43a800bb550f2064ec7b5bb': [
+    { q: "Why is CertainTeed-specific installation training required at Solve Energy?", options: ["It is optional — only completed if the customer requests it","CertainTeed warranty requires installation to be carried out by certified applicators following their technical specifications","It is only required for solar shingles, not standard shingles","Training is only needed for roofs over 200 m²"], correct: 1 },
+    { q: "What is a key difference between installing solar shingles and conventional solar panels?", options: ["Solar shingles use a different mounting profile but are otherwise identical","Solar shingles are integrated into the roof — they serve as both the weatherproofing layer and the solar surface, requiring coordination between roofing and electrical scopes","Solar shingles do not connect to an inverter","Solar shingles are always installed by the roofing crew only, with no electrical involvement"], correct: 1 },
+    { q: "After completing a warranty-backed CertainTeed roofing installation, what documentation is required?", options: ["No documentation beyond the standard invoice","A CertainTeed warranty registration and any required certification submissions to CertainTeed following the installation","The homeowner registers the warranty themselves online","Documentation is only needed if there is a future claim"], correct: 1 }
+  ],
+
+  // Complex Self-Generation (Net Metering) Applications
+  '2c4b73d8b43a8047b8f5fdf2e7c26cbf': [
+    { q: "What typically makes a BC Hydro Self-Generation application 'complex' rather than 'simple'?", options: ["Any system over 1 kW is automatically complex","Factors such as three-phase service, large system size, protective relaying requirements, or a utility-required interconnection study","All battery storage systems are automatically complex","Complex applications only apply to commercial premises"], correct: 1 },
+    { q: "Who at Solve Energy typically leads the submission of a complex self-generation interconnection application?", options: ["The installing technician completes it on site","A technically qualified team member — typically in engineering or project management — who coordinates the application process with BC Hydro","The homeowner submits the application directly","Any Solve employee can process complex applications"], correct: 1 }
+  ],
+
+  // EG4 Power Lift Pro
+  '2e6b73d8b43a8013b929d162cd189489': [
+    { q: "What is the EG4 Power Lift Pro used for on a Solve Energy job site?", options: ["Lifting and positioning heavy battery modules or equipment that cannot be safely manually handled","Raising workers to height for roof work","Transporting materials across uneven outdoor terrain","Charging EG4 battery systems in the field"], correct: 0 },
+    { q: "Before using the EG4 Power Lift Pro unsupervised, what does Solve Energy require?", options: ["Any employee can use it without specific training","Read the manufacturer's guidance AND be walked through the setup by an experienced user — consistent with Solve's approach to all specialist equipment","Only a manager sign-off on the day","No training is required for lifting equipment under 250 kg capacity"], correct: 1 }
+  ],
+
+  // EG4 Sizing / Planning Tools
+  '305b73d8b43a80a59c9fd95e8d79b624': [
+    { q: "What are the EG4 sizing and planning tools primarily used for?", options: ["Scheduling installation crews","Calculating battery storage capacity, verifying system compatibility, and planning EG4 inverter and battery configurations","Generating customer-facing invoices","Monitoring live system performance post-installation"], correct: 1 },
+    { q: "Why is it important to use EG4's official sizing tools rather than a generic calculator?", options: ["EG4 tools are simply faster","EG4's tools account for product-specific parameters, compatibility rules, and protection settings that generic tools may miss — avoiding undersized or non-compliant systems","Generic calculators are no longer available online","EG4 sizing tools automatically submit the design to BC Hydro"], correct: 1 }
+  ],
+
+  // How to Complete Stakeholder Meeting for Complex Works (SE064)
+  '2abb73d8b43a809cbd26efb644bf00d4': [
+    { q: "When is a Stakeholder meeting required for a Solve Energy project?", options: ["For every residential solar installation","For complex projects involving multiple trades, significant utility interactions, or coordination with external authorities having jurisdiction (AHJ)","Only when a government permit is involved","Stakeholder meetings are optional at the PM's discretion"], correct: 1 },
+    { q: "Who should be invited to a complex works Stakeholder meeting?", options: ["Only the Solve project team","All relevant parties — including the customer, Solve project team, subcontractors, utility representatives, and AHJ contacts as appropriate","Only the customer and site supervisor","Only senior management"], correct: 1 },
+    { q: "What must be produced as a record of the Stakeholder meeting?", options: ["A verbal summary shared informally by email","Documented meeting minutes covering decisions made, actions assigned, and timelines agreed — retained in the project record","A change order must be raised after every meeting","Only required if the meeting results in a scope change"], correct: 1 }
+  ],
+
+  // Notion User Guide 4 — Training Database
+  '2b0b73d8b43a8027be27f13908e212bd': [
+    { q: "What is the Solve Energy Training Database in Notion used for?", options: ["Storing employee payroll records","Tracking which training modules each team member has completed, is overdue on, or still needs to complete","Logging customer complaints","Managing project scheduling"], correct: 1 },
+    { q: "Why is it important to keep training records accurate in the Notion Training Database?", options: ["It affects your social media presence","Accurate records ensure compliance, identify gaps before they become safety issues, and allow management to verify that all staff are trained to the required standard","It is only for HR purposes with no operational impact","It is not required — the portal updates automatically"], correct: 1 }
+  ],
+
+  // Personnel Development Review (PDR)
+  '99701be3933248679e749730765358ce': [
+    { q: "What is the purpose of the Personnel Development Review (PDR) at Solve Energy?", options: ["To generate documentation before a disciplinary action","To provide a structured opportunity to review performance, set goals, identify development needs, and strengthen communication between employee and manager","To determine annual pay increases only","To assess whether a probationary employee should be made permanent"], correct: 1 },
+    { q: "How often are PDRs typically conducted at Solve Energy?", options: ["Monthly","Annually — or at key milestones such as end of probation or a role change","Only when an employee requests one","Only following a performance concern"], correct: 1 }
+  ],
+
+  // Project Profitability Reports
+  '2e8b73d8b43a802bb8c9fea20d893bff': [
+    { q: "What do Project Profitability Reports at Solve Energy help the team understand?", options: ["Only the invoiced value of a project","The financial performance of individual projects — including revenue, costs, margins, and variances from budget","Employee timesheets only","Customer satisfaction scores"], correct: 1 },
+    { q: "Why is it important for project managers and site leads to understand project profitability data?", options: ["It allows them to issue invoices directly to customers","Understanding margins and cost drivers allows the team to identify inefficiencies, make better decisions, and improve profitability on future work","It is only required for the company's tax filing","Profitability data is for the accounts team only"], correct: 1 }
+  ],
+
+  // S.O.L.A.R
+  '2aeb73d8b43a80008fa7c3ff16acdd19': [
+    { q: "What is the purpose of the S.O.L.A.R framework at Solve Energy?", options: ["It is the name of Solve's customer invoicing system","A structured methodology used to guide consistent, high-quality outcomes across a key workflow — refer to the training material for the full acronym and steps","It is a WorkSafe BC compliance standard","It is an optional reference document"], correct: 1 },
+    { q: "When should the S.O.L.A.R process be applied?", options: ["Only for commercial projects over $50,000","Consistently across the relevant workflow it covers, as directed by the training material — it is not optional","Only by senior team members","Only when a supervisor requests it"], correct: 1 }
+  ],
+
+  // Simple Self-Generation (Net Metering) Applications
+  '2d2b73d8b43a804b9b0ae5be7082c7a7': [
+    { q: "What is a 'simple' BC Hydro Self-Generation (Net Metering) application?", options: ["Any application under 10 kW","A standard residential or small commercial single-phase solar interconnection that meets BC Hydro's straightforward eligibility criteria — no engineering study required","An application that can be submitted verbally","Simple applications require no customer documentation"], correct: 1 },
+    { q: "Who at Solve Energy is typically responsible for submitting a simple self-generation application to BC Hydro?", options: ["The installing technician, on commissioning day","A designated project coordinator or qualified team member, following the steps in the guidance document","The homeowner submits it directly with no Solve involvement","Any team member who first speaks to the customer"], correct: 1 }
+  ],
+
+  // Single Line Diagrams
+  '2d2b73d8b43a801bb3f6e5e29fa5082b': [
+    { q: "What does a Single Line Diagram (SLD) represent for a solar installation?", options: ["A wiring diagram showing every individual conductor and splice","A simplified schematic of the system's main electrical components, their relationships, and the flow of power — used for design, permitting, and inspection","A floor plan of the property with panel locations marked","A timeline of the installation process"], correct: 1 },
+    { q: "When is a Single Line Diagram typically required?", options: ["Only for systems over 100 kW","For electrical permitting, utility interconnection applications, and inspection — most jurisdictions require an SLD as part of the permit package","SLDs are optional and only produced if the inspector requests one","Only for three-phase commercial systems"], correct: 1 },
+    { q: "Who at Solve Energy is responsible for producing or verifying the Single Line Diagram for a project?", options: ["The roof installation crew","A qualified electrical designer or licensed electrician, reviewed and signed off before permit submission","Any team member familiar with the site","The customer's utility provider"], correct: 1 }
+  ],
+
+  // WorkSafe User and App Guide (SE065)
+  '2aeb73d8b43a802698c8cc56dff87624': [
+    { q: "What is the WorkSafe app used for on Solve Energy job sites?", options: ["Submitting payroll timesheets","Logging safety observations, toolbox talk attendance, and field-level hazard reports in compliance with SE065","Ordering materials from suppliers","Direct messaging with the office"], correct: 1 },
+    { q: "When should a safety observation be logged in the WorkSafe app?", options: ["At the end of the work week","In the field, at the time the observation is made — real-time logging ensures accuracy and prompt follow-up","Only when a hazard results in an injury","Monthly at safety meetings"], correct: 1 },
+    { q: "Who is required to use the WorkSafe app at Solve Energy?", options: ["Only site supervisors and safety officers","All field team members required by their role and SE065 to log observations, toolbox talks, and relevant safety records","Employees only — not subcontractors","Only employees who have completed additional safety training"], correct: 1 }
+  ],
+
+  // ── Job Role SOPs ──────────────────────────────────────────
+
+  // Chief Revenue Officer
+  '2b0b73d8b43a80d5bddde508ca78b5db': [
+    { q: "As Chief Revenue Officer (CRO), what is your primary accountability at Solve Energy?", options: ["Day-to-day site operations","Driving and overseeing all revenue-generating activities across sales, business development, and customer growth","Managing subcontractor compliance","Overseeing technical quality on installations"], correct: 1 },
+    { q: "When you identify a gap between the CRO SOP requirements and current practice, what is expected of you?", options: ["Ignore it — experience supersedes documented processes","Raise it with the leadership team, and update processes or the SOP to reflect best practice","Wait for your next performance review to raise it","Only act if a customer complains"], correct: 1 }
+  ],
+
+  // Chief Technical Officer
+  '2b0b73d8b43a80579d72df668f2a5fae': [
+    { q: "As Chief Technical Officer (CTO), your role SOP covers responsibility for:", options: ["Sales targets and customer acquisition","Technical compliance, engineering standards, product selection, and quality assurance across Solve Energy's design and installation output","Office IT systems and hardware only","Approving marketing materials"], correct: 1 },
+    { q: "When a technical non-conformance is identified on a project, what is the CTO's expected response?", options: ["Log it and review at the annual technical review","Investigate the root cause, implement corrective action, and ensure lessons learned are shared with the relevant team","Delegate it entirely to the site supervisor","Only act if the customer raises a complaint"], correct: 1 }
+  ],
+
+  // Director of Compliance
+  '2b0b73d8b43a8018974ddd02f91e53aa': [
+    { q: "What is the core focus of the Director of Compliance role at Solve Energy?", options: ["Managing customer relationships and sales targets","Ensuring the company operates within all relevant regulatory, legal, and industry compliance frameworks — including safety, electrical, and permitting","Managing accounts payable","Leading the installation pipeline"], correct: 1 },
+    { q: "The Director of Compliance is primarily responsible for maintaining which types of records?", options: ["Only HR personnel files","Compliance documentation including certifications, regulatory submissions, audit records, and licensing — as detailed in the role SOP","Only customer satisfaction surveys","Financial records only"], correct: 1 }
+  ],
+
+  // Director of Delivery
+  '2c5b73d8b43a808d89c8efd3a0635f35': [
+    { q: "What is the primary responsibility of the Director of Delivery at Solve Energy?", options: ["Generating new sales leads","Overseeing end-to-end project delivery — including scheduling, quality outcomes, safety, and field team performance","Managing social media and marketing","Procurement of materials only"], correct: 1 },
+    { q: "As Director of Delivery, how should you handle a recurring quality issue identified on site?", options: ["Address it verbally and move on","Identify the root cause, implement a corrective action, and update SOPs or training if a systemic change is required","Report it directly to WorkSafe BC","Wait for the next management meeting to raise it"], correct: 1 }
+  ],
+
+  // Director of Project Management
+  '2b0b73d8b43a8007bd84d1c95516f602': [
+    { q: "What does the Director of Project Management oversee at Solve Energy?", options: ["The safety management system only","The end-to-end project management function — including PM team performance, delivery systems, process improvement, and escalation management","Financial reporting only","Customer-facing sales presentations"], correct: 1 },
+    { q: "When a project is at serious risk of missing its delivery timeline, what is the Director of PM's responsibility?", options: ["Let the site team resolve it without escalation","Identify the cause, coordinate a recovery plan, communicate to stakeholders, and implement process improvements to prevent recurrence","Report it to the customer only after the delay occurs","Reduce project scope without informing the customer"], correct: 1 }
+  ],
+
+  // Head of Project Coordination
+  '2b0b73d8b43a80089618fc72acc72148': [
+    { q: "What is the main function of the Head of Project Coordination at Solve Energy?", options: ["Leading the electrical installation crew","Coordinating the scheduling, logistics, and administrative flow of projects from sale to completion — ensuring projects are set up for successful delivery","Managing subcontractor invoicing only","Conducting customer site surveys"], correct: 1 },
+    { q: "If two projects are competing for the same installation slot, how should the Head of Project Coordination resolve the conflict?", options: ["Whichever customer calls most frequently gets priority","Escalate to the Director of Delivery and apply agreed prioritisation criteria such as contract commitments and resource availability","Cancel one project without discussion","Assign the slot arbitrarily"], correct: 1 }
+  ],
+
+  // Head of Sales
+  '2b0b73d8b43a806eb8f0c958ff014f3c': [
+    { q: "What is the Head of Sales responsible for at Solve Energy?", options: ["Managing installation quality on site","Leading the sales team, driving revenue targets, developing the sales process, and ensuring customer experience standards across the sales journey","Managing subcontractor compliance","Technical design of solar systems"], correct: 1 },
+    { q: "As Head of Sales, how should you respond to a pattern of lost proposals?", options: ["Immediately reduce pricing across all quotes","Analyse the loss reasons, identify patterns, and implement targeted improvements to the sales process, proposal quality, or team training","Ignore individual losses as normal in sales","Escalate directly to the CEO before investigating internally"], correct: 1 }
+  ],
+
+  // Roofing Sales / Site Surveyor
+  '2b0b73d8b43a80799b18f268f496cdcd': [
+    { q: "When completing a roofing site survey, what is critical to document for an accurate quote?", options: ["Only the number of existing shingles","Roof area, pitch, access constraints, existing condition, flashings, penetrations, and any structural concerns that may affect scope or cost","Only the homeowner's colour preference","Just the address and customer name"], correct: 1 },
+    { q: "As a Roofing Sales/Site Surveyor, if you identify a potential structural defect during survey, what must you do?", options: ["Proceed with the quote and mention it verbally","Document the finding, communicate it clearly to the customer, and flag it to the delivery team — do not quote without it being resolved or properly scoped","Ignore it unless the customer raises it","Only report it after the contract is signed"], correct: 1 }
+  ],
+
+  // Site Surveyor / Maintenance — Solar
+  '2b0b73d8b43a80069d26c7f8408ccbe2': [
+    { q: "During a solar maintenance visit, which of the following must always be completed?", options: ["Only clean panels if the customer requests it","A systematic inspection covering panel condition, electrical connections, inverter status, mounting integrity, and any shading or soiling — documented in the maintenance record","A verbal update to the customer only","Only reset the inverter and leave"], correct: 1 },
+    { q: "If a fault or safety issue is identified during a solar site survey or maintenance visit, what is the correct process?", options: ["Fix it yourself if it seems straightforward","Document the finding, communicate it to the customer and the technical team, and follow the corrective action process before closing the visit","Leave it for the next scheduled maintenance visit","Only notify the customer if it will affect their energy bill"], correct: 1 }
+  ],
+
+  // Solar Designer
+  '2b0b73d8b43a809e85b4e3a521b0194f': [
+    { q: "When designing a solar system, what key factors must the Solar Designer verify?", options: ["Only the number of panels the customer wants","Roof suitability, structural load, shading analysis, inverter and panel compatibility, string sizing, electrical compliance, and any export or utility constraints","The customer's preferred panel colour only","Only the system payback period"], correct: 1 },
+    { q: "Who must review and approve a solar design before it is submitted for permitting or customer sign-off?", options: ["The customer approves the design directly","A suitably qualified and experienced person — typically a licensed electrical designer or engineer where required by the permitting authority","Any available Solve team member","The sales consultant who generated the lead"], correct: 1 }
+  ],
+
+  // Solar Installer
+  '2b0b73d8b43a8060b3e9ea1acdf0a14a': [
+    { q: "Before beginning work on a solar installation, what must a Solar Installer confirm?", options: ["That they have visited the site at least once before","That they have reviewed the design documentation, completed a site-specific POWRA, confirmed PPE and fall protection requirements, and have all required tools and materials on site","That the customer is home","Only that the panels have been delivered"], correct: 1 },
+    { q: "When installing solar racking and modules, what is a non-negotiable structural requirement?", options: ["Fasten to whatever surface is most accessible","All roof penetrations and L-feet must be fastened into structural members (rafters) at approved centres, following the engineer-approved layout","Only the first and last post require structural fixing","Self-tapping screws into the decking are sufficient"], correct: 1 }
+  ],
+
+  // Solar Sales
+  '2b0b73d8b43a80a38ae8d9cf86346618': [
+    { q: "In the Solar Sales role at Solve Energy, what is the standard approach to a customer objection about upfront cost?", options: ["Offer an immediate discount to close the deal","Understand the objection fully, present the financial case including incentives, payback period, and financing options, and align the solution to the customer's priorities","Tell the customer the price is non-negotiable","Immediately escalate to the Head of Sales"], correct: 1 },
+    { q: "What information must a Solar Sales consultant accurately communicate before a customer signs a contract?", options: ["Only the system size and price","System specifications, expected production, warranty terms, installation process, grid connection timeline, incentives, and any project-specific conditions — per the role SOP","Only what appears on the proposal document","Only the payback period"], correct: 1 }
+  ],
+
+  // ── Third-party training ──────────────────────────────────
+
+  // 1st Aid Training (3rd party)
+  '2b0b73d8b43a8024b4c3dad5f9034760': [
+    { q: "This is a third-party first aid training course. What must you provide to Solve Energy upon completion?", options: ["A verbal confirmation that you attended","Your valid First Aid certificate issued by the training provider, for upload to your training record","A self-signed statement of attendance","Nothing — attendance is automatically logged"], correct: 1 },
+    { q: "How long is a standard Occupational First Aid Level 1 certificate valid in BC?", options: ["1 year","3 years","5 years","It does not expire"], correct: 1 }
+  ],
+
+  // APS Systems Training (3rd party)
+  '2abb73d8b43a80ae820bd0ba6e3d2885': [
+    { q: "What does completing APS systems training certify you to do?", options: ["Install any solar system without further training","Install, commission, and troubleshoot APS microinverter systems to the manufacturer's specifications — required for warranty compliance on APS-specified Solve projects","Design all Solve Energy solar projects","Perform grid interconnection on behalf of BC Hydro"], correct: 1 },
+    { q: "After completing APS training, what must be submitted to Solve Energy?", options: ["A verbal update to your manager","Proof of completion or certification from APS, to be added to your training record","Only the training invoice for reimbursement","Nothing — it is self-directed optional training"], correct: 1 }
+  ],
+
+  // Boom Lift Training — Sunbelt (3rd party)
+  '8fab69cc966b490cbe5a0220606692d5': [
+    { q: "Before operating a boom lift on a Solve Energy site, what is required?", options: ["Any employee can operate a boom lift with a spotter present","Completion of Sunbelt (or equivalent) boom lift operator training and certification, plus a site-specific risk assessment before each use","Only a manager sign-off on the day","Reading the operator's manual is sufficient"], correct: 1 },
+    { q: "If a boom lift develops a fault or behaves abnormally during use on site, what must you do?", options: ["Continue work if the fault seems minor","Stop use immediately, lower the platform safely, mark the equipment out of service, and report the fault to your supervisor and Sunbelt","Log it at the end of the day and return the equipment","Ask a colleague to assess it before deciding"], correct: 1 }
+  ],
+
+  // CSTS Training (3rd party — Construction Safety Training System)
+  'f008531194684895b1fab01f827cd2bd': [
+    { q: "What does CSTS (Construction Safety Training System) certification confirm?", options: ["Advanced electrical installation competency","Fundamental health and safety awareness for construction workers, meeting the baseline safety training requirement for many BC construction sites","Drone operation in construction zones","Project management competency"], correct: 1 },
+    { q: "Is a CSTS certificate required before working on a Solve Energy construction or installation site?", options: ["No — it is optional additional training","Yes — CSTS or equivalent is a prerequisite for working on many construction-classified sites; Solve requires evidence of completion before site access","Only for workers with more than 5 years' experience","Only for supervisors, not general workers"], correct: 1 }
+  ],
+
+  // ── Other training blocks ─────────────────────────────────
+
+  // Memos
+  '2e1b73d8b43a80ab9afbddef0897baa3': [
+    { q: "What is the purpose of a Memo at Solve Energy?", options: ["Formal legal notices to customers only","A short-form written communication used to convey important updates, policy clarifications, or operational instructions to the relevant team or individuals","A replacement for Slack messages","Customer-facing documents only"], correct: 1 },
+    { q: "When you receive a Memo at Solve Energy, what is expected of you?", options: ["Respond in writing within 24 hours","Read and understand its contents — memos are formal communications and acknowledgement may be required depending on the nature of the memo","Forward it to colleagues without reading","File it if it doesn't appear directly relevant to your current task"], correct: 1 }
+  ],
+
+  // HPCN Certificate
+  '320b73d8b43a8084becfe9ae29f09269': [
+    { q: "What does an HPCN (BC Hydro Power Smart Network Certified) certification confirm?", options: ["Completion of WorkSafe BC safety training","That the holder has met BC Hydro's technical requirements to design or certify solar and self-generation interconnection applications in BC","It is a general provincial electrical licence","It certifies the holder to operate heavy plant"], correct: 1 },
+    { q: "For what purpose is a current HPCN certification required at Solve Energy?", options: ["All field installation work","Submitting or certifying self-generation interconnection applications with BC Hydro where the utility requires a certified professional","All customer site surveys","It is optional additional training with no operational requirement"], correct: 1 }
+  ],
+
+  // Red Seal
+  '2d6c39f31f9f4fedacf9db1945d0d6bb': [
+    { q: "What does a Red Seal endorsement signify for a tradesperson?", options: ["Completion of a basic workplace safety course","Inter-provincial recognition that the holder has met the national standard of excellence in their trade, allowing work across all Canadian provinces without re-examination","A company-specific award for performance","A WorkSafe BC certification for working at heights"], correct: 1 },
+    { q: "For which roles at Solve Energy is a Red Seal endorsement most directly relevant?", options: ["Sales consultants and project coordinators","Electricians and roofers — where a Red Seal confirms the holder's trade qualification meets national standards, supporting compliance and quality assurance","Administrative staff","Drone operators and surveyors"], correct: 1 }
+  ]
+};
+
+// Generic fallback quiz for any unmapped blocks
+function genericQuiz(blockName) {
+  return [
+    {
+      q: `Have you reviewed the training material for "${blockName}"?`,
+      options: ["No — I have not reviewed it","Yes — I have read and understood the material","I will review it later","It is not relevant to my role"],
+      correct: 1
+    },
+    {
+      q: `If you have questions about "${blockName}" after completing this training, you should:`,
+      options: ["Ignore any uncertainties","Ask your supervisor or manager for clarification","Assume your understanding is correct","Wait until your next performance review"],
+      correct: 1
+    }
+  ];
+}
+
+// ============================================================
+// AUTH & STATE
+// ============================================================
+const CACHE_KEY   = 'solve_training_cache_v3';
+const SESSION_KEY = 'solve_training_token';
+const CACHE_TTL   = 24 * 60 * 60 * 1000; // 24 hours
+
+let authToken    = null;
+let currentUser  = null;     // { name, email, onboardingStage }
+let trainingData = null;     // { blocks, completedMap, syncedAt, userPageId, onboardingStage, roles }
+let currentBlocks     = [];
+let currentBlockIndex = null;
+let currentRoleId     = null;
+let materialsTimer    = null;  // auto-refresh signed file URLs every 55 min
+
+// Colour palette — one distinct colour per pipeline stage (cycles if > 8 stages)
+const STAGE_PALETTE = [
+  { color: '#2563eb', bg: 'rgba(37,99,235,0.09)',   border: 'rgba(37,99,235,0.28)' },  // blue
+  { color: '#7c3aed', bg: 'rgba(124,58,237,0.09)',  border: 'rgba(124,58,237,0.28)' }, // purple
+  { color: '#2a9640', bg: 'rgba(42,150,64,0.09)',   border: 'rgba(42,150,64,0.28)'  }, // green
+  { color: '#d97706', bg: 'rgba(217,119,6,0.09)',   border: 'rgba(217,119,6,0.28)'  }, // amber
+  { color: '#0891b2', bg: 'rgba(8,145,178,0.09)',   border: 'rgba(8,145,178,0.28)'  }, // cyan
+  { color: '#be185d', bg: 'rgba(190,24,93,0.09)',   border: 'rgba(190,24,93,0.28)'  }, // pink
+  { color: '#c62828', bg: 'rgba(198,40,40,0.09)',   border: 'rgba(198,40,40,0.28)'  }, // red
+  { color: '#65a30d', bg: 'rgba(101,163,13,0.09)',  border: 'rgba(101,163,13,0.28)' }, // lime
+];
+// Maps stageOrdering (number) → STAGE_PALETTE entry — populated in renderCourse
+let stageOrderingColorMap = {};
+
+// ── API helpers ──────────────────────────────────────────────
+async function apiFetch(path, method = 'GET', body = null) {
+  const opts = {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${authToken}`,
+    },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(path, opts);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+  return data;
+}
+
+// ── Local cache ──────────────────────────────────────────────
+function loadCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function saveCache(data) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch {}
+}
+
+function clearCache() {
+  localStorage.removeItem(CACHE_KEY);
+}
+
+// ============================================================
+// LOGIN
+// ============================================================
+document.getElementById('loginEmail').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('loginPassword').focus(); });
+document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+async function doLogin() {
+  const emailEl = document.getElementById('loginEmail');
+  const passEl  = document.getElementById('loginPassword');
+  const errEl   = document.getElementById('loginError');
+  const btnEl   = document.getElementById('btnLogin');
+  const email    = emailEl.value.trim();
+  const password = passEl.value;
+
+  errEl.classList.remove('show');
+  if (!email || !password) {
+    errEl.textContent = 'Please enter your email and password.';
+    errEl.classList.add('show');
+    return;
+  }
+
+  btnEl.disabled = true;
+  btnEl.textContent = 'Signing in…';
+
+  try {
+    const data = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    }).then(r => r.json().then(d => ({ ok: r.ok, ...d })));
+
+    if (!data.ok) {
+      errEl.textContent = data.error || 'Login failed.';
+      errEl.classList.add('show');
+      btnEl.disabled = false;
+      btnEl.textContent = 'Sign In';
+      return;
+    }
+
+    authToken   = data.token;
+    currentUser = { name: data.name, email: data.email, onboardingStage: data.onboardingStage || null };
+    localStorage.setItem(SESSION_KEY, authToken);
+    await initApp();
+
+  } catch (err) {
+    errEl.textContent = 'Could not connect to server. Is the server running?';
+    errEl.classList.add('show');
+    btnEl.disabled = false;
+    btnEl.textContent = 'Sign In';
+  }
+}
+
+// ============================================================
+// FORGOT PASSWORD
+// ============================================================
+function showForgot() {
+  // Pre-fill email from the login field if available
+  const loginEmail = document.getElementById('loginEmail').value.trim();
+  if (loginEmail) document.getElementById('forgotEmail').value = loginEmail;
+  document.getElementById('forgotSuccess').classList.remove('show');
+  document.getElementById('forgotError').classList.remove('show');
+  document.getElementById('loginCard').style.display  = 'none';
+  document.getElementById('forgotCard').style.display = 'block';
+}
+
+function showLogin() {
+  document.getElementById('forgotCard').style.display = 'none';
+  document.getElementById('loginCard').style.display  = 'block';
+  document.getElementById('loginError').classList.remove('show');
+}
+
+async function doForgot() {
+  const emailEl   = document.getElementById('forgotEmail');
+  const btnEl     = document.getElementById('btnForgot');
+  const successEl = document.getElementById('forgotSuccess');
+  const errEl     = document.getElementById('forgotError');
+  const email     = emailEl.value.trim();
+
+  errEl.classList.remove('show');
+  successEl.classList.remove('show');
+
+  if (!email) {
+    errEl.textContent = 'Please enter your email address.';
+    errEl.classList.add('show');
+    return;
+  }
+
+  btnEl.disabled = true;
+  btnEl.textContent = 'Sending…';
+
+  try {
+    const res  = await fetch('/api/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Could not send recovery email.';
+      errEl.classList.add('show');
+    } else {
+      successEl.textContent = data.message || 'Password sent! Check your inbox.';
+      successEl.classList.add('show');
+      emailEl.value = '';
+    }
+  } catch (err) {
+    errEl.textContent = 'Could not connect to server.';
+    errEl.classList.add('show');
+  } finally {
+    btnEl.disabled = false;
+    btnEl.textContent = 'Send Password';
+  }
+}
+
+// ============================================================
+// APP INIT
+// ============================================================
+function showStageBadge(stage) {
+  const el = document.getElementById('headerStage');
+  if (stage) {
+    el.textContent = stage;
+    el.style.display = 'inline-flex';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+async function initApp() {
+  document.body.classList.add('logged-in');
+  // Show header, hide login
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appHeader').style.display = 'flex';
+  document.getElementById('headerUser').style.display = 'inline-flex';
+  document.getElementById('btnLogout').style.display = 'inline-flex';
+  document.getElementById('headerUser').textContent = currentUser.name;
+  showStageBadge(currentUser.onboardingStage);
+
+  // Show loading
+  showScreen('screenLoading');
+  document.getElementById('loadingText').textContent = 'Loading your training data…';
+
+  try {
+    const cached = loadCache();
+    const now    = Date.now();
+
+    if (cached && cached.userEmail === currentUser.email && (now - cached.syncedAt) < CACHE_TTL) {
+      // Use local cache (still fresh)
+      trainingData = cached;
+      // Restore onboarding stage from cache
+      if (trainingData.onboardingStage && !currentUser.onboardingStage) {
+        currentUser.onboardingStage = trainingData.onboardingStage;
+        showStageBadge(currentUser.onboardingStage);
+      }
+    } else {
+      // Fetch from server
+      const data = await apiFetch('/api/training-data');
+      trainingData = { ...data, userEmail: currentUser.email, name: currentUser.name, roles: data.roles || [] };
+      if (data.onboardingStage) {
+        currentUser.onboardingStage = data.onboardingStage;
+        showStageBadge(currentUser.onboardingStage);
+      }
+      saveCache(trainingData);
+    }
+
+    renderRoles();
+    showScreen('screenRoles');
+    updateSyncBar();
+
+  } catch (err) {
+    showScreen('screenLoading');
+    document.getElementById('loadingText').textContent = '⚠️ ' + (err.message || 'Failed to load data. Please try again.');
+  }
+}
+
+// ============================================================
+// SYNC
+// ============================================================
+async function manualSync() {
+  const btn = document.getElementById('syncNowBtn');
+  if (btn) { btn.classList.add('syncing'); btn.disabled = true; }
+  try {
+    await apiFetch('/api/sync', 'POST');
+    const data = await apiFetch('/api/training-data');
+    trainingData = { ...data, userEmail: currentUser.email, name: currentUser.name, roles: data.roles || [] };
+    if (data.onboardingStage) {
+      currentUser.onboardingStage = data.onboardingStage;
+      showStageBadge(currentUser.onboardingStage);
+    }
+    saveCache(trainingData);
+    // Refresh the current screen
+    if (currentRoleId) {
+      renderCourse(currentBlocks);
+    } else {
+      renderRoles();
+    }
+    updateSyncBar();
+    showToast('✅ Training data synced');
+  } catch (err) {
+    showToast('⚠️ Sync failed: ' + err.message);
+  } finally {
+    if (btn) { btn.classList.remove('syncing'); btn.disabled = false; }
+  }
+}
+
+function updateSyncBar() {
+  if (!trainingData) return;
+  const ago = timeSince(trainingData.syncedAt);
+  document.getElementById('syncBarText').textContent = `Last synced: ${ago}`;
+}
+
+function timeSince(ts) {
+  const secs = Math.floor((Date.now() - ts) / 1000);
+  if (secs < 60) return 'just now';
+  if (secs < 3600) return `${Math.floor(secs/60)}m ago`;
+  if (secs < 86400) return `${Math.floor(secs/3600)}h ago`;
+  return `${Math.floor(secs/86400)}d ago`;
+}
+
+// ============================================================
+// ROLES SCREEN
+// ============================================================
+function renderRoles() {
+  if (!trainingData) return;
+  const { roles, completedMap, blocks } = trainingData;
+
+  document.getElementById('rolesTitle').textContent = currentUser.name + "'s Training";
+
+  const totalDone = blocks.filter(b => trainingData.completedMap[b.id]?.status === 'OK').length;
+  document.getElementById('rolesSubtitle').textContent = `${totalDone} of ${blocks.length} modules completed across all roles`;
+
+  const grid = document.getElementById('rolesGrid');
+  grid.innerHTML = '';
+
+  (roles || []).forEach(role => {
+    const roleBlocks = role.blockIds.map(id => blocks.find(b => b.id === id)).filter(Boolean);
+    if (!roleBlocks.length) return; // skip roles with no training blocks
+    const done = roleBlocks.filter(b => completedMap[b.id]?.status === 'OK').length;
+    const overdue = roleBlocks.filter(b => completedMap[b.id]?.status === 'Overdue').length;
+    const total = roleBlocks.length;
+    const pct = total ? Math.round(done / total * 100) : 0;
+
+    const card = document.createElement('div');
+    card.className = 'role-card';
+    card.innerHTML = `
+      <div class="role-card-name">${escHtml(role.name)}</div>
+      <div class="role-card-stats">
+        <span>${done} of ${total} completed</span>
+        <span>${pct}%</span>
+      </div>
+      <div class="role-card-bar"><div class="role-card-fill" style="width:${pct}%"></div></div>
+      ${overdue ? `<div class="role-card-overdue">⚠️ ${overdue} overdue</div>` : ''}
+    `;
+    card.onclick = () => openRole(role.id, role.name);
+    grid.appendChild(card);
+  });
+
+  showScreen('screenRoles');
+}
+
+function openRole(roleId, roleName) {
+  currentRoleId = roleId;
+  // Filter blocks to only those in this role
+  const role = trainingData.roles.find(r => r.id === roleId);
+  if (!role) return;
+  // Set currentBlocks to role-filtered blocks (preserving full sorted order)
+  const roleBlockSet = new Set(role.blockIds);
+  currentBlocks = trainingData.blocks.filter(b => roleBlockSet.has(b.id));
+
+  // Show back button
+  document.getElementById('headerBack').style.display = 'inline-flex';
+  renderCourse(currentBlocks);
+}
+
+// ============================================================
+// COURSE OVERVIEW
+// ============================================================
+function isBlockCompleted(blockId) {
+  return trainingData?.completedMap?.[blockId]?.status === 'OK';
+}
+
+function isBlockOverdue(blockId) {
+  return trainingData?.completedMap?.[blockId]?.status === 'Overdue';
+}
+
+function renderCourse(blocksOverride) {
+  if (!trainingData) return;
+  const { completedMap } = trainingData;
+  const allBlocks = blocksOverride || trainingData.blocks;
+
+  // ── Filter to pipeline stages starting with "E" only ──────────
+  const eBlocks = allBlocks.filter(b => (b.stageName || '').trimStart().toUpperCase().startsWith('E'));
+
+  // ── Filter to stages the employee has reached ──────────────────
+  // employeeStageOrdering: numeric ordering of their current stage (999 = no stage set → show all)
+  const empOrdering = trainingData.employeeStageOrdering ?? 999;
+  const blocks = empOrdering < 999
+    ? eBlocks.filter(b => b.stageOrdering <= empOrdering)
+    : eBlocks;
+
+  currentBlocks = blocks;
+
+  // Stats (based on visible filtered blocks)
+  const done = blocks.filter(b => isBlockCompleted(b.id)).length;
+  const pct  = blocks.length ? Math.round(done / blocks.length * 100) : 0;
+
+  const roleLabel = currentRoleId
+    ? (trainingData.roles.find(r => r.id === currentRoleId)?.name || 'Training')
+    : currentUser.name + "'s Training";
+  document.getElementById('courseRoleName').textContent       = roleLabel;
+  document.getElementById('courseTotalCount').textContent     = blocks.length;
+  document.getElementById('courseCompletedCount').textContent = done;
+  document.getElementById('progressPct').textContent          = pct + '%';
+  document.getElementById('progressFill').style.width         = pct + '%';
+
+  const list = document.getElementById('moduleList');
+  list.innerHTML = '';
+
+  // Helper — stage section header (numbered badge + name + done/total pill)
+  function addStageHeader(stageName, stageIdx, stageBlocks) {
+    const stageDone  = stageBlocks.filter(b => isBlockCompleted(b.id)).length;
+    const stageTotal = stageBlocks.length;
+    const p   = STAGE_PALETTE[stageIdx % STAGE_PALETTE.length];
+    const hdr = document.createElement('div');
+    hdr.className = 'section-header stage';
+    hdr.style.color             = p.color;
+    hdr.style.borderBottomColor = p.border;
+    hdr.innerHTML = `
+      <span class="stage-badge" style="background:${p.color};color:#fff">${stageIdx + 1}</span>
+      ${escHtml(stageName)}
+      <span class="section-count" style="background:${p.bg};color:${p.color}">${stageDone}/${stageTotal}</span>
+    `;
+    list.appendChild(hdr);
+  }
+
+  // Helper — module item row
+  function addModuleItem(block, globalIndex, cls, statusText, clickable) {
+    const item = document.createElement('div');
+    const typeStr = (block.types || []).join(', ') || 'General';
+    item.className = 'module-item ' + cls;
+    const numLabel = cls.includes('completed') ? '✓'
+                   : cls.includes('overdue')   ? '!'
+                   : globalIndex + 1;
+    item.innerHTML = `
+      <div class="module-num">${numLabel}</div>
+      <div class="module-info">
+        <div class="module-name">${escHtml(block.name)}</div>
+        <div class="module-type">${escHtml(typeStr)}</div>
+      </div>
+      <div class="module-status">${statusText}</div>
+    `;
+    if (clickable) item.onclick = () => openBlock(globalIndex);
+    list.appendChild(item);
+  }
+
+  // Access rule: a non-completed block is open only if the previous block is completed.
+  // Completed blocks are always accessible for review.
+  function isAccessible(gi) {
+    if (gi === 0) return true;
+    return isBlockCompleted(blocks[gi - 1].id);
+  }
+
+  // ── Group blocks by pipeline stage (preserving sorted order) ──
+  const stageGroups = [];   // [{stageName, stageOrdering, blocks: []}]
+  const stageIndex  = new Map(); // stageName → group
+
+  for (const block of blocks) {
+    const key = block.stageName || 'Other';
+    if (!stageIndex.has(key)) {
+      const group = { stageName: key, stageOrdering: block.stageOrdering, blocks: [] };
+      stageIndex.set(key, group);
+      stageGroups.push(group);
+    }
+    stageIndex.get(key).blocks.push(block);
+  }
+
+  // ── Status priority for sort: completed(0) → overdue(1) → open(2) → locked(3) ──
+  function blockPriority(block) {
+    const gi        = blocks.indexOf(block);
+    const completed = isBlockCompleted(block.id);
+    const overdue   = isBlockOverdue(block.id);
+    const open      = completed || isAccessible(gi);
+    if (completed) return 0;
+    if (overdue)   return 1;
+    if (open)      return 2;
+    return 3;
+  }
+
+  // ── Render one section per stage ──────────────────────────────
+  stageGroups.forEach((group, idx) => {
+    addStageHeader(group.stageName, idx, group.blocks);
+
+    const sorted = [...group.blocks].sort((a, b) => blockPriority(a) - blockPriority(b));
+
+    for (const block of sorted) {
+      const gi        = blocks.indexOf(block);
+      const completed = isBlockCompleted(block.id);
+      const overdue   = isBlockOverdue(block.id);
+      const open      = completed || isAccessible(gi);
+
+      if (completed) {
+        const dateStr    = completedMap[block.id]?.date || '';
+        const statusText = `✓ Done${dateStr ? ' (' + dateStr + ')' : ''}`;
+        addModuleItem(block, gi, 'completed', statusText, true);
+      } else if (overdue) {
+        addModuleItem(block, gi,
+          open ? 'overdue current' : 'locked',
+          open ? '⚠️ Overdue — Open' : '🔒 Locked',
+          open);
+      } else {
+        addModuleItem(block, gi,
+          open ? 'current' : 'locked',
+          open ? '▶ Start' : '🔒 Locked',
+          open);
+      }
+    }
+  });
+
+  // Check completion
+  if (done === blocks.length && blocks.length > 0) {
+    renderCompletion();
+    showScreen('screenComplete');
+  } else {
+    showScreen('screenCourse');
+  }
+}
+
+// ============================================================
+// TRAINING BLOCK
+// ============================================================
+function openBlock(index) {
+  currentBlockIndex = index;
+  const block   = currentBlocks[index];
+  const passed  = isBlockCompleted(block.id);
+
+  document.getElementById('stepRoleName').textContent  = currentUser.name;
+  document.getElementById('stepModuleNum').textContent = `Module ${index + 1}`;
+  document.getElementById('stepBlockName').textContent = block.name;
+  document.getElementById('blockTitle').textContent    = block.name;
+
+  // Badge
+  const typeVal  = (block.types && block.types[0]) || 'General';
+  const badgeMap = {
+    'Policy / Procedure': ['badge-green','📋'],
+    'WorkSafe BC':        ['badge-orange','⚠️'],
+    'Internal Briefing':  ['badge-blue','📢'],
+    'Guidance':           ['badge-purple','📖'],
+    'Worksite':           ['badge-red','🦺'],
+    '3rd Party Trainer':  ['badge-yellow','🎓'],
+    'Pre-Employment Check': ['badge-gray','✅'],
+    'Contract':           ['badge-gray','📝'],
+    'Certificate':        ['badge-green','🏆'],
+    'Job Role SOPs':      ['badge-blue','🔧'],
+  };
+  const [badgeCls, badgeIcon] = badgeMap[typeVal] || ['badge-gray','📄'];
+  const badgeEl = document.getElementById('blockBadge');
+  badgeEl.className = 'badge ' + badgeCls;
+  badgeEl.textContent = badgeIcon + ' ' + typeVal;
+
+  // Policy ref
+  const policyDiv = document.getElementById('blockPolicy');
+  policyDiv.innerHTML = block.policyNo ? `Policy Reference: <strong>${escHtml(block.policyNo)}</strong>` : '';
+
+  // Notes
+  const notesDiv = document.getElementById('blockNotes');
+  if (block.notes) {
+    notesDiv.style.display = 'block';
+    notesDiv.textContent   = block.notes;
+  } else {
+    notesDiv.style.display = 'none';
+  }
+
+  // Training link
+  const linkBox   = document.getElementById('linkBox');
+  const noLinkBox = document.getElementById('noLinkBox');
+  if (block.trainingLink) {
+    linkBox.style.display   = 'flex';
+    noLinkBox.style.display = 'none';
+    const anchor = document.getElementById('trainingLink');
+    anchor.href        = block.trainingLink;
+    anchor.textContent = block.trainingLink;
+  } else {
+    linkBox.style.display   = 'none';
+    noLinkBox.style.display = 'block';
+  }
+
+  const viewedConfirm = document.getElementById('viewedConfirm');
+  const btnViewed     = document.getElementById('btnViewed');
+  const quizSection   = document.getElementById('quizSection');
+  const quizResult    = document.getElementById('quizResult');
+
+  if (passed) {
+    viewedConfirm.classList.add('show');
+    btnViewed.style.display = 'none';
+    renderQuiz(block, true);
+    quizSection.classList.add('show');
+    quizResult.className   = 'quiz-result pass show';
+    const dateStr = trainingData.completedMap[block.id]?.date || '';
+    quizResult.innerHTML   = `
+      <div class="quiz-result-title">✅ Already Completed${dateStr ? ' — ' + dateStr : ''}</div>
+      <div class="quiz-result-msg">You've already completed this module.</div>
+      <button class="btn btn-outline" onclick="goBack()">← Back to Course</button>
+    `;
+  } else {
+    viewedConfirm.classList.remove('show');
+    btnViewed.style.display = 'inline-flex';
+    quizSection.classList.remove('show');
+    quizResult.className    = 'quiz-result';
+    quizResult.style.display = 'none';
+    resetQuiz();
+  }
+
+  // Show materials section — fetch fresh signed URLs and auto-refresh every 55 min
+  const materialsDiv = document.getElementById('blockMaterials');
+  if (materialsDiv) {
+    loadMaterials(block.id, materialsDiv, true);
+    // Clear any previous timer, start a new one for this block
+    if (materialsTimer) clearInterval(materialsTimer);
+    materialsTimer = setInterval(() => loadMaterials(block.id, materialsDiv, false), 55 * 60 * 1000);
+  }
+
+  showScreen('screenBlock');
+  document.getElementById('headerBack').style.display = 'inline-flex';
+}
+
+// Fetch (or silently refresh) signed file URLs for a training block.
+// showSpinner=true on first load; false on background refresh so links don't flash.
+function loadMaterials(blockId, materialsDiv, showSpinner) {
+  if (showSpinner) materialsDiv.innerHTML = '<p class="materials-loading">Loading materials…</p>';
+  apiFetch(`/api/block/${blockId}/files`).then(files => {
+    const allFiles = [
+      ...(files.associatedForms || []).map(f => ({ ...f, group: 'Associated Forms' })),
+      ...(files.guidance        || []).map(f => ({ ...f, group: 'Guidance' })),
+      ...(files.media           || []).map(f => ({ ...f, group: 'Files & Media' })),
+    ];
+    if (!allFiles.length) { materialsDiv.innerHTML = ''; return; }
+    const groups = {};
+    allFiles.forEach(f => {
+      if (!groups[f.group]) groups[f.group] = [];
+      groups[f.group].push(f);
+    });
+    materialsDiv.innerHTML = `
+      <div class="materials-section">
+        <div class="materials-title">📎 Training Materials</div>
+        ${Object.entries(groups).map(([label, flist]) => `
+          <div class="material-group">
+            <div class="material-group-label">${escHtml(label)}</div>
+            ${flist.map(f => `
+              <a class="material-link" href="${escHtml(f.url)}" target="_blank" rel="noopener">
+                <span class="material-link-icon">📄</span>
+                <span>${escHtml(f.name)}</span>
+              </a>
+            `).join('')}
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }).catch(err => {
+    console.error('loadMaterials error for block', blockId, err);
+    if (showSpinner) materialsDiv.innerHTML = `<p class="materials-loading" style="color:var(--danger)">⚠ Could not load materials (${escHtml(err.message)})</p>`;
+  });
+}
+
+function markViewed() {
+  document.getElementById('viewedConfirm').classList.add('show');
+  document.getElementById('btnViewed').style.display = 'none';
+  const block = currentBlocks[currentBlockIndex];
+  renderQuiz(block, false);
+  document.getElementById('quizSection').classList.add('show');
+  document.getElementById('quizResult').style.display = 'none';
+}
+
+// ============================================================
+// QUIZ
+// ============================================================
+let quizState = { selected: {} };
+
+function resetQuiz() {
+  quizState = { selected: {} };
+  document.getElementById('quizQuestions').innerHTML  = '';
+  document.getElementById('btnSubmitQuiz').style.display = 'inline-flex';
+  document.getElementById('quizResult').style.display = 'none';
+}
+
+function getQuiz(block) {
+  const key = block.id.replace(/-/g, '');
+  return QUIZ_MAP[key] || genericQuiz(block.name);
+}
+
+function renderQuiz(block, readonly) {
+  const questions = getQuiz(block);
+  const container = document.getElementById('quizQuestions');
+  container.innerHTML = '';
+  quizState = { selected: {} };
+
+  for (let qi = 0; qi < questions.length; qi++) {
+    const q    = questions[qi];
+    const card = document.createElement('div');
+    card.className   = 'question-card';
+    card.innerHTML   = `<div class="question-text">Q${qi+1}. ${escHtml(q.q)}</div><div class="option-list" id="opts-${qi}"></div>`;
+    container.appendChild(card);
+    const optList = card.querySelector(`#opts-${qi}`);
+
+    for (let oi = 0; oi < q.options.length; oi++) {
+      const btn = document.createElement('button');
+      btn.className    = 'option-btn';
+      btn.textContent  = q.options[oi];
+      btn.dataset.qi   = qi;
+      btn.dataset.oi   = oi;
+      if (!readonly) {
+        btn.onclick = () => selectOption(qi, oi);
+      } else {
+        btn.disabled = true;
+        if (oi === q.correct) btn.classList.add('correct');
+      }
+      optList.appendChild(btn);
+    }
+  }
+  document.getElementById('btnSubmitQuiz').style.display = readonly ? 'none' : 'inline-flex';
+}
+
+function selectOption(qi, oi) {
+  quizState.selected[qi] = oi;
+  const opts = document.querySelectorAll(`#opts-${qi} .option-btn`);
+  opts.forEach((b, i) => b.classList.toggle('selected', i === oi));
+}
+
+async function submitQuiz() {
+  const block     = currentBlocks[currentBlockIndex];
+  const questions = getQuiz(block);
+  let allAnswered = true;
+  let correct     = 0;
+
+  for (let qi = 0; qi < questions.length; qi++) {
+    if (quizState.selected[qi] === undefined) { allAnswered = false; break; }
+  }
+  if (!allAnswered) {
+    alert('Please answer all questions before submitting.');
+    return;
+  }
+
+  for (let qi = 0; qi < questions.length; qi++) {
+    const q      = questions[qi];
+    const chosen = quizState.selected[qi];
+    const opts   = document.querySelectorAll(`#opts-${qi} .option-btn`);
+    opts.forEach((b, i) => {
+      b.disabled = true;
+      if (i === q.correct) b.classList.add(chosen === i ? 'correct' : 'show-correct');
+      else if (i === chosen && i !== q.correct) b.classList.add('incorrect');
+    });
+    if (chosen === q.correct) correct++;
+  }
+
+  const passed    = correct === questions.length;
+  const resultDiv = document.getElementById('quizResult');
+  resultDiv.style.display = 'block';
+  resultDiv.className     = 'quiz-result show ' + (passed ? 'pass' : 'fail');
+
+  if (passed) {
+    document.getElementById('btnSubmitQuiz').style.display = 'none';
+
+    // Record completion in Notion
+    const today   = new Date().toISOString().split('T')[0];
+    let savingMsg = '<span class="saving-badge">⏳ Saving to Notion…</span>';
+
+    const isLast = currentBlockIndex === currentBlocks.length - 1;
+    resultDiv.innerHTML = `
+      <div class="quiz-result-title">🎉 Passed! ${correct}/${questions.length} correct ${savingMsg}</div>
+      <div class="quiz-result-msg">Great work — this module is complete.</div>
+    `;
+
+    // Update local completedMap immediately for smooth UX
+    trainingData.completedMap[block.id] = { date: today, recordId: null, status: 'OK' };
+    saveCache(trainingData);
+
+    try {
+      const result = await apiFetch('/api/complete', 'POST', { blockId: block.id, blockName: block.name });
+      trainingData.completedMap[block.id] = { date: today, recordId: result.recordId, status: 'OK' };
+      saveCache(trainingData);
+
+      resultDiv.innerHTML = `
+        <div class="quiz-result-title">🎉 Passed! ${correct}/${questions.length} correct ✅</div>
+        <div class="quiz-result-msg">Great work — this module is complete and recorded in Notion.</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          ${isLast
+            ? `<button class="btn btn-primary" onclick="finishCourse()">🏆 Complete Training</button>`
+            : `<button class="btn btn-primary" onclick="nextBlock()">Next Module →</button>`}
+          <button class="btn btn-outline" onclick="goBack()">← Back to Overview</button>
+        </div>
+      `;
+      // Re-render the course with current blocks to update progress
+      renderCourse(currentBlocks);
+    } catch (err) {
+      // Local pass saved even if Notion sync fails — user can sync later
+      resultDiv.innerHTML = `
+        <div class="quiz-result-title">🎉 Passed! ${correct}/${questions.length} correct ⚠️</div>
+        <div class="quiz-result-msg">Module complete locally, but Notion sync failed: ${escHtml(err.message)}. Use the Sync button to retry.</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          ${isLast
+            ? `<button class="btn btn-primary" onclick="finishCourse()">🏆 Complete Training</button>`
+            : `<button class="btn btn-primary" onclick="nextBlock()">Next Module →</button>`}
+          <button class="btn btn-outline" onclick="goBack()">← Back to Overview</button>
+        </div>
+      `;
+      // Re-render the course with current blocks to update progress
+      renderCourse(currentBlocks);
+    }
+
+  } else {
+    resultDiv.innerHTML = `
+      <div class="quiz-result-title">❌ ${correct}/${questions.length} correct — not passed</div>
+      <div class="quiz-result-msg">Review the training material and try again. You must answer all questions correctly to advance.</div>
+      <button class="btn btn-danger" onclick="retryQuiz()">↩ Retry Quiz</button>
+    `;
+  }
+
+  resultDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function retryQuiz() {
+  const block = currentBlocks[currentBlockIndex];
+  renderQuiz(block, false);
+  document.getElementById('quizResult').style.display = 'none';
+  document.getElementById('quizSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function nextBlock() {
+  openBlock(currentBlockIndex + 1);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function finishCourse() {
+  renderCompletion();
+  showScreen('screenComplete');
+}
+
+// ============================================================
+// COMPLETION
+// ============================================================
+function renderCompletion() {
+  document.getElementById('completionSub').textContent =
+    `You've completed all ${currentBlocks.length} training modules. Well done, ${currentUser.name}!`;
+  const list = document.getElementById('completionList');
+  list.innerHTML = currentBlocks.map(b => {
+    const dateStr = trainingData.completedMap[b.id]?.date || '';
+    return `<div class="completion-item"><span>✅</span><span>${escHtml(b.name)}${dateStr ? ' <span style="font-size:11px;color:#64748b">(' + dateStr + ')</span>' : ''}</span></div>`;
+  }).join('');
+}
+
+// ============================================================
+// NAVIGATION
+// ============================================================
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function goBack() {
+  // Always stop the materials refresh timer when navigating away from a block
+  if (materialsTimer) { clearInterval(materialsTimer); materialsTimer = null; }
+
+  if (currentRoleId) {
+    const active = document.querySelector('.screen.active')?.id;
+    if (active === 'screenBlock') {
+      // Back from block → role course list
+      renderCourse(currentBlocks);
+    } else {
+      // Back from role course → roles overview
+      document.getElementById('headerBack').style.display = 'none';
+      currentRoleId = null;
+      currentBlockIndex = null;
+      renderRoles();
+      showScreen('screenRoles');
+    }
+  } else {
+    const active = document.querySelector('.screen.active')?.id;
+    if (active === 'screenBlock') {
+      renderCourse(currentBlocks);
+      showScreen('screenCourse');
+      // Hide back button if on course screen
+      document.getElementById('headerBack').style.display = 'none';
+    }
+  }
+}
+
+// ============================================================
+// LOGOUT
+// ============================================================
+async function logout() {
+  try { await apiFetch('/api/logout', 'POST'); } catch {}
+  if (materialsTimer) { clearInterval(materialsTimer); materialsTimer = null; }
+  authToken    = null;
+  currentUser  = null;
+  trainingData = null;
+  currentBlocks     = [];
+  currentBlockIndex = null;
+  currentRoleId     = null;
+  localStorage.removeItem(SESSION_KEY);
+  clearCache();
+
+  // Reset UI
+  document.body.classList.remove('logged-in');
+  document.getElementById('appHeader').style.display  = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('loginEmail').value    = '';
+  document.getElementById('loginPassword').value = '';
+  document.getElementById('btnLogin').disabled   = false;
+  document.getElementById('btnLogin').textContent = 'Sign In';
+  document.getElementById('loginError').classList.remove('show');
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('headerBack').style.display = 'none';
+}
+
+// ============================================================
+// UTILS
+// ============================================================
+function escHtml(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+let toastTimer;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ============================================================
+// BOOT — auto-login via ?employee_id= param OR stored token
+// ============================================================
+(async function boot() {
+  // ── Check for employee_id URL param (password-free login) ──
+  const urlParams  = new URLSearchParams(window.location.search);
+  const employeeId = urlParams.get('employee_id');
+
+  if (employeeId) {
+    // Show loading state (hide login screen)
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('appHeader').style.display   = 'flex';
+    showScreen('screenLoading');
+    document.getElementById('loadingText').textContent = 'Signing you in…';
+
+    try {
+      const res  = await fetch(`/api/token-by-employee-id?employee_id=${encodeURIComponent(employeeId)}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        // Invalid ID — fall through to login screen with an error hint
+        document.getElementById('appHeader').style.display   = 'none';
+        document.getElementById('loginScreen').style.display = 'flex';
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        const errEl = document.getElementById('loginError');
+        errEl.textContent = data.error || 'Could not sign in with the provided employee ID.';
+        errEl.classList.add('show');
+        return;
+      }
+
+      authToken   = data.token;
+      currentUser = { name: data.name, email: data.email, onboardingStage: data.onboardingStage || null };
+      localStorage.setItem(SESSION_KEY, authToken);
+
+      // Update header immediately
+      document.getElementById('headerUser').style.display  = 'inline-flex';
+      document.getElementById('btnLogout').style.display   = 'inline-flex';
+      document.getElementById('headerUser').textContent    = currentUser.name;
+      showStageBadge(currentUser.onboardingStage);
+
+      await initApp();
+      return; // Done — skip the stored-token flow below
+    } catch (err) {
+      // Network error — fall through to login screen
+      document.getElementById('appHeader').style.display   = 'none';
+      document.getElementById('loginScreen').style.display = 'flex';
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      const errEl = document.getElementById('loginError');
+      errEl.textContent = 'Could not connect to server. Is the server running?';
+      errEl.classList.add('show');
+      return;
+    }
+  }
+
+  // ── Fallback: restore from stored session token ──
+  const storedToken = localStorage.getItem(SESSION_KEY);
+  if (!storedToken) return; // Stay on login screen
+
+  authToken = storedToken;
+
+  // Try to restore user from cache
+  const cached = loadCache();
+  if (cached && cached.userEmail) {
+    currentUser = { name: cached.name || cached.userEmail, email: cached.userEmail, onboardingStage: cached.onboardingStage || null };
+  }
+
+  // Validate session by fetching data
+  document.body.classList.add('logged-in');
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appHeader').style.display   = 'flex';
+  document.getElementById('headerUser').style.display  = 'inline-flex';
+  document.getElementById('btnLogout').style.display   = 'inline-flex';
+  document.getElementById('headerUser').textContent    = currentUser?.name || '';
+  showStageBadge(currentUser?.onboardingStage || null);
+
+  showScreen('screenLoading');
+  document.getElementById('loadingText').textContent = 'Resuming your session…';
+
+  try {
+    const now = Date.now();
+    if (cached && cached.userEmail && (now - cached.syncedAt) < CACHE_TTL) {
+      trainingData = cached;
+      currentUser  = { name: cached.name || cached.userEmail, email: cached.userEmail, onboardingStage: cached.onboardingStage || null };
+      document.getElementById('headerUser').textContent = currentUser.name;
+      showStageBadge(currentUser.onboardingStage);
+    } else {
+      const data = await apiFetch('/api/training-data');
+      trainingData = { ...data, userEmail: currentUser?.email, name: currentUser?.name, roles: data.roles || [] };
+      if (data.onboardingStage) {
+        currentUser.onboardingStage = data.onboardingStage;
+        showStageBadge(data.onboardingStage);
+      }
+      saveCache(trainingData);
+    }
+    renderRoles();
+    showScreen('screenRoles');
+    updateSyncBar();
+  } catch (err) {
+    // Token expired or invalid — go back to login
+    authToken = null;
+    localStorage.removeItem(SESSION_KEY);
+    document.getElementById('appHeader').style.display   = 'none';
+    document.getElementById('loginScreen').style.display = 'flex';
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  }
+})();
+</script>
+</body>
+</html>
