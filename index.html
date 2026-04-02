@@ -1260,6 +1260,28 @@ async function apiFetch(path, method = 'GET', body = null) {
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(path, opts);
   const data = await res.json();
+  if (res.status === 401) {
+    // Session expired or server restarted — clear state and return to login
+    authToken    = null;
+    currentUser  = null;
+    trainingData = null;
+    currentBlocks     = [];
+    currentBlockIndex = null;
+    currentRoleId     = null;
+    localStorage.removeItem(SESSION_KEY);
+    clearCache();
+    document.body.classList.remove('logged-in');
+    document.getElementById('appHeader').style.display   = 'none';
+    document.getElementById('headerBack').style.display  = 'none';
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('loginCard').style.display   = 'block';
+    document.getElementById('forgotCard').style.display  = 'none';
+    document.getElementById('loginScreen').style.display = 'flex';
+    const errEl = document.getElementById('loginError');
+    errEl.textContent = 'Your session has expired. Please sign in again.';
+    errEl.classList.add('show');
+    throw new Error('session_expired');
+  }
   if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
   return data;
 }
@@ -1841,6 +1863,7 @@ function loadMaterials(blockId, materialsDiv, showSpinner) {
       </div>
     `;
   }).catch(err => {
+    if (err.message === 'session_expired') return; // handled globally
     console.error('loadMaterials error for block', blockId, err);
     if (showSpinner) materialsDiv.innerHTML = `<p class="materials-loading" style="color:var(--danger)">⚠ Could not load materials (${escHtml(err.message)})</p>`;
   });
