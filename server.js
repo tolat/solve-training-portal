@@ -554,11 +554,45 @@ app.post('/api/complete', requireAuth, async (req, res) => {
 });
 
 // ─── POST /api/sync ───────────────────────────────────────────
+// Refreshes both the shared training-data cache AND the current user's
+// employee record (name, roles, onboarding stage) from Notion.
 app.post('/api/sync', requireAuth, async (req, res) => {
   try {
+    console.log(`🔄  Sync triggered by: ${req.session?.email || 'unknown'}`);
+
+    // 1. Refresh shared training content cache
     await refreshCache();
-    res.json({ ok: true, syncedAt: cache.ts });
+
+    // 2. Re-query the employee's Company Directory entry — same code path as
+    //    login so property parsing is guaranteed identical.
+    const { email } = req.session;
+    console.log(`🔄  Looking up employee in Notion for email: ${email}`);
+    const results = await queryAll(DB.companyDirectory, {
+      property: 'Email',
+      email: { equals: email },
+    });
+
+    if (results.length) {
+      const user            = results[0];
+      const name            = titleTxt(prop(user, 'Name'));
+      const roleIds         = relIds(prop(user, 'Roles'));
+      const onboardingStage = prop(user, 'Ordered Onboarding Stage')?.select?.name || null;
+
+      // req.session is the live session object — mutating it is enough.
+      req.session.name            = name;
+      req.session.roleIds         = roleIds;
+      req.session.onboardingStage = onboardingStage;
+
+      console.log(`🔄  Sync: employee data refreshed for ${name} — Stage: ${onboardingStage || 'none'}`);
+      res.json({ ok: true, syncedAt: cache.ts, name, onboardingStage });
+    } else {
+      // User not found in directory — still succeed with training cache refresh
+      console.warn(`🔄  Sync: training cache refreshed but employee not found for email ${email}`);
+      res.json({ ok: true, syncedAt: cache.ts });
+    }
+
   } catch (err) {
+    console.error('Sync error:', err.message);
     res.status(500).json({ error: 'Sync failed: ' + err.message });
   }
 });

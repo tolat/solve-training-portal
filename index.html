@@ -1512,16 +1512,33 @@ async function manualSync() {
   const btn = document.getElementById('syncNowBtn');
   if (btn) { btn.classList.add('syncing'); btn.disabled = true; }
   try {
-    await apiFetch('/api/sync', 'POST');
+    // Sync returns refreshed employee data (name, onboardingStage) as well as
+    // triggering a server-side cache refresh of all training content.
+    const syncResult = await apiFetch('/api/sync', 'POST');
+
+    // Apply refreshed employee data to currentUser immediately
+    if (syncResult.name)            { currentUser.name = syncResult.name; document.getElementById('headerUser').textContent = currentUser.name; }
+    if (syncResult.onboardingStage) { currentUser.onboardingStage = syncResult.onboardingStage; showStageBadge(currentUser.onboardingStage); }
+
     const data = await apiFetch('/api/training-data');
     trainingData = { ...data, userEmail: currentUser.email, name: currentUser.name, roles: data.roles || [] };
+    // training-data may also carry a refreshed onboardingStage (belt-and-suspenders)
     if (data.onboardingStage) {
       currentUser.onboardingStage = data.onboardingStage;
       showStageBadge(currentUser.onboardingStage);
     }
     saveCache(trainingData);
-    // Refresh the current screen
+    // Refresh the current screen.
+    // If inside a role view, rebuild currentBlocks from fresh trainingData so
+    // any newly accessible stages (after a stage advance) are included before
+    // renderCourse applies its stage filter. Without this, currentBlocks would
+    // still hold the old stage-filtered set and the new stage wouldn't appear.
     if (currentRoleId) {
+      const role = trainingData.roles.find(r => r.id === currentRoleId);
+      if (role) {
+        const roleBlockSet = new Set(role.blockIds);
+        currentBlocks = trainingData.blocks.filter(b => roleBlockSet.has(b.id));
+      }
       renderCourse(currentBlocks);
     } else {
       renderRoles();
@@ -1558,18 +1575,30 @@ function renderRoles() {
 
   document.getElementById('rolesTitle').textContent = currentUser.name + "'s Training";
 
-  const totalDone = blocks.filter(b => trainingData.completedMap[b.id]?.status === 'OK').length;
-  document.getElementById('rolesSubtitle').textContent = `${totalDone} of ${blocks.length} modules completed across all roles`;
+  // Apply the same stage filters used in renderCourse so counts stay consistent:
+  // only E-stages, only up to the employee's current stage ordering.
+  const empOrdering = trainingData.employeeStageOrdering ?? 999;
+  function isVisibleBlock(b) {
+    if (!(b.stageName || '').trimStart().toUpperCase().startsWith('E')) return false;
+    if (empOrdering < 999 && b.stageOrdering > empOrdering) return false;
+    return true;
+  }
+
+  const visibleAll = blocks.filter(isVisibleBlock);
+  const totalDone  = visibleAll.filter(b => completedMap[b.id]?.status === 'OK').length;
+  document.getElementById('rolesSubtitle').textContent = `${totalDone} of ${visibleAll.length} modules completed across all roles`;
 
   const grid = document.getElementById('rolesGrid');
   grid.innerHTML = '';
 
   (roles || []).forEach(role => {
-    const roleBlocks = role.blockIds.map(id => blocks.find(b => b.id === id)).filter(Boolean);
-    if (!roleBlocks.length) return; // skip roles with no training blocks
-    const done = roleBlocks.filter(b => completedMap[b.id]?.status === 'OK').length;
-    const overdue = roleBlocks.filter(b => completedMap[b.id]?.status === 'Overdue').length;
-    const total = roleBlocks.length;
+    const roleBlocks    = role.blockIds.map(id => blocks.find(b => b.id === id)).filter(Boolean);
+    // Visible = filtered to E-stages within the employee's current stage
+    const visibleBlocks = roleBlocks.filter(isVisibleBlock);
+    if (!visibleBlocks.length) return; // skip roles with nothing visible at this stage
+    const done    = visibleBlocks.filter(b => completedMap[b.id]?.status === 'OK').length;
+    const overdue = visibleBlocks.filter(b => completedMap[b.id]?.status === 'Overdue').length;
+    const total   = visibleBlocks.length;
     const pct = total ? Math.round(done / total * 100) : 0;
 
     const card = document.createElement('div');
