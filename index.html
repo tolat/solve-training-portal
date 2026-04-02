@@ -1635,13 +1635,6 @@ function renderCourse(blocksOverride) {
     list.appendChild(item);
   }
 
-  // Access rule: a non-completed block is open only if the previous block is completed.
-  // Completed blocks are always accessible for review.
-  function isAccessible(gi) {
-    if (gi === 0) return true;
-    return isBlockCompleted(blocks[gi - 1].id);
-  }
-
   // ── Group blocks by pipeline stage (preserving sorted order) ──
   const stageGroups = [];   // [{stageName, stageOrdering, blocks: []}]
   const stageIndex  = new Map(); // stageName → group
@@ -1656,12 +1649,22 @@ function renderCourse(blocksOverride) {
     stageIndex.get(key).blocks.push(block);
   }
 
+  // Access rule: per-stage sequential unlocking.
+  // A block is open if it is the first in its stage OR the previous block
+  // in the same stage is completed. Completed blocks are always accessible.
+  function isAccessible(block) {
+    const group = stageIndex.get(block.stageName || 'Other');
+    if (!group) return true;
+    const pos = group.blocks.indexOf(block);
+    if (pos === 0) return true;
+    return isBlockCompleted(group.blocks[pos - 1].id);
+  }
+
   // ── Status priority for sort: completed(0) → overdue(1) → open(2) → locked(3) ──
   function blockPriority(block) {
-    const gi        = blocks.indexOf(block);
     const completed = isBlockCompleted(block.id);
     const overdue   = isBlockOverdue(block.id);
-    const open      = completed || isAccessible(gi);
+    const open      = completed || isAccessible(block);
     if (completed) return 0;
     if (overdue)   return 1;
     if (open)      return 2;
@@ -1678,7 +1681,7 @@ function renderCourse(blocksOverride) {
       const gi        = blocks.indexOf(block);
       const completed = isBlockCompleted(block.id);
       const overdue   = isBlockOverdue(block.id);
-      const open      = completed || isAccessible(gi);
+      const open      = completed || isAccessible(block);
 
       if (completed) {
         const dateStr    = completedMap[block.id]?.date || '';
