@@ -60,6 +60,31 @@
     border-color: rgba(0,0,0,0.12);
     color: var(--text);
   }
+  /* Restore interactive states — body.logged-in .option-btn has higher specificity
+     than .option-btn.selected etc., so we must re-declare them here */
+  body.logged-in .option-btn:hover:not(:disabled) {
+    border-color: var(--green);
+    background: var(--green-light);
+  }
+  body.logged-in .option-btn.selected {
+    border-color: var(--green);
+    background: var(--green-light);
+  }
+  body.logged-in .option-btn.correct {
+    border-color: var(--success);
+    background: rgba(42,150,64,0.15);
+    color: var(--green);
+    font-weight: 600;
+  }
+  body.logged-in .option-btn.incorrect {
+    border-color: var(--danger);
+    background: rgba(198,40,40,0.12);
+    color: var(--danger);
+  }
+  body.logged-in .option-btn.show-correct {
+    border-color: var(--success);
+    background: rgba(42,150,64,0.1);
+  }
   body.logged-in .btn-gray {
     background: rgba(0,0,0,0.05);
     color: rgba(0,0,0,0.5);
