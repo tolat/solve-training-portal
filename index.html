@@ -194,6 +194,16 @@
   <img src="pwa_download.png" alt="Install">
 </button>
 
+<!-- ─── iOS Install Tooltip ──────────────────────────────── -->
+<div id="iosInstallTooltip">
+  <div id="iosInstallTooltipInner">
+    <div class="ios-tip-title">Install this app</div>
+    <div class="ios-tip-body">Tap <strong>Share</strong> <span class="ios-tip-share">⎙</span> then <strong>"Add to Home Screen"</strong></div>
+    <button class="ios-tip-close" onclick="document.getElementById('iosInstallTooltip').classList.remove('ios-tip-visible')" aria-label="Dismiss">✕</button>
+  </div>
+  <div class="ios-tip-arrow"></div>
+</div>
+
 
 <script src="js/quiz-data.js"></script>
 <script src="js/app.js"></script>
@@ -211,39 +221,56 @@
 
   // PWA install button logic
   (function () {
-    const btn = document.getElementById('pwaInstallBtn');
+    const btn     = document.getElementById('pwaInstallBtn');
+    const tooltip = document.getElementById('iosInstallTooltip');
     let deferredPrompt = null;
 
-    // Don't show if already running as installed PWA
+    // Don't show if already running as an installed PWA
     const isStandalone =
       window.matchMedia('(display-mode: standalone)').matches ||
       window.navigator.standalone === true;
 
     if (isStandalone) return;
 
-    // Capture the install prompt event so we can trigger it on click
-    window.addEventListener('beforeinstallprompt', e => {
-      e.preventDefault();
-      deferredPrompt = e;
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+
+    if (isIOS) {
+      // iOS Safari never fires beforeinstallprompt — show button immediately
       btn.classList.add('pwa-visible');
-      console.log('[PWA] Install prompt available');
-    });
+      btn.addEventListener('click', () => {
+        tooltip.classList.toggle('ios-tip-visible');
+      });
+      // Dismiss tooltip on outside click
+      document.addEventListener('click', e => {
+        if (!btn.contains(e.target) && !tooltip.contains(e.target)) {
+          tooltip.classList.remove('ios-tip-visible');
+        }
+      });
+    } else {
+      // Chrome / Android — use the deferred install prompt
+      window.addEventListener('beforeinstallprompt', e => {
+        e.preventDefault();
+        deferredPrompt = e;
+        btn.classList.add('pwa-visible');
+        console.log('[PWA] Install prompt available');
+      });
 
-    btn.addEventListener('click', async () => {
-      if (!deferredPrompt) return;
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      console.log('[PWA] Install outcome:', outcome);
-      deferredPrompt = null;
-      btn.classList.remove('pwa-visible');
-    });
+      btn.addEventListener('click', async () => {
+        if (!deferredPrompt) return;
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log('[PWA] Install outcome:', outcome);
+        deferredPrompt = null;
+        btn.classList.remove('pwa-visible');
+      });
 
-    // Hide once installed
-    window.addEventListener('appinstalled', () => {
-      deferredPrompt = null;
-      btn.classList.remove('pwa-visible');
-      console.log('[PWA] App installed');
-    });
+      // Hide once installed
+      window.addEventListener('appinstalled', () => {
+        deferredPrompt = null;
+        btn.classList.remove('pwa-visible');
+        console.log('[PWA] App installed');
+      });
+    }
   })();
 </script>
 </body>

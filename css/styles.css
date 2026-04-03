@@ -651,3 +651,76 @@
     display: block;
     pointer-events: none;
   }
+
+  /* ─── iOS Install Tooltip ─── */
+  #iosInstallTooltip {
+    position: fixed;
+    bottom: 92px;
+    right: 16px;
+    z-index: 9999;
+    display: none;
+    flex-direction: column;
+    align-items: flex-end;
+    pointer-events: none;
+  }
+  #iosInstallTooltip.ios-tip-visible {
+    display: flex;
+    pointer-events: auto;
+  }
+  #iosInstallTooltipInner {
+    background: #1e293b;
+    color: #fff;
+    border-radius: 12px;
+    padding: 14px 16px 14px 16px;
+    max-width: 230px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+    position: relative;
+    animation: tipFadeIn 0.18s ease;
+  }
+  @keyframes tipFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .ios-tip-title {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: #fff;
+  }
+  .ios-tip-body {
+    font-size: 13px;
+    line-height: 1.5;
+    color: rgba(255,255,255,0.82);
+  }
+  .ios-tip-share {
+    font-size: 15px;
+    vertical-align: middle;
+  }
+  .ios-tip-close {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.5);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 2px 4px;
+    line-height: 1;
+  }
+  .ios-tip-close:hover { color: #fff; }
+  .ios-tip-arrow {
+    width: 14px;
+    height: 8px;
+    margin-right: 21px;
+    overflow: hidden;
+  }
+  .ios-tip-arrow::after {
+    content: '';
+    display: block;
+    width: 14px;
+    height: 14px;
+    background: #1e293b;
+    transform: rotate(45deg) translateY(-7px);
+    border-radius: 2px;
+  }
