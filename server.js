@@ -214,6 +214,18 @@ function getSession(token) {
 const app = express();
 app.use(express.json());
 
+// Service worker and manifest must never be cached by the browser
+// (SW scope + update detection depends on a fresh response each time)
+app.get('/sw.js', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Content-Type', 'application/javascript');
+  res.sendFile(path.join(__dirname, 'sw.js'));
+});
+app.get('/manifest.json', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, 'manifest.json'));
+});
+
 // Serve frontend
 app.use(express.static(__dirname));
 

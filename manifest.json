@@ -1,0 +1,27 @@
+{
+  "name": "Solve Energy Training Portal",
+  "short_name": "Solve Training",
+  "description": "Solve Energy employee training and onboarding portal",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f1f5f9",
+  "theme_color": "#1a7a4a",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "solve_icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "solve_icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["education", "business"],
+  "lang": "en-CA"
+}

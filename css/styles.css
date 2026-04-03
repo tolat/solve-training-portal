@@ -612,3 +612,42 @@
     .block-header { flex-direction: column; }
     .login-card { padding: 28px 20px; }
   }
+
+  /* ─── PWA Install Button ─── */
+  #pwaInstallBtn {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    background: transparent;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+    display: none;           /* hidden until JS shows it */
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.3s ease;
+    opacity: 0;
+  }
+  #pwaInstallBtn.pwa-visible {
+    display: flex;
+    opacity: 1;
+  }
+  #pwaInstallBtn:hover {
+    transform: scale(1.08);
+    box-shadow: 0 6px 22px rgba(0,0,0,0.45);
+  }
+  #pwaInstallBtn:active {
+    transform: scale(0.96);
+  }
+  #pwaInstallBtn img {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    display: block;
+    pointer-events: none;
+  }

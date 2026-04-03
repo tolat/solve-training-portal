@@ -4,6 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Solve Energy — Training Portal</title>
+
+<!-- PWA -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1a7a4a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Solve Training">
+<link rel="apple-touch-icon" href="solve_icon.png">
+
 <link rel="icon" href="solve_icon.png" type="image/png">
 <link rel="stylesheet" href="css/styles.css">
 </head>
@@ -179,8 +189,62 @@
 <!-- ─── Toast ────────────────────────────────────────────── -->
 <div class="toast" id="toast"></div>
 
+<!-- ─── PWA Install Button ──────────────────────────────── -->
+<button id="pwaInstallBtn" title="Install app" aria-label="Install Solve Training app">
+  <img src="pwa_download.png" alt="Install">
+</button>
+
 
 <script src="js/quiz-data.js"></script>
 <script src="js/app.js"></script>
+
+<!-- Service Worker + PWA install prompt -->
+<script>
+  // Register service worker
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then(reg => console.log('[PWA] Service worker registered, scope:', reg.scope))
+        .catch(err => console.warn('[PWA] Service worker registration failed:', err));
+    });
+  }
+
+  // PWA install button logic
+  (function () {
+    const btn = document.getElementById('pwaInstallBtn');
+    let deferredPrompt = null;
+
+    // Don't show if already running as installed PWA
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      window.navigator.standalone === true;
+
+    if (isStandalone) return;
+
+    // Capture the install prompt event so we can trigger it on click
+    window.addEventListener('beforeinstallprompt', e => {
+      e.preventDefault();
+      deferredPrompt = e;
+      btn.classList.add('pwa-visible');
+      console.log('[PWA] Install prompt available');
+    });
+
+    btn.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      console.log('[PWA] Install outcome:', outcome);
+      deferredPrompt = null;
+      btn.classList.remove('pwa-visible');
+    });
+
+    // Hide once installed
+    window.addEventListener('appinstalled', () => {
+      deferredPrompt = null;
+      btn.classList.remove('pwa-visible');
+      console.log('[PWA] App installed');
+    });
+  })();
+</script>
 </body>
 </html>
