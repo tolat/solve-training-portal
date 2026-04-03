@@ -233,10 +233,15 @@
     if (isStandalone) return;
 
     const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+    console.log('[PWA] isIOS:', isIOS, '| isStandalone:', isStandalone, '| UA:', navigator.userAgent);
 
     if (isIOS) {
       // iOS Safari never fires beforeinstallprompt — show button immediately
-      btn.classList.add('pwa-visible');
+      // Use rAF so the CSS transition fires properly after first paint
+      requestAnimationFrame(() => {
+        btn.classList.add('pwa-visible');
+        console.log('[PWA] iOS install button shown');
+      });
       btn.addEventListener('click', () => {
         tooltip.classList.toggle('ios-tip-visible');
       });
