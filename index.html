@@ -194,15 +194,6 @@
   <img src="pwa_download.png" alt="Install">
 </button>
 
-<!-- ─── iOS Install Tooltip ──────────────────────────────── -->
-<div id="iosInstallTooltip">
-  <div id="iosInstallTooltipInner">
-    <div class="ios-tip-title">Install this app</div>
-    <div class="ios-tip-body">Tap <strong>Share</strong> <span class="ios-tip-share">⎙</span> then <strong>"Add to Home Screen"</strong></div>
-    <button class="ios-tip-close" onclick="document.getElementById('iosInstallTooltip').classList.remove('ios-tip-visible')" aria-label="Dismiss">✕</button>
-  </div>
-  <div class="ios-tip-arrow"></div>
-</div>
 
 
 <script src="js/quiz-data.js"></script>
@@ -221,8 +212,7 @@
 
   // PWA install button logic
   (function () {
-    const btn     = document.getElementById('pwaInstallBtn');
-    const tooltip = document.getElementById('iosInstallTooltip');
+    const btn = document.getElementById('pwaInstallBtn');
     let deferredPrompt = null;
 
     // Don't show if already running as an installed PWA
@@ -243,13 +233,7 @@
         console.log('[PWA] iOS install button shown');
       });
       btn.addEventListener('click', () => {
-        tooltip.classList.toggle('ios-tip-visible');
-      });
-      // Dismiss tooltip on outside click
-      document.addEventListener('click', e => {
-        if (!btn.contains(e.target) && !tooltip.contains(e.target)) {
-          tooltip.classList.remove('ios-tip-visible');
-        }
+        showToast('Tap the Share button ⎙ then "Add to Home Screen"');
       });
     } else {
       // Chrome / Android — use the deferred install prompt
