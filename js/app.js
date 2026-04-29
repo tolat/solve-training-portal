@@ -12,6 +12,10 @@ let currentBlockIndex = null;
 let currentRoleId     = null;
 let materialsTimer    = null;  // auto-refresh signed file URLs every 55 min
 
+// AI-generated quizzes fetched from /api/quizzes — merged with static QUIZ_MAP
+// Keys are block IDs with no dashes, same as QUIZ_MAP
+let dynamicQuizzes = {};
+
 // Colour palette — one distinct colour per pipeline stage (cycles if > 8 stages)
 const STAGE_PALETTE = [
   { color: '#2563eb', bg: 'rgba(37,99,235,0.09)',   border: 'rgba(37,99,235,0.28)' },  // blue
@@ -245,6 +249,9 @@ async function initApp() {
       saveCache(trainingData);
     }
 
+    // Load AI-generated quizzes in parallel (non-blocking)
+    loadDynamicQuizzes();
+
     renderRoles();
     showScreen('screenRoles');
     updateSyncBar();
@@ -278,6 +285,7 @@ async function manualSync() {
       showStageBadge(currentUser.onboardingStage);
     }
     saveCache(trainingData);
+    loadDynamicQuizzes();
     // Refresh the current screen.
     // If inside a role view, rebuild currentBlocks from fresh trainingData so
     // any newly accessible stages (after a stage advance) are included before
@@ -699,7 +707,22 @@ function resetQuiz() {
 
 function getQuiz(block) {
   const key = block.id.replace(/-/g, '');
-  return QUIZ_MAP[key] || genericQuiz(block.name);
+  // Dynamic (AI-generated) quizzes take priority over the static QUIZ_MAP,
+  // with genericQuiz as the final fallback.
+  return dynamicQuizzes[key] || QUIZ_MAP[key] || genericQuiz(block.name);
+}
+
+async function loadDynamicQuizzes() {
+  try {
+    const data = await apiFetch('/api/quizzes');
+    if (data && typeof data === 'object') {
+      dynamicQuizzes = data;
+      console.log(`[Quizzes] Loaded ${Object.keys(dynamicQuizzes).length} AI-generated quiz(zes)`);
+    }
+  } catch (e) {
+    // Non-fatal — static quizzes still work
+    console.warn('[Quizzes] Could not load dynamic quizzes:', e.message);
+  }
 }
 
 function renderQuiz(block, readonly) {

@@ -210,6 +210,136 @@ function getSession(token) {
   return s;
 }
 
+// ─── Generated quiz store ─────────────────────────────────────
+// Persisted to disk so quizzes survive server restarts.
+// Shape: { [blockIdNoDashes]: [ { q, options, correct }, … ] }
+const QUIZ_FILE = path.join(__dirname, 'quizzes-generated.json');
+
+let generatedQuizzes = {};
+
+function loadGeneratedQuizzes() {
+  try {
+    const raw = require('fs').readFileSync(QUIZ_FILE, 'utf8');
+    generatedQuizzes = JSON.parse(raw);
+    console.log(`📚  Loaded generated quizzes for ${Object.keys(generatedQuizzes).length} block(s)`);
+  } catch {
+    generatedQuizzes = {};
+  }
+}
+
+function saveGeneratedQuizzes() {
+  try {
+    require('fs').writeFileSync(QUIZ_FILE, JSON.stringify(generatedQuizzes, null, 2));
+  } catch (e) {
+    console.error('⚠️   Could not save quizzes-generated.json:', e.message);
+  }
+}
+
+loadGeneratedQuizzes();
+
+// ─── AI quiz generation ───────────────────────────────────────
+async function fetchBlockPageText(blockId) {
+  // Pull the Notion page children (text blocks) to give the AI real content
+  try {
+    const data = await notionFetch(`/blocks/${blockId}/children?page_size=100`);
+    const texts = (data.results || [])
+      .map(b => {
+        const rt = b[b.type]?.rich_text || [];
+        return rt.map(t => t.plain_text).join('');
+      })
+      .filter(Boolean);
+    return texts.join('\n');
+  } catch {
+    return '';
+  }
+}
+
+async function generateQuizForBlock(block) {
+  const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+  if (!ANTHROPIC_API_KEY) {
+    console.warn('⚠️   ANTHROPIC_API_KEY not set — skipping quiz generation');
+    return null;
+  }
+
+  const pageText = await fetchBlockPageText(block.id);
+
+  const prompt = `You are writing quiz questions for an employee training portal at Solve Energy, a solar energy company in British Columbia, Canada.
+
+Training Module: ${block.name}${block.policyNo ? `\nPolicy Number: ${block.policyNo}` : ''}${block.notes ? `\nNotes: ${block.notes}` : ''}${pageText ? `\nTraining Content:\n${pageText}` : ''}
+
+Generate 5 multiple-choice quiz questions that test real understanding of this training material. Make them practical and scenario-based where possible — not just definition recall.
+
+Return ONLY a valid JSON array, no markdown fences, no explanation:
+[
+  {
+    "q": "Question text?",
+    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "correct": 2
+  }
+]
+
+Rules:
+- Exactly 4 options per question
+- "correct" is the 0-based index of the correct answer
+- Vary which index is correct across questions — don't always use 0 or 1
+- Questions should be challenging but unambiguous
+- Incorrect options should be plausible, not obviously wrong`;
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 2048,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Anthropic API ${res.status}: ${err}`);
+  }
+
+  const data = await res.json();
+  const text = data.content?.[0]?.text || '';
+
+  // Strip any accidental markdown fences then parse
+  const clean = text.replace(/^```[a-z]*\n?/i, '').replace(/```$/m, '').trim();
+  const questions = JSON.parse(clean);
+
+  if (!Array.isArray(questions) || !questions.length) throw new Error('Empty quiz returned');
+  return questions;
+}
+
+async function regenerateQuizForBlock(blockId) {
+  // Normalise to no-dashes for both cache lookup and storage key
+  const key   = blockId.replace(/-/g, '');
+  const dashId = blockId.includes('-') ? blockId
+    : `${blockId.slice(0,8)}-${blockId.slice(8,12)}-${blockId.slice(12,16)}-${blockId.slice(16,20)}-${blockId.slice(20)}`;
+
+  const block = cache.blocks[dashId] || cache.blocks[blockId] || null;
+  if (!block) {
+    console.warn(`⚠️   regenerateQuizForBlock: block ${blockId} not in cache`);
+    return;
+  }
+
+  console.log(`🤖  Generating quiz for: ${block.name}`);
+  try {
+    const questions = await generateQuizForBlock(block);
+    if (questions) {
+      generatedQuizzes[key] = questions;
+      saveGeneratedQuizzes();
+      console.log(`✅  Quiz generated for "${block.name}" (${questions.length} questions)`);
+    }
+  } catch (e) {
+    console.error(`❌  Quiz generation failed for "${block.name}":`, e.message);
+  }
+}
+
 // ─── Express app ──────────────────────────────────────────────
 const app = express();
 app.use(express.json());
@@ -643,6 +773,66 @@ app.get('/api/block/:blockId/files', requireAuth, async (req, res) => {
     console.error(`❌ /api/block/${req.params.blockId}/files error:`, err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─── GET /api/quizzes ─────────────────────────────────────────
+// Returns all AI-generated quizzes so the frontend can merge them
+// with the static quiz-data.js fallbacks.
+app.get('/api/quizzes', requireAuth, (req, res) => {
+  res.json(generatedQuizzes);
+});
+
+// ─── POST /api/webhook/notion ─────────────────────────────────
+// Called by a Notion Automation whenever a Training Block page changes.
+//
+// Setup in Notion:
+//   Trigger : "Page updated" on the Training Blocks database
+//   Action  : Send HTTP request → POST https://<your-domain>/api/webhook/notion?secret=<WEBHOOK_SECRET>
+//   Body    : { "blockId": "{{Page ID}}" }
+//
+// The endpoint immediately returns 200 and processes in the background
+// so Notion's 10-second webhook timeout is never hit.
+app.post('/api/webhook/notion', async (req, res) => {
+  // Acknowledge immediately — Notion has a short timeout
+  res.json({ ok: true, message: 'Received — processing in background' });
+
+  // ── Background processing ──
+  const blockId = req.body?.id || req.body?.blockId || req.body?.data?.id || null;
+  console.log(`🔔  Notion webhook received${blockId ? ` — block: ${blockId}` : ' (no blockId)'}`);
+
+  try {
+    await refreshCache();
+
+    if (blockId) {
+      await regenerateQuizForBlock(blockId);
+    } else {
+      // No specific block — regenerate quizzes for ALL blocks that have
+      // content (notes or page children), up to a reasonable limit
+      console.log('🤖  No specific blockId — regenerating quizzes for all blocks...');
+      const blockIds = Object.keys(cache.blocks);
+      for (const id of blockIds) {
+        await regenerateQuizForBlock(id);
+      }
+    }
+  } catch (err) {
+    console.error('❌  Webhook processing error:', err.message);
+  }
+});
+
+// ─── POST /api/regenerate-quiz/:blockId ───────────────────────
+// Manual trigger — useful when setting up or testing quiz generation.
+// Protected by the same WEBHOOK_SECRET.
+app.post('/api/regenerate-quiz/:blockId', async (req, res) => {
+  const { blockId } = req.params;
+
+  // Ensure cache is fresh
+  if (Date.now() - cache.ts > CACHE_TTL) await refreshCache();
+
+  res.json({ ok: true, message: `Regenerating quiz for ${blockId} in background` });
+
+  regenerateQuizForBlock(blockId).catch(e =>
+    console.error(`❌  Manual regenerate failed for ${blockId}:`, e.message)
+  );
 });
 
 // ─── Catch-all: serve frontend ────────────────────────────────
