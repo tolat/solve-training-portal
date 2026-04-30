@@ -1,33 +1,38 @@
 /**
  * Solve Energy Training Portal — Service Worker
  * Strategy:
- *   • Static assets  → Cache-first (fast loads, works offline)
- *   • API calls      → Network-first (fresh data when online, fallback offline message)
+ *   • HTML + JS files → Network-first (always get updates, fall back to cache offline)
+ *   • Images + CSS    → Cache-first (fast loads, rarely change)
+ *   • API calls       → Network-first (fresh data when online, fallback offline message)
  */
 
-const CACHE_NAME = 'solve-training-v1';
+const CACHE_NAME = 'solve-training-v2';
 
+// Truly static assets that rarely change — served cache-first
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
   '/css/styles.css',
-  '/js/app.js',
-  '/js/quiz-data.js',
   '/solve_logo.png',
   '/solve_icon.png',
   '/pwa_download.png',
   '/manifest.json',
 ];
 
-// ── Install: pre-cache all static assets ─────────────────────
+// Files that update with each deploy — always network-first
+const NETWORK_FIRST_ASSETS = [
+  '/',
+  '/index.html',
+  '/js/app.js',
+  '/js/quiz-data.js',
+];
+
+// ── Install: pre-cache static assets ─────────────────────────
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
       console.log('[SW] Pre-caching static assets');
-      return cache.addAll(STATIC_ASSETS);
+      return cache.addAll([...STATIC_ASSETS, ...NETWORK_FIRST_ASSETS]);
     })
   );
-  // Activate immediately without waiting for old SW to be replaced
   self.skipWaiting();
 });
 
@@ -45,7 +50,6 @@ self.addEventListener('activate', event => {
       )
     )
   );
-  // Take control of all open tabs immediately
   self.clients.claim();
 });
 
@@ -57,21 +61,25 @@ self.addEventListener('fetch', event => {
   // Only handle same-origin requests
   if (url.origin !== self.location.origin) return;
 
-  // API calls → network-first, with offline fallback JSON
+  // API calls → network-first
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(networkFirstApi(request));
     return;
   }
 
-  // Static assets → cache-first
+  // HTML + JS → network-first (so deploys are picked up immediately)
+  const isAppFile = NETWORK_FIRST_ASSETS.some(p => url.pathname === p || url.pathname === p + '/');
+  if (isAppFile || url.pathname.endsWith('.html') || url.pathname.endsWith('.js')) {
+    event.respondWith(networkFirstStatic(request));
+    return;
+  }
+
+  // Images, CSS, fonts → cache-first
   event.respondWith(cacheFirst(request));
 });
 
-// Cache-first: try cache, fall back to network and update cache
-async function cacheFirst(request) {
-  const cached = await caches.match(request);
-  if (cached) return cached;
-
+// Network-first for app files: fetch fresh, update cache, fall back to cache offline
+async function networkFirstStatic(request) {
   try {
     const response = await fetch(request);
     if (response.ok) {
@@ -80,7 +88,9 @@ async function cacheFirst(request) {
     }
     return response;
   } catch {
-    // If we have no cache and no network, return a simple offline page
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    // Last resort offline page for navigation requests
     return new Response(
       `<!DOCTYPE html><html><head><meta charset="UTF-8">
        <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -106,7 +116,23 @@ async function cacheFirst(request) {
   }
 }
 
-// Network-first: try network, fall back to offline JSON error
+// Cache-first: try cache, fall back to network and update cache
+async function cacheFirst(request) {
+  const cached = await caches.match(request);
+  if (cached) return cached;
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      const cache = await caches.open(CACHE_NAME);
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch {
+    return new Response('Offline', { status: 503 });
+  }
+}
+
+// Network-first for API: fresh data when online, clean error when offline
 async function networkFirstApi(request) {
   try {
     return await fetch(request);
