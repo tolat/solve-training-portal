@@ -266,8 +266,10 @@ async function initApp() {
 // SYNC
 // ============================================================
 async function manualSync() {
-  const btn = document.getElementById('syncNowBtn');
-  if (btn) { btn.classList.add('syncing'); btn.disabled = true; }
+  const btn      = document.getElementById('syncNowBtn');
+  const btnRoles = document.getElementById('syncNowBtnRoles');
+  if (btn)      { btn.classList.add('syncing');      btn.disabled      = true; }
+  if (btnRoles) { btnRoles.classList.add('syncing'); btnRoles.disabled = true; }
   try {
     // Sync returns refreshed employee data (name, onboardingStage) as well as
     // triggering a server-side cache refresh of all training content.
@@ -306,7 +308,8 @@ async function manualSync() {
   } catch (err) {
     showToast('⚠️ Sync failed: ' + err.message);
   } finally {
-    if (btn) { btn.classList.remove('syncing'); btn.disabled = false; }
+    if (btn)      { btn.classList.remove('syncing');      btn.disabled      = false; }
+    if (btnRoles) { btnRoles.classList.remove('syncing'); btnRoles.disabled = false; }
   }
 }
 
@@ -314,6 +317,8 @@ function updateSyncBar() {
   if (!trainingData) return;
   const ago = timeSince(trainingData.syncedAt);
   document.getElementById('syncBarText').textContent = `Last synced: ${ago}`;
+  const rolesText = document.getElementById('syncBarRolesText');
+  if (rolesText) rolesText.textContent = `Last synced: ${ago}`;
 }
 
 function timeSince(ts) {
