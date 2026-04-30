@@ -835,6 +835,42 @@ app.post('/api/regenerate-quiz/:blockId', async (req, res) => {
   );
 });
 
+// ─── POST /api/webhook/notion/role ───────────────────────────
+// Called by a Notion Automation when a Role is created or updated.
+// Just refreshes the cache so the new role is available immediately.
+//
+// Setup in Notion:
+//   Trigger : "Page added" (or "Page updated") on the Roles database
+//   Action  : Send HTTP request → POST https://<your-domain>/api/webhook/notion/role
+app.post('/api/webhook/notion/role', async (req, res) => {
+  res.json({ ok: true, message: 'Received — refreshing cache in background' });
+  console.log('🔔  Notion webhook: new/updated Role — refreshing cache');
+  try {
+    await refreshCache();
+    console.log('✅  Cache refreshed after Role change');
+  } catch (err) {
+    console.error('❌  Cache refresh failed (role webhook):', err.message);
+  }
+});
+
+// ─── POST /api/webhook/notion/profile ────────────────────────
+// Called by a Notion Automation when a Training Profile is created or updated.
+// Refreshes the cache so the new profile and its blocks are picked up.
+//
+// Setup in Notion:
+//   Trigger : "Page added" (or "Page updated") on the Training Profiles database
+//   Action  : Send HTTP request → POST https://<your-domain>/api/webhook/notion/profile
+app.post('/api/webhook/notion/profile', async (req, res) => {
+  res.json({ ok: true, message: 'Received — refreshing cache in background' });
+  console.log('🔔  Notion webhook: new/updated Training Profile — refreshing cache');
+  try {
+    await refreshCache();
+    console.log('✅  Cache refreshed after Training Profile change');
+  } catch (err) {
+    console.error('❌  Cache refresh failed (profile webhook):', err.message);
+  }
+});
+
 // ─── Catch-all: serve frontend ────────────────────────────────
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
