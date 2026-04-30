@@ -414,6 +414,50 @@ app.post('/api/logout', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── POST /api/change-password ───────────────────────────────
+app.post('/api/change-password', requireAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current and new password are required.' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+    }
+
+    const { email, pageId } = req.session;
+
+    // Look up the user's current stored password
+    const results = await queryAll(DB.companyDirectory, {
+      property: 'Email',
+      email: { equals: email },
+    });
+    if (!results.length) return res.status(404).json({ error: 'User not found.' });
+
+    const user     = results[0];
+    const storedPw = richText(prop(user, 'Training Portal Password')) || 'solveenergy';
+
+    if (storedPw !== currentPassword) {
+      return res.status(401).json({ error: 'Current password is incorrect.' });
+    }
+
+    // Update the password in Notion
+    await notionFetch(`/pages/${user.id}`, 'PATCH', {
+      properties: {
+        'Training Portal Password': {
+          rich_text: [{ text: { content: newPassword } }],
+        },
+      },
+    });
+
+    console.log(`🔑  Password changed for ${email}`);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Change-password error:', err.message);
+    res.status(500).json({ error: 'Failed to change password: ' + err.message });
+  }
+});
+
 // ─── POST /api/forgot-password ───────────────────────────────
 // Looks up the user by email in Company Directory and sends their
 // Training Portal Password to that address.  Always returns 200 so
@@ -442,12 +486,7 @@ app.post('/api/forgot-password', async (req, res) => {
 
     const user     = results[0];
     const name     = titleTxt(prop(user, 'Name'));
-    const password = richText(prop(user, 'Training Portal Password'));
-
-    if (!password) {
-      console.log(`🔑  Forgot-password: no password set for ${email}`);
-      return res.json({ message: generic });
-    }
+    const password = richText(prop(user, 'Training Portal Password')) || 'solveenergy';
 
     const from = process.env.SMTP_FROM || process.env.SMTP_USER;
     await mailer.sendMail({

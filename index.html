@@ -28,7 +28,10 @@
       <img src="solve_logo.png" alt="Solve Energy">
       <span>Training Portal</span>
     </div>
-    <span class="header-user" id="headerUser"></span>
+    <button class="header-profile-btn" id="headerProfileBtn" onclick="showProfile()" aria-label="My profile">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+      <span id="headerUser"></span>
+    </button>
   </div>
   <!-- Controls: right of name on desktop · second thin bar on mobile -->
   <div class="header-controls">
@@ -187,6 +190,40 @@
     <div class="completion-title">Training Complete!</div>
     <div class="completion-sub" id="completionSub"></div>
     <div class="completion-list" id="completionList"></div>
+  </div>
+</div>
+
+<!-- ─── SCREEN: Profile ──────────────────────────────────── -->
+<div class="screen" id="screenProfile">
+  <div class="profile-card">
+    <div class="profile-avatar" id="profileAvatar"></div>
+    <div class="profile-name" id="profileName"></div>
+    <div class="profile-email" id="profileEmail"></div>
+
+    <div class="profile-section">
+      <div class="profile-section-title">Details</div>
+      <div class="profile-row"><span class="profile-label">Role(s)</span><span class="profile-val" id="profileRoles">—</span></div>
+      <div class="profile-row"><span class="profile-label">Onboarding stage</span><span class="profile-val" id="profileStage">—</span></div>
+    </div>
+
+    <div class="profile-section">
+      <div class="profile-section-title">Change Password</div>
+      <div class="profile-error" id="profileError"></div>
+      <div class="profile-success" id="profileSuccess"></div>
+      <div class="form-group">
+        <label class="form-label" for="pwCurrent">Current password</label>
+        <input class="form-input" type="password" id="pwCurrent" placeholder="Your current password" autocomplete="current-password">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="pwNew">New password</label>
+        <input class="form-input" type="password" id="pwNew" placeholder="At least 6 characters" autocomplete="new-password">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="pwConfirm">Confirm new password</label>
+        <input class="form-input" type="password" id="pwConfirm" placeholder="Repeat new password" autocomplete="new-password">
+      </div>
+      <button class="btn btn-primary" id="btnChangePassword" onclick="doChangePassword()">Update Password</button>
+    </div>
   </div>
 </div>
 

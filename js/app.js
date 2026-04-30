@@ -903,6 +903,14 @@ function goBack() {
   // Always stop the materials refresh timer when navigating away from a block
   if (materialsTimer) { clearInterval(materialsTimer); materialsTimer = null; }
 
+  // Profile screen always goes back to roles
+  const active = document.querySelector('.screen.active')?.id;
+  if (active === 'screenProfile') {
+    document.getElementById('headerBack').style.display = 'none';
+    showScreen('screenRoles');
+    return;
+  }
+
   if (currentRoleId) {
     const active = document.querySelector('.screen.active')?.id;
     if (active === 'screenBlock') {
@@ -924,6 +932,75 @@ function goBack() {
       // Hide back button if on course screen
       document.getElementById('headerBack').style.display = 'none';
     }
+  }
+}
+
+// ============================================================
+// PROFILE
+// ============================================================
+function showProfile() {
+  if (!currentUser || !trainingData) return;
+
+  // Avatar initials
+  const initials = (currentUser.name || '?')
+    .split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  document.getElementById('profileAvatar').textContent = initials;
+  document.getElementById('profileName').textContent   = currentUser.name || '—';
+  document.getElementById('profileEmail').textContent  = currentUser.email || '—';
+
+  // Roles
+  const roleNames = (trainingData.roles || []).map(r => r.name).join(', ') || '—';
+  document.getElementById('profileRoles').textContent = roleNames;
+
+  // Stage
+  document.getElementById('profileStage').textContent = currentUser.onboardingStage || '—';
+
+  // Clear password fields and messages
+  ['pwCurrent', 'pwNew', 'pwConfirm'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('profileError').className   = 'profile-error';
+  document.getElementById('profileSuccess').className = 'profile-success';
+
+  document.getElementById('headerBack').style.display = 'inline-flex';
+  showScreen('screenProfile');
+}
+
+async function doChangePassword() {
+  const errEl  = document.getElementById('profileError');
+  const okEl   = document.getElementById('profileSuccess');
+  const btnEl  = document.getElementById('btnChangePassword');
+  errEl.className  = 'profile-error';
+  okEl.className   = 'profile-success';
+
+  const current  = document.getElementById('pwCurrent').value;
+  const newPw    = document.getElementById('pwNew').value;
+  const confirm  = document.getElementById('pwConfirm').value;
+
+  if (!current || !newPw || !confirm) {
+    errEl.textContent = 'Please fill in all three fields.';
+    errEl.className   = 'profile-error show'; return;
+  }
+  if (newPw !== confirm) {
+    errEl.textContent = 'New passwords do not match.';
+    errEl.className   = 'profile-error show'; return;
+  }
+  if (newPw.length < 6) {
+    errEl.textContent = 'New password must be at least 6 characters.';
+    errEl.className   = 'profile-error show'; return;
+  }
+
+  btnEl.disabled    = true;
+  btnEl.textContent = 'Updating…';
+  try {
+    await apiFetch('/api/change-password', 'POST', { currentPassword: current, newPassword: newPw });
+    okEl.textContent = '✅ Password updated successfully.';
+    okEl.className   = 'profile-success show';
+    ['pwCurrent', 'pwNew', 'pwConfirm'].forEach(id => document.getElementById(id).value = '');
+  } catch (e) {
+    errEl.textContent = e.message || 'Failed to update password.';
+    errEl.className   = 'profile-error show';
+  } finally {
+    btnEl.disabled    = false;
+    btnEl.textContent = 'Update Password';
   }
 }
 
