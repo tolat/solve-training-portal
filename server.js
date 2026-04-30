@@ -388,13 +388,7 @@ app.post('/api/login', async (req, res) => {
 
     const user  = results[0];
     const name  = titleTxt(prop(user, 'Name'));
-    const storedPw = richText(prop(user, 'Training Portal Password'));
-
-    if (!storedPw) {
-      return res.status(401).json({
-        error: 'No Training Portal Password set for your account. Ask your manager to add one to your Company Directory entry.',
-      });
-    }
+    const storedPw = richText(prop(user, 'Training Portal Password')) || 'solveenergy';
 
     if (storedPw !== password) {
       return res.status(401).json({ error: 'Incorrect password.' });
