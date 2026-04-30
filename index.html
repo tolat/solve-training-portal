@@ -195,36 +195,53 @@
 
 <!-- ─── SCREEN: Profile ──────────────────────────────────── -->
 <div class="screen" id="screenProfile">
-  <div class="profile-card">
-    <div class="profile-avatar" id="profileAvatar"></div>
-    <div class="profile-name" id="profileName"></div>
-    <div class="profile-email" id="profileEmail"></div>
 
-    <div class="profile-section">
-      <div class="profile-section-title">Details</div>
-      <div class="profile-row"><span class="profile-label">Role(s)</span><span class="profile-val" id="profileRoles">—</span></div>
-      <div class="profile-row"><span class="profile-label">Onboarding stage</span><span class="profile-val" id="profileStage">—</span></div>
-    </div>
-
-    <div class="profile-section">
-      <div class="profile-section-title">Change Password</div>
-      <div class="profile-error" id="profileError"></div>
-      <div class="profile-success" id="profileSuccess"></div>
-      <div class="form-group">
-        <label class="form-label" for="pwCurrent">Current password</label>
-        <input class="form-input" type="password" id="pwCurrent" placeholder="Your current password" autocomplete="current-password">
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="pwNew">New password</label>
-        <input class="form-input" type="password" id="pwNew" placeholder="At least 6 characters" autocomplete="new-password">
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="pwConfirm">Confirm new password</label>
-        <input class="form-input" type="password" id="pwConfirm" placeholder="Repeat new password" autocomplete="new-password">
-      </div>
-      <button class="btn btn-primary" id="btnChangePassword" onclick="doChangePassword()">Update Password</button>
+  <!-- Avatar + name banner — reuses course-header card -->
+  <div class="course-header" style="display:flex;align-items:center;gap:18px;margin-bottom:16px;">
+    <div id="profileAvatar" style="width:56px;height:56px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:#fff;flex-shrink:0;"></div>
+    <div>
+      <div style="font-size:20px;font-weight:700;color:var(--text);" id="profileName"></div>
+      <div style="font-size:13px;color:var(--gray);margin-top:2px;" id="profileEmail"></div>
     </div>
   </div>
+
+  <!-- Details card -->
+  <div class="block-card" style="margin-bottom:16px;">
+    <div class="block-header" style="margin-bottom:14px;">
+      <div class="block-title">Details</div>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);font-size:14px;">
+      <span style="color:var(--gray);">Role(s)</span>
+      <span style="font-weight:500;color:var(--text);text-align:right;" id="profileRoles">—</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:10px 0;font-size:14px;">
+      <span style="color:var(--gray);">Onboarding stage</span>
+      <span style="font-weight:500;color:var(--text);text-align:right;" id="profileStage">—</span>
+    </div>
+  </div>
+
+  <!-- Change password card -->
+  <div class="block-card">
+    <div class="block-header" style="margin-bottom:16px;">
+      <div class="block-title">Change Password</div>
+    </div>
+    <div class="login-error" id="profileError"></div>
+    <div class="forgot-success" id="profileSuccess"></div>
+    <div class="form-group">
+      <label class="form-label" for="pwCurrent">Current password</label>
+      <input class="form-input" type="password" id="pwCurrent" placeholder="Your current password" autocomplete="current-password">
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="pwNew">New password</label>
+      <input class="form-input" type="password" id="pwNew" placeholder="At least 6 characters" autocomplete="new-password">
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="pwConfirm">Confirm new password</label>
+      <input class="form-input" type="password" id="pwConfirm" placeholder="Repeat new password" autocomplete="new-password">
+    </div>
+    <button class="btn btn-primary" id="btnChangePassword" onclick="doChangePassword()" style="margin-top:4px;">Update Password</button>
+  </div>
+
 </div>
 
 <!-- ─── Toast ────────────────────────────────────────────── -->

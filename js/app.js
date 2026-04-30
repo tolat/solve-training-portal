@@ -957,8 +957,8 @@ function showProfile() {
 
   // Clear password fields and messages
   ['pwCurrent', 'pwNew', 'pwConfirm'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('profileError').className   = 'profile-error';
-  document.getElementById('profileSuccess').className = 'profile-success';
+  document.getElementById('profileError').className   = 'login-error';
+  document.getElementById('profileSuccess').className = 'forgot-success';
 
   document.getElementById('headerBack').style.display = 'inline-flex';
   showScreen('screenProfile');
@@ -968,8 +968,8 @@ async function doChangePassword() {
   const errEl  = document.getElementById('profileError');
   const okEl   = document.getElementById('profileSuccess');
   const btnEl  = document.getElementById('btnChangePassword');
-  errEl.className  = 'profile-error';
-  okEl.className   = 'profile-success';
+  errEl.className  = 'login-error';
+  okEl.className   = 'forgot-success';
 
   const current  = document.getElementById('pwCurrent').value;
   const newPw    = document.getElementById('pwNew').value;
@@ -977,15 +977,15 @@ async function doChangePassword() {
 
   if (!current || !newPw || !confirm) {
     errEl.textContent = 'Please fill in all three fields.';
-    errEl.className   = 'profile-error show'; return;
+    errEl.className   = 'login-error show'; return;
   }
   if (newPw !== confirm) {
     errEl.textContent = 'New passwords do not match.';
-    errEl.className   = 'profile-error show'; return;
+    errEl.className   = 'login-error show'; return;
   }
   if (newPw.length < 6) {
     errEl.textContent = 'New password must be at least 6 characters.';
-    errEl.className   = 'profile-error show'; return;
+    errEl.className   = 'login-error show'; return;
   }
 
   btnEl.disabled    = true;
@@ -993,11 +993,11 @@ async function doChangePassword() {
   try {
     await apiFetch('/api/change-password', 'POST', { currentPassword: current, newPassword: newPw });
     okEl.textContent = '✅ Password updated successfully.';
-    okEl.className   = 'profile-success show';
+    okEl.className   = 'forgot-success show';
     ['pwCurrent', 'pwNew', 'pwConfirm'].forEach(id => document.getElementById(id).value = '');
   } catch (e) {
     errEl.textContent = e.message || 'Failed to update password.';
-    errEl.className   = 'profile-error show';
+    errEl.className   = 'login-error show';
   } finally {
     btnEl.disabled    = false;
     btnEl.textContent = 'Update Password';
