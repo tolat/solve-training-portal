@@ -772,6 +772,94 @@ app.post('/api/sync', requireAuth, async (req, res) => {
   }
 });
 
+// ─── GET /api/debug/user?email= ──────────────────────────────
+// Diagnostic endpoint — call this to understand why a user's block
+// count differs between Notion and the portal.
+// e.g. GET /api/debug/user?email=steven@solveenergy.ca
+app.get('/api/debug/user', async (req, res) => {
+  try {
+    const { email } = req.query;
+    if (!email) return res.status(400).json({ error: 'email query param required' });
+
+    if (Date.now() - cache.ts > CACHE_TTL) await refreshCache();
+
+    // Look up the user
+    const results = await queryAll(DB.companyDirectory, {
+      property: 'Email',
+      email: { equals: email.toLowerCase().trim() },
+    });
+    if (!results.length) return res.status(404).json({ error: 'User not found in Company Directory' });
+
+    const user            = results[0];
+    const name            = titleTxt(prop(user, 'Name'));
+    const roleIds         = relIds(prop(user, 'Roles'));
+    const onboardingStage = prop(user, 'Ordered Onboarding Stage')?.select?.name || null;
+    const userPageId      = user.id;
+
+    // 1. Blocks from role chain
+    const seen = new Set();
+    const roleChainBlocks = [];
+    const roleDetail = [];
+    for (const roleId of roleIds) {
+      const role = cache.roles[roleId];
+      if (!role) { roleDetail.push({ roleId, found: false }); continue; }
+      const profileDetail = [];
+      for (const profileId of role.profileIds) {
+        const profile = cache.profiles[profileId];
+        if (!profile) { profileDetail.push({ profileId, found: false }); continue; }
+        const blocksMapped = [], blocksMissing = [];
+        for (const blockId of profile.blockIds) {
+          if (seen.has(blockId)) continue;
+          seen.add(blockId);
+          if (cache.blocks[blockId]) { roleChainBlocks.push(blockId); blocksMapped.push(blockId); }
+          else blocksMissing.push(blockId);
+        }
+        profileDetail.push({ profileId, name: profile.name, blocksMapped: blocksMapped.length, blocksMissing });
+      }
+      roleDetail.push({ roleId, name: role.name, profiles: profileDetail });
+    }
+
+    // 2. Training records
+    const recordPages = await queryAll(DB.trainingRecords, {
+      property: 'Employee',
+      relation: { contains: userPageId },
+    });
+
+    const recordsInCache = [], recordsNotInCache = [], recordsNoBlock = [];
+    for (const r of recordPages) {
+      const blockRel = relIds(prop(r, 'Training Block'));
+      if (!blockRel.length) { recordsNoBlock.push(r.id); continue; }
+      const blockId = blockRel[0];
+      if (cache.blocks[blockId]) recordsInCache.push({ recordId: r.id, blockId, blockName: cache.blocks[blockId].name });
+      else recordsNotInCache.push({ recordId: r.id, blockId });
+    }
+
+    // 3. Supplement blocks (in records but not in role chain)
+    const supplementBlocks = recordsInCache.filter(r => !seen.has(r.blockId));
+
+    res.json({
+      user: { name, email, onboardingStage, roleCount: roleIds.length },
+      summary: {
+        cacheBlocksTotal:      Object.keys(cache.blocks).length,
+        roleChainBlocks:       roleChainBlocks.length,
+        trainingRecordsTotal:  recordPages.length,
+        recordsWithNoBlock:    recordsNoBlock.length,
+        recordsBlockInCache:   recordsInCache.length,
+        recordsBlockNotInCache: recordsNotInCache.length,
+        supplementBlocks:      supplementBlocks.length,
+        portalTotalWouldShow:  roleChainBlocks.length + supplementBlocks.length,
+      },
+      // These are the records whose blocks exist in Notion but aren't loaded
+      // in the cache — root cause of most discrepancies
+      recordsBlockNotInCache,
+      roles: roleDetail,
+    });
+  } catch (err) {
+    console.error('Debug user error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── GET /api/block/:blockId/files ────────────────────────
 app.get('/api/block/:blockId/files', requireAuth, async (req, res) => {
   try {
