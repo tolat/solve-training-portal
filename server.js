@@ -643,6 +643,7 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
 
     // Build roles array with their deduplicated block IDs
     const roles = [];
+    const allRoleBlockIds = new Set(); // track every block already in a real role
     for (const roleId of roleIds) {
       const role = cache.roles[roleId];
       if (!role) continue;
@@ -653,6 +654,7 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
         for (const blockId of profile.blockIds) {
           if (cache.blocks[blockId]) {
             blockIds.add(blockId);
+            allRoleBlockIds.add(blockId);
           }
         }
       }
@@ -660,6 +662,20 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
         id: role.id,
         name: role.name,
         blockIds: Array.from(blockIds),
+      });
+    }
+
+    // Any blocks that exist in training records but aren't in any role's chain
+    // get surfaced as a virtual "Other Assigned Trainings" role so the
+    // frontend renders them without needing any changes.
+    const supplementBlockIds = blocks
+      .filter(b => !allRoleBlockIds.has(b.id))
+      .map(b => b.id);
+    if (supplementBlockIds.length) {
+      roles.push({
+        id: '__supplement__',
+        name: 'Other Assigned Trainings',
+        blockIds: supplementBlockIds,
       });
     }
 
