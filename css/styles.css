@@ -530,7 +530,7 @@
   .roles-subtitle { font-size: 13px; color: var(--gray); margin-top: 4px; }
   .roles-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: 1fr;
     gap: 16px;
     padding: 16px 24px 32px;
   }
