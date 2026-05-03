@@ -342,10 +342,12 @@ function renderRoles() {
   // only E-stages, only up to the employee's current stage ordering.
   const empOrdering = trainingData.employeeStageOrdering ?? 999;
   function isVisibleBlock(b) {
-    // Blocks with training records but no role assignment get stageName 'Other'
-    // or similar — always show those regardless of stage name / ordering filters.
+    // Always show blocks with no stage assignment (supplement/other)
     if (b.stageOrdering === 999) return true;
-    if (!(b.stageName || '').trimStart().toUpperCase().startsWith('E')) return false;
+    // Only show blocks that belong to at least one employee (E-prefixed) stage.
+    // Blocks linked to only contractor/roofing stages are not shown to employees.
+    if (!b.hasEmployeeStage) return false;
+    // Don't show blocks from stages beyond the employee's current progression
     if (empOrdering < 999 && b.stageOrdering > empOrdering) return false;
     return true;
   }

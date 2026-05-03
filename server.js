@@ -145,12 +145,18 @@ async function refreshCache() {
     const stageIds      = relIds(prop(p, 'Pipeline Stages'));
     let stageOrdering   = 999;
     let stageName       = 'Other';
+    // Determine if ANY linked stage is an Employee stage (starts with 'E')
+    const isEStage = n => (n || '').trimStart().toUpperCase().startsWith('E');
+    const hasEmployeeStage = stageIds.some(id => isEStage(stageMap[id]?.name));
+
     if (stageIds.length) {
-      stageOrdering = Math.min(...stageIds.map(id => stageOrderMap[id] ?? 999));
-      // Look up the name via the specific stage ID that has the minimum ordering.
-      // DO NOT search by ordering number — multiple pipeline stages (Employee, Solar,
-      // Roofing, Contractor) share the same ordering value, so we'd get the wrong one.
-      const minStageId = stageIds.find(id => (stageOrderMap[id] ?? 999) === stageOrdering);
+      // For ordering/display: prefer the minimum E-stage if one exists,
+      // otherwise fall back to the global minimum. This prevents a contractor
+      // stage (e.g. C1) from masking an employee stage at the same ordering.
+      const eStageIds = stageIds.filter(id => isEStage(stageMap[id]?.name));
+      const candidateIds = eStageIds.length ? eStageIds : stageIds;
+      stageOrdering = Math.min(...candidateIds.map(id => stageOrderMap[id] ?? 999));
+      const minStageId = candidateIds.find(id => (stageOrderMap[id] ?? 999) === stageOrdering);
       stageName = (minStageId && stageMap[minStageId]?.name) || 'Other';
     }
 
@@ -163,6 +169,7 @@ async function refreshCache() {
       types:        prop(p, 'Type')?.multi_select?.map(s => s.name) || [],
       stageOrdering,
       stageName,
+      hasEmployeeStage,
       stageIds, // keep for debugging
     };
   }
