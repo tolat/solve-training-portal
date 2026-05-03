@@ -851,7 +851,7 @@ app.get('/api/debug/user', async (req, res) => {
       },
       // These are the records whose blocks exist in Notion but aren't loaded
       // in the cache — root cause of most discrepancies
-      recordsBlockNotInCache,
+      recordsBlockNotInCache: recordsNotInCache,
       roles: roleDetail,
     });
   } catch (err) {
