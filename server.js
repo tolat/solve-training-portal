@@ -827,10 +827,14 @@ app.get('/api/debug/user', async (req, res) => {
         for (const blockId of profile.blockIds) {
           if (seen.has(blockId)) continue;
           seen.add(blockId);
-          if (cache.blocks[blockId]) { roleChainBlocks.push(blockId); blocksMapped.push(blockId); }
+          if (cache.blocks[blockId]) {
+            roleChainBlocks.push(blockId);
+            const b = cache.blocks[blockId];
+            blocksMapped.push({ id: blockId, name: b.name, stageName: b.stageName, stageOrdering: b.stageOrdering });
+          }
           else blocksMissing.push(blockId);
         }
-        profileDetail.push({ profileId, name: profile.name, blocksMapped: blocksMapped.length, blocksMissing });
+        profileDetail.push({ profileId, name: profile.name, blocksMapped, blocksMissing });
       }
       roleDetail.push({ roleId, name: role.name, profiles: profileDetail });
     }
