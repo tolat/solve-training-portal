@@ -88,6 +88,26 @@ async function notionFetch(endpoint, method = 'GET', body = null) {
   return data;
 }
 
+/**
+ * Get ALL ids from a relation property, following Notion's 25-item pagination.
+ * Notion caps relation properties at 25 items per page fetch; extra items need
+ * a separate call to /pages/{pageId}/properties/{propId}.
+ */
+async function getAllRelationIds(pageId, propValue) {
+  const ids = (propValue?.relation || []).map(r => r.id);
+  if (!propValue?.has_more) return ids;
+
+  const propId = propValue.id;
+  let cursor   = propValue.next_cursor;
+  while (cursor) {
+    const url  = `/pages/${pageId}/properties/${propId}?page_size=100&start_cursor=${encodeURIComponent(cursor)}`;
+    const res  = await notionFetch(url);
+    (res.results || []).forEach(r => { if (r.relation?.id) ids.push(r.relation.id); });
+    cursor = res.has_more ? res.next_cursor : null;
+  }
+  return ids;
+}
+
 /** Query an entire database, following pagination cursors */
 async function queryAll(dbId, filter = null) {
   const pages = [];
@@ -141,8 +161,9 @@ async function refreshCache() {
     const name = titleTxt(prop(s, 'Stage'))
               || prop(s, 'Ordered Pipeline Stage')?.select?.name
               || `Stage ${ordering}`;
-    const stageType = prop(s, 'Stage Type')?.select?.name || null;
-    stageMap[s.id] = { name, ordering, stageType };
+    // Stage Type is a multi_select — a stage can belong to multiple types
+    const stageTypes = (prop(s, 'Stage Type')?.multi_select || []).map(t => t.name);
+    stageMap[s.id] = { name, ordering, stageTypes };
   }
 
   // Derived lookups
@@ -160,27 +181,32 @@ async function refreshCache() {
 
   const blocks = {};
   for (const p of blockPages) {
-    // Find the minimum ordering value across all associated pipeline stages
-    const stageIds      = relIds(prop(p, 'Pipeline Stages'));
-    let stageOrdering   = 999;
-    let stageName       = 'Other';
-    // A block is visible to employees/contractors if ANY linked stage has
-    // Stage Type = "Employee" or "Contractor".
-    const isEmployeeOrContractorStage = id => {
-      const t = stageMap[id]?.stageType;
-      return t === 'Employee' || t === 'Contractor';
-    };
-    const hasEmployeeStage = stageIds.some(isEmployeeOrContractorStage);
+    // Compute stage info separately for Employee and Contractor stage types.
+    // A block may be linked to stages of multiple types (e.g. Employee + Contractor).
+    // We store independent ordering/name for each so the frontend can filter correctly
+    // depending on whether the current role imports contractor trainings or not.
+    const stageIds = relIds(prop(p, 'Pipeline Stages'));
 
-    if (stageIds.length) {
-      // For ordering/display: prefer Employee/Contractor stages over others.
-      // This prevents e.g. a Roofing stage from masking an Employee stage.
-      const empStageIds = stageIds.filter(isEmployeeOrContractorStage);
-      const candidateIds = empStageIds.length ? empStageIds : stageIds;
-      stageOrdering = Math.min(...candidateIds.map(id => stageOrderMap[id] ?? 999));
-      const minStageId = candidateIds.find(id => (stageOrderMap[id] ?? 999) === stageOrdering);
-      stageName = (minStageId && stageMap[minStageId]?.name) || 'Other';
-    }
+    const stagesByType = (type) => stageIds.filter(id => (stageMap[id]?.stageTypes || []).includes(type));
+
+    const minStageInfo = (ids) => {
+      if (!ids.length) return { ordering: 999, name: null };
+      const ordering  = Math.min(...ids.map(id => stageOrderMap[id] ?? 999));
+      const minId     = ids.find(id => (stageOrderMap[id] ?? 999) === ordering);
+      const name      = (minId && stageMap[minId]?.name) || null;
+      return { ordering, name };
+    };
+
+    const empInfo = minStageInfo(stagesByType('Employee'));
+    const ctrInfo = minStageInfo(stagesByType('Contractor'));
+
+    const hasEmployeeStage   = empInfo.ordering < 999;
+    const hasContractorStage = ctrInfo.ordering < 999;
+
+    // stageOrdering: employee ordering if available, contractor fallback for sorting
+    // stageName: employee stage name ONLY — never fall back to contractor stage name
+    const stageOrdering = empInfo.ordering < 999 ? empInfo.ordering : ctrInfo.ordering;
+    const stageName     = empInfo.name || 'Other';
 
     blocks[p.id] = {
       id: p.id,
@@ -189,19 +215,29 @@ async function refreshCache() {
       notes:        richText(prop(p, 'Notes')),
       policyNo:     prop(p, 'Policy No.')?.select?.name || null,
       types:        prop(p, 'Type')?.multi_select?.map(s => s.name) || [],
-      stageOrdering,
-      stageName,
+      stageOrdering,          // employee ordering (primary sort key)
+      stageName,              // employee stage name (primary display)
       hasEmployeeStage,
-      stageIds, // keep for debugging
+      hasContractorStage,
+      contractorStageOrdering: ctrInfo.ordering,  // for contractor role filtering
+      contractorStageName:     ctrInfo.name,
+      stageIds,
     };
   }
 
+  // Build profiles — query Training Blocks by profile relation rather than
+  // reading the profile's own Training Blocks property, which Notion caps at 25.
+  // Querying from the blocks side returns ALL blocks that reference each profile.
+  const allBlockPages = blockPages; // already loaded above
   const profiles = {};
   for (const p of profilePages) {
+    const profileBlockIds = allBlockPages
+      .filter(b => relIds(prop(b, 'Training Profiles')).includes(p.id))
+      .map(b => b.id);
     profiles[p.id] = {
       id:       p.id,
       name:     titleTxt(prop(p, 'Name')),
-      blockIds: relIds(prop(p, 'Training Blocks')),
+      blockIds: profileBlockIds,
     };
   }
 
@@ -711,9 +747,10 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
         }
       }
       roles.push({
-        id: role.id,
-        name: role.name,
-        blockIds: Array.from(blockIds),
+        id:                       role.id,
+        name:                     role.name,
+        blockIds:                 Array.from(blockIds),
+        importContractorTrainings: role.importContractorTrainings || false,
       });
     }
 
