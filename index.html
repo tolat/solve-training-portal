@@ -16,6 +16,52 @@
 
 <link rel="icon" href="solve_icon.png" type="image/png">
 <link rel="stylesheet" href="css/styles.css">
+<style>
+  #uploadDropZone {
+    border: 2px dashed var(--border, rgba(0,0,0,0.15));
+    border-radius: 10px;
+    padding: 28px 16px;
+    text-align: center;
+    margin: 16px 0;
+    transition: border-color 0.15s, background 0.15s;
+    cursor: pointer;
+  }
+  #uploadDropZone.drag-over {
+    border-color: var(--green, #2a9640);
+    background: var(--green-light, rgba(42,150,64,0.06));
+  }
+  #uploadDropZone input[type="file"] { display: none; }
+  #uploadLabel {
+    display: block;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--gray, #64748b);
+  }
+  #uploadLabel:hover { color: var(--green, #2a9640); }
+  #uploadFileList { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .upload-file-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--green-light, rgba(42,150,64,0.07));
+    border: 1px solid var(--green, #2a9640);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    color: var(--text, #1e293b);
+  }
+  .upload-file-item .remove-file {
+    margin-left: auto;
+    cursor: pointer;
+    color: var(--gray, #64748b);
+    font-size: 16px;
+    line-height: 1;
+    background: none;
+    border: none;
+    padding: 0 2px;
+  }
+  .upload-file-item .remove-file:hover { color: var(--danger, #ef4444); }
+</style>
 </head>
 <body>
 
@@ -167,6 +213,23 @@
 
   <div class="block-card">
     <div id="blockMaterials"></div>
+  </div>
+
+  <!-- Document Upload section — shown instead of quiz for Document Upload blocks -->
+  <div class="block-card quiz-section" id="uploadSection">
+    <div class="quiz-title">📎 Certificate Upload</div>
+    <div class="quiz-sub">Upload your certificate or supporting documents to complete this training module.</div>
+    <div id="uploadDropZone">
+      <input type="file" id="uploadFileInput" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png">
+      <label for="uploadFileInput" id="uploadLabel">
+        <span id="uploadLabelText">Click to select files or drag and drop here</span>
+      </label>
+      <div id="uploadFileList"></div>
+    </div>
+    <div class="quiz-submit">
+      <button class="btn btn-primary" id="btnSubmitUpload" onclick="submitUpload()">Submit Certificate</button>
+    </div>
+    <div class="quiz-result" id="uploadResult"></div>
   </div>
 
   <div class="block-card quiz-section" id="quizSection">

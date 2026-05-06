@@ -342,10 +342,12 @@ function renderRoles() {
   // only E-stages, only up to the employee's current stage ordering.
   const empOrdering = trainingData.employeeStageOrdering ?? 999;
   function isVisibleBlock(b) {
+    // Always show contractor blocks — they use contractor pipeline stages, not E-stages
+    if (b.isContractorBlock) return true;
     // Always show blocks with no stage assignment (supplement/other)
     if (b.stageOrdering === 999) return true;
-    // Only show blocks that belong to at least one employee (E-prefixed) stage.
-    // Blocks linked to only contractor/roofing stages are not shown to employees.
+    // Only show blocks with an Employee or Contractor stage type.
+    // Blocks linked only to Solar/Roofing/Dealer stages are not shown.
     if (!b.hasEmployeeStage) return false;
     // Don't show blocks from stages beyond the employee's current progression
     if (empOrdering < 999 && b.stageOrdering > empOrdering) return false;
@@ -417,15 +419,19 @@ function renderCourse(blocksOverride) {
   const { completedMap } = trainingData;
   const allBlocks = blocksOverride || trainingData.blocks;
 
-  // ── Filter to pipeline stages starting with "E" only ──────────
-  const eBlocks = allBlocks.filter(b => (b.stageName || '').trimStart().toUpperCase().startsWith('E'));
-
-  // ── Filter to stages the employee has reached ──────────────────
-  // employeeStageOrdering: numeric ordering of their current stage (999 = no stage set → show all)
+  // ── Filter to visible blocks ───────────────────────────────────
   const empOrdering = trainingData.employeeStageOrdering ?? 999;
-  const blocks = empOrdering < 999
-    ? eBlocks.filter(b => b.stageOrdering <= empOrdering)
-    : eBlocks;
+  const blocks = allBlocks.filter(b => {
+    // Always show contractor blocks — their stages don't start with 'E'
+    if (b.isContractorBlock) return true;
+    // Always show unassigned blocks (stageOrdering 999)
+    if (b.stageOrdering === 999) return true;
+    // Only show blocks with an Employee or Contractor stage type
+    if (!b.hasEmployeeStage) return false;
+    // Don't show stages beyond the employee's current progression
+    if (empOrdering < 999 && b.stageOrdering > empOrdering) return false;
+    return true;
+  });
 
   currentBlocks = blocks;
 
@@ -620,35 +626,66 @@ function openBlock(index) {
   const btnViewed     = document.getElementById('btnViewed');
   const quizSection   = document.getElementById('quizSection');
   const quizResult    = document.getElementById('quizResult');
+  const uploadSection = document.getElementById('uploadSection');
+  const isDocUpload   = isDocumentUploadBlock(block);
+
+  // Document Upload blocks skip the acknowledge step entirely
+  if (isDocUpload) {
+    btnViewed.style.display = 'none';
+    viewedConfirm.classList.remove('show');
+  } else {
+    btnViewed.textContent   = '✓ I\'ve reviewed this training — start quiz';
+    btnViewed.style.display = passed ? 'none' : 'inline-flex';
+  }
 
   if (passed) {
-    viewedConfirm.classList.add('show');
-    btnViewed.style.display = 'none';
-    renderQuiz(block, true);
-    quizSection.classList.add('show');
-    quizResult.className   = 'quiz-result pass show';
+    if (!isDocUpload) viewedConfirm.classList.add('show');
     const dateStr = trainingData.completedMap[block.id]?.date || '';
-    quizResult.innerHTML   = `
+    const completedHTML = `
       <div class="quiz-result-title">✅ Already Completed${dateStr ? ' — ' + dateStr : ''}</div>
       <div class="quiz-result-msg">You've already completed this module.</div>
       <button class="btn btn-outline" onclick="goBack()">← Back to Course</button>
     `;
+    if (isDocUpload) {
+      uploadSection.classList.add('show');
+      quizSection.classList.remove('show');
+      document.getElementById('uploadResult').className = 'quiz-result pass show';
+      document.getElementById('uploadResult').innerHTML = completedHTML;
+    } else {
+      renderQuiz(block, true);
+      quizSection.classList.add('show');
+      uploadSection.classList.remove('show');
+      quizResult.className = 'quiz-result pass show';
+      quizResult.innerHTML = completedHTML;
+    }
   } else {
-    viewedConfirm.classList.remove('show');
-    btnViewed.style.display = 'inline-flex';
+    if (!isDocUpload) viewedConfirm.classList.remove('show');
     quizSection.classList.remove('show');
     quizResult.className    = 'quiz-result';
     quizResult.style.display = 'none';
     resetQuiz();
+    if (isDocUpload) {
+      // Show upload panel immediately — no acknowledge step needed
+      resetUpload();
+      uploadSection.classList.add('show');
+    } else {
+      uploadSection.classList.remove('show');
+      resetUpload();
+    }
   }
 
-  // Show materials section — fetch fresh signed URLs and auto-refresh every 55 min
+  // Show materials section — but not for Document Upload blocks
+  // (those use the upload UI instead; showing files there would be confusing)
   const materialsDiv = document.getElementById('blockMaterials');
   if (materialsDiv) {
-    loadMaterials(block.id, materialsDiv, true);
-    // Clear any previous timer, start a new one for this block
-    if (materialsTimer) clearInterval(materialsTimer);
-    materialsTimer = setInterval(() => loadMaterials(block.id, materialsDiv, false), 55 * 60 * 1000);
+    if (isDocumentUploadBlock(block)) {
+      materialsDiv.innerHTML = '';
+      if (materialsTimer) { clearInterval(materialsTimer); materialsTimer = null; }
+    } else {
+      loadMaterials(block.id, materialsDiv, true);
+      if (materialsTimer) clearInterval(materialsTimer);
+      materialsTimer = setInterval(() => loadMaterials(block.id, materialsDiv, false), 55 * 60 * 1000);
+    }
   }
 
   showScreen('screenBlock');
@@ -694,13 +731,137 @@ function loadMaterials(blockId, materialsDiv, showSpinner) {
   });
 }
 
+function isDocumentUploadBlock(block) {
+  return (block?.types || []).some(t => t.toLowerCase().replace(/[\s_-]/g, '') === 'documentupload');
+}
+
 function markViewed() {
   document.getElementById('viewedConfirm').classList.add('show');
   document.getElementById('btnViewed').style.display = 'none';
   const block = currentBlocks[currentBlockIndex];
-  renderQuiz(block, false);
-  document.getElementById('quizSection').classList.add('show');
-  document.getElementById('quizResult').style.display = 'none';
+
+  if (isDocumentUploadBlock(block)) {
+    // Show upload section instead of quiz
+    resetUpload();
+    document.getElementById('uploadSection').classList.add('show');
+    document.getElementById('quizSection').classList.remove('show');
+  } else {
+    renderQuiz(block, false);
+    document.getElementById('quizSection').classList.add('show');
+    document.getElementById('uploadSection').classList.remove('show');
+    document.getElementById('quizResult').style.display = 'none';
+  }
+}
+
+// ============================================================
+// DOCUMENT UPLOAD
+// ============================================================
+let uploadFiles = [];
+
+function resetUpload() {
+  uploadFiles = [];
+  const input = document.getElementById('uploadFileInput');
+  if (input) input.value = '';
+  renderUploadFileList();
+  const result = document.getElementById('uploadResult');
+  if (result) { result.className = 'quiz-result'; result.innerHTML = ''; }
+  const btn = document.getElementById('btnSubmitUpload');
+  if (btn) { btn.disabled = false; btn.textContent = 'Submit Certificate'; }
+}
+
+function renderUploadFileList() {
+  const list = document.getElementById('uploadFileList');
+  if (!list) return;
+  if (!uploadFiles.length) {
+    list.innerHTML = '';
+    document.getElementById('uploadLabelText').textContent = 'Click to select files or drag and drop here';
+    return;
+  }
+  document.getElementById('uploadLabelText').textContent = 'Add more files';
+  list.innerHTML = uploadFiles.map((f, i) => `
+    <div class="upload-file-item">
+      📄 ${escHtml(f.name)} <span style="color:var(--gray);font-size:11px">(${(f.size/1024).toFixed(0)} KB)</span>
+      <button class="remove-file" onclick="removeUploadFile(${i})" title="Remove">✕</button>
+    </div>
+  `).join('');
+}
+
+function removeUploadFile(idx) {
+  uploadFiles.splice(idx, 1);
+  renderUploadFileList();
+}
+
+// Wire up file input and drag-drop after DOM is ready
+window.addEventListener('load', () => {
+  const input   = document.getElementById('uploadFileInput');
+  const dropZone = document.getElementById('uploadDropZone');
+  if (!input || !dropZone) return;
+
+  input.addEventListener('change', () => {
+    uploadFiles = [...uploadFiles, ...Array.from(input.files)];
+    input.value = '';
+    renderUploadFileList();
+  });
+
+  dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    uploadFiles = [...uploadFiles, ...Array.from(e.dataTransfer.files)];
+    renderUploadFileList();
+  });
+});
+
+async function submitUpload() {
+  const block   = currentBlocks[currentBlockIndex];
+  const resultEl = document.getElementById('uploadResult');
+  const btnEl    = document.getElementById('btnSubmitUpload');
+
+  if (!uploadFiles.length) {
+    resultEl.className   = 'quiz-result fail show';
+    resultEl.innerHTML   = '<div class="quiz-result-title">⚠️ Please select at least one file to upload.</div>';
+    return;
+  }
+
+  btnEl.disabled    = true;
+  btnEl.textContent = 'Uploading…';
+  resultEl.className = 'quiz-result';
+  resultEl.innerHTML = '';
+
+  try {
+    const formData = new FormData();
+    formData.append('blockId', block.id);
+    uploadFiles.forEach(f => formData.append('files', f));
+
+    const res  = await fetch('/api/upload-certificate', {
+      method:  'POST',
+      headers: { 'Authorization': `Bearer ${authToken}` },
+      body:    formData,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+
+    // Mark locally as complete
+    if (!trainingData.completedMap) trainingData.completedMap = {};
+    trainingData.completedMap[block.id] = { date: data.date, recordId: data.recordId, status: 'OK' };
+    saveCache(trainingData);
+
+    resultEl.className = 'quiz-result pass show';
+    resultEl.innerHTML = `
+      <div class="quiz-result-title">🎉 Certificate uploaded — training complete!</div>
+      <div class="quiz-result-msg">Your document has been saved. This module is now marked complete.</div>
+      <button class="btn btn-outline" onclick="goBack()">← Back to Course</button>
+    `;
+    document.getElementById('btnSubmitUpload').style.display = 'none';
+    showToast('Certificate uploaded successfully ✅');
+
+  } catch (err) {
+    resultEl.className = 'quiz-result fail show';
+    resultEl.innerHTML = `<div class="quiz-result-title">❌ Upload failed: ${escHtml(err.message)}</div>`;
+    btnEl.disabled    = false;
+    btnEl.textContent = 'Submit Certificate';
+  }
 }
 
 // ============================================================

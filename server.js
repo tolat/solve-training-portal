@@ -14,8 +14,26 @@
 const express    = require('express');
 const crypto     = require('crypto');
 const path       = require('path');
+const fs         = require('fs');
 const nodemailer = require('nodemailer');
+const multer     = require('multer');
 require('dotenv').config();
+
+// ─── File upload storage ──────────────────────────────────────
+// Files are stored in /uploads and served statically.
+// For production, swap this for cloud storage (S3, Cloudinary, etc.)
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename:    (req, file, cb) => {
+    const ext  = path.extname(file.originalname);
+    const base = path.basename(file.originalname, ext).replace(/[^a-z0-9_-]/gi, '_');
+    cb(null, `${Date.now()}_${base}${ext}`);
+  },
+});
+const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } }); // 20 MB limit
 
 // ─── Validate env ────────────────────────────────────────────
 const NOTION_TOKEN = process.env.NOTION_TOKEN;
@@ -123,7 +141,8 @@ async function refreshCache() {
     const name = titleTxt(prop(s, 'Stage'))
               || prop(s, 'Ordered Pipeline Stage')?.select?.name
               || `Stage ${ordering}`;
-    stageMap[s.id] = { name, ordering };
+    const stageType = prop(s, 'Stage Type')?.select?.name || null;
+    stageMap[s.id] = { name, ordering, stageType };
   }
 
   // Derived lookups
@@ -145,16 +164,19 @@ async function refreshCache() {
     const stageIds      = relIds(prop(p, 'Pipeline Stages'));
     let stageOrdering   = 999;
     let stageName       = 'Other';
-    // Determine if ANY linked stage is an Employee stage (starts with 'E')
-    const isEStage = n => (n || '').trimStart().toUpperCase().startsWith('E');
-    const hasEmployeeStage = stageIds.some(id => isEStage(stageMap[id]?.name));
+    // A block is visible to employees/contractors if ANY linked stage has
+    // Stage Type = "Employee" or "Contractor".
+    const isEmployeeOrContractorStage = id => {
+      const t = stageMap[id]?.stageType;
+      return t === 'Employee' || t === 'Contractor';
+    };
+    const hasEmployeeStage = stageIds.some(isEmployeeOrContractorStage);
 
     if (stageIds.length) {
-      // For ordering/display: prefer the minimum E-stage if one exists,
-      // otherwise fall back to the global minimum. This prevents a contractor
-      // stage (e.g. C1) from masking an employee stage at the same ordering.
-      const eStageIds = stageIds.filter(id => isEStage(stageMap[id]?.name));
-      const candidateIds = eStageIds.length ? eStageIds : stageIds;
+      // For ordering/display: prefer Employee/Contractor stages over others.
+      // This prevents e.g. a Roofing stage from masking an Employee stage.
+      const empStageIds = stageIds.filter(isEmployeeOrContractorStage);
+      const candidateIds = empStageIds.length ? empStageIds : stageIds;
       stageOrdering = Math.min(...candidateIds.map(id => stageOrderMap[id] ?? 999));
       const minStageId = candidateIds.find(id => (stageOrderMap[id] ?? 999) === stageOrdering);
       stageName = (minStageId && stageMap[minStageId]?.name) || 'Other';
@@ -189,6 +211,7 @@ async function refreshCache() {
       id:         p.id,
       name:       titleTxt(prop(p, 'Name')),
       profileIds: relIds(prop(p, 'Training Profiles')),
+      department: prop(p, 'Department')?.select?.name || null,
     };
   }
 
@@ -366,6 +389,9 @@ app.get('/manifest.json', (req, res) => {
 // Serve frontend
 app.use(express.static(__dirname));
 
+// Serve uploaded certificate files
+app.use('/uploads', express.static(UPLOAD_DIR));
+
 // Auth middleware
 function requireAuth(req, res, next) {
   const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
@@ -401,9 +427,10 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Incorrect password.' });
     }
 
-    const roleIds        = relIds(prop(user, 'Roles'));
-    const onboardingStage = prop(user, 'Ordered Onboarding Stage')?.select?.name || null;
-    const token          = createSession({ pageId: user.id, name, email: email.toLowerCase().trim(), roleIds, onboardingStage });
+    const roleIds           = relIds(prop(user, 'Roles'));
+    const onboardingStage   = prop(user, 'Ordered Onboarding Stage')?.select?.name || null;
+    const contractorPageIds = relIds(prop(user, 'Contractor Pages'));
+    const token             = createSession({ pageId: user.id, name, email: email.toLowerCase().trim(), roleIds, onboardingStage, contractorPageIds });
 
     console.log(`✔  Login: ${name} (${email}) — Stage: ${onboardingStage || 'none'}`);
     res.json({ token, name, email: email.toLowerCase().trim(), onboardingStage });
@@ -547,11 +574,12 @@ app.get('/api/token-by-employee-id', async (req, res) => {
       return res.status(404).json({ error: 'Employee not found. Check the employee_id value.' });
     }
 
-    const name            = titleTxt(prop(user, 'Name'));
-    const email           = emailVal(prop(user, 'Email')) || '';
-    const roleIds         = relIds(prop(user, 'Roles'));
-    const onboardingStage = prop(user, 'Ordered Onboarding Stage')?.select?.name || null;
-    const token           = createSession({ pageId: user.id, name, email, roleIds, onboardingStage });
+    const name              = titleTxt(prop(user, 'Name'));
+    const email             = emailVal(prop(user, 'Email')) || '';
+    const roleIds           = relIds(prop(user, 'Roles'));
+    const onboardingStage   = prop(user, 'Ordered Onboarding Stage')?.select?.name || null;
+    const contractorPageIds = relIds(prop(user, 'Contractor Pages'));
+    const token             = createSession({ pageId: user.id, name, email, roleIds, onboardingStage, contractorPageIds });
 
     console.log(`✔  Token-by-ID: ${name} (${employee_id}) — Stage: ${onboardingStage || 'none'}`);
     res.json({ token, name, email, onboardingStage });
@@ -567,7 +595,7 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
     // Auto-refresh cache if stale
     if (Date.now() - cache.ts > CACHE_TTL) await refreshCache();
 
-    const { roleIds, pageId: userPageId, onboardingStage } = req.session;
+    const { roleIds, pageId: userPageId, onboardingStage, contractorPageIds = [] } = req.session;
 
     // Resolve the employee's current stage to a numeric ordering for client-side filtering.
     // 'Ordered Onboarding Stage' uses "NN - Label" format (e.g. "04 - Technical Training").
@@ -608,14 +636,27 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
       return a.name.localeCompare(b.name);
     });
 
-    // Fetch ALL training records for this user
-    const recordPages = await queryAll(DB.trainingRecords, {
+    // Fetch ALL training records for this user (via Employee relation)
+    const employeeRecordPages = await queryAll(DB.trainingRecords, {
       property: 'Employee',
       relation: { contains: userPageId },
     });
 
+    // Also fetch contractor training records if the user has contractor pages
+    // (contractor records use the Contractor field, not Employee)
+    let contractorRecordPages = [];
+    for (const cpId of contractorPageIds) {
+      const cpRecords = await queryAll(DB.trainingRecords, {
+        property: 'Contractor',
+        relation: { contains: cpId },
+      });
+      contractorRecordPages = contractorRecordPages.concat(cpRecords);
+    }
+
+    const allRecordPages = [...employeeRecordPages, ...contractorRecordPages];
+
     const completedMap = {};
-    for (const r of recordPages) {
+    for (const r of allRecordPages) {
       const blockRel = relIds(prop(r, 'Training Block'));
       if (!blockRel.length) continue;
       const dateCompleted = prop(r, 'Date Completed')?.date?.start || null;
@@ -631,6 +672,9 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
 
       completedMap[blockRel[0]] = { date: dateCompleted, recordId: r.id, status };
     }
+
+    // recordPages used downstream for supplement logic — keep as employee-only
+    const recordPages = employeeRecordPages;
 
     // Supplement the role-based block list with any blocks that appear in the
     // user's training records but weren't captured through role → profile chains.
@@ -672,6 +716,85 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
       });
     }
 
+    // ── Sub Contractor roles ──────────────────────────────────
+    // For any role with Department = "Sub Contractor", replace its block list
+    // with training blocks pulled from the user's contractor pages.
+    // Path: contractorPage → Training Records (relation) → Training Block (relation)
+    if (contractorPageIds.length) {
+      for (const roleObj of roles) {
+        const cachedRole = cache.roles[roleObj.id];
+        if (!cachedRole || cachedRole.department !== 'Sub Contractor') continue;
+
+        const contractorBlockIds  = new Set();
+        const contractorBlockMap  = {};  // blockId → block object (may not be in cache)
+
+        for (const cpId of contractorPageIds) {
+          try {
+            const cpPage            = await notionFetch(`/pages/${cpId}`);
+            const trainingRecordIds = relIds(prop(cpPage, 'Training Records'));
+            for (const recordId of trainingRecordIds) {
+              try {
+                const record   = await notionFetch(`/pages/${recordId}`);
+                const blockRel = relIds(prop(record, 'Training Block'));
+                if (!blockRel[0]) continue;
+
+                const blockId = blockRel[0];
+                let block = cache.blocks[blockId];
+
+                // If the block isn't in the cache (e.g. contractor-specific blocks
+                // added after the last cache refresh), fetch it directly from Notion.
+                if (!block) {
+                  try {
+                    const bp = await notionFetch(`/pages/${blockId}`);
+                    block = {
+                      id:           bp.id,
+                      name:         titleTxt(prop(bp, 'Name')),
+                      trainingLink: prop(bp, 'Training link')?.url || null,
+                      notes:        richText(prop(bp, 'Notes')),
+                      policyNo:     prop(bp, 'Policy No.')?.select?.name || null,
+                      types:        prop(bp, 'Type')?.multi_select?.map(s => s.name) || [],
+                      stageOrdering:    999,
+                      stageName:        'Contractor',
+                      hasEmployeeStage: true,  // always show for contractor users
+                      stageIds:         [],
+                    };
+                    console.log(`📦  Contractor block fetched on-demand: ${block.name}`);
+                  } catch (e) {
+                    console.warn(`⚠️  Could not fetch contractor block ${blockId}:`, e.message);
+                    continue;
+                  }
+                }
+
+                contractorBlockIds.add(blockId);
+                allRoleBlockIds.add(blockId);
+                // Tag as contractor block so the frontend always shows it
+                // regardless of pipeline stage (contractor stages ≠ employee E-stages)
+                contractorBlockMap[blockId] = { ...block, isContractorBlock: true };
+              } catch (e) {
+                console.warn(`⚠️  Could not fetch contractor training record ${recordId}:`, e.message);
+              }
+            }
+          } catch (e) {
+            console.warn(`⚠️  Could not fetch contractor page ${cpId}:`, e.message);
+          }
+        }
+
+        // Add contractor blocks to the main blocks array.
+        // REPLACE any existing entry so the isContractorBlock flag is always present.
+        for (const [blockId, block] of Object.entries(contractorBlockMap)) {
+          const existingIdx = blocks.findIndex(b => b.id === blockId);
+          if (existingIdx >= 0) {
+            blocks[existingIdx] = block;
+          } else {
+            blocks.push(block);
+          }
+        }
+
+        roleObj.blockIds = Array.from(contractorBlockIds);
+        console.log(`🏗️  Sub Contractor role "${roleObj.name}": ${contractorBlockIds.size} blocks from contractor pages`);
+      }
+    }
+
     // Any blocks that exist in training records but aren't in any role's chain
     // get surfaced as a virtual "Other Assigned Trainings" role so the
     // frontend renders them without needing any changes.
@@ -693,6 +816,8 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
       userPageId,
       onboardingStage,
       roles,
+      _debug_blockCount: blocks.length,
+      _debug_contractorPageIds: contractorPageIds,
       stages: cache.stages,              // [{name, ordering}] sorted ascending
       employeeStageOrdering,             // numeric ordering of employee's current stage
     });
@@ -771,15 +896,17 @@ app.post('/api/sync', requireAuth, async (req, res) => {
     });
 
     if (results.length) {
-      const user            = results[0];
-      const name            = titleTxt(prop(user, 'Name'));
-      const roleIds         = relIds(prop(user, 'Roles'));
-      const onboardingStage = prop(user, 'Ordered Onboarding Stage')?.select?.name || null;
+      const user              = results[0];
+      const name              = titleTxt(prop(user, 'Name'));
+      const roleIds           = relIds(prop(user, 'Roles'));
+      const onboardingStage   = prop(user, 'Ordered Onboarding Stage')?.select?.name || null;
+      const contractorPageIds = relIds(prop(user, 'Contractor Pages'));
 
       // req.session is the live session object — mutating it is enough.
-      req.session.name            = name;
-      req.session.roleIds         = roleIds;
-      req.session.onboardingStage = onboardingStage;
+      req.session.name              = name;
+      req.session.roleIds           = roleIds;
+      req.session.onboardingStage   = onboardingStage;
+      req.session.contractorPageIds = contractorPageIds;
 
       console.log(`🔄  Sync: employee data refreshed for ${name} — Stage: ${onboardingStage || 'none'}`);
       res.json({ ok: true, syncedAt: cache.ts, name, onboardingStage });
@@ -813,11 +940,38 @@ app.get('/api/debug/user', async (req, res) => {
     });
     if (!results.length) return res.status(404).json({ error: 'User not found in Company Directory' });
 
-    const user            = results[0];
-    const name            = titleTxt(prop(user, 'Name'));
-    const roleIds         = relIds(prop(user, 'Roles'));
-    const onboardingStage = prop(user, 'Ordered Onboarding Stage')?.select?.name || null;
-    const userPageId      = user.id;
+    const user              = results[0];
+    const name              = titleTxt(prop(user, 'Name'));
+    const roleIds           = relIds(prop(user, 'Roles'));
+    const onboardingStage   = prop(user, 'Ordered Onboarding Stage')?.select?.name || null;
+    const contractorPageIds = relIds(prop(user, 'Contractor Pages'));
+    const userPageId        = user.id;
+
+    // ── Contractor page inspection ──────────────────────────
+    const contractorDebug = [];
+    for (const cpId of contractorPageIds) {
+      try {
+        const cpPage = await notionFetch(`/pages/${cpId}`);
+        const cpName = titleTxt(prop(cpPage, 'Name') || prop(cpPage, Object.keys(cpPage.properties || {})[0]));
+        // List all relation properties and their IDs so we can see what's available
+        const relationProps = {};
+        for (const [k, v] of Object.entries(cpPage.properties || {})) {
+          if (v.type === 'relation') {
+            relationProps[k] = relIds(v);
+          }
+        }
+        contractorDebug.push({ id: cpId, name: cpName, relationProps });
+      } catch (e) {
+        contractorDebug.push({ id: cpId, error: e.message });
+      }
+    }
+
+    // Role departments
+    const roleDepts = roleIds.map(id => ({
+      id,
+      name:       cache.roles[id]?.name || '?',
+      department: cache.roles[id]?.department || null,
+    }));
 
     // 1. Blocks from role chain
     const seen = new Set();
@@ -880,6 +1034,9 @@ app.get('/api/debug/user', async (req, res) => {
       // in the cache — root cause of most discrepancies
       recordsBlockNotInCache: recordsNotInCache,
       roles: roleDetail,
+      roleDepts,
+      contractorPageIds,
+      contractorDebug,
     });
   } catch (err) {
     console.error('Debug user error:', err.message);
@@ -1016,6 +1173,97 @@ app.post('/api/webhook/notion/profile', async (req, res) => {
     console.log('✅  Cache refreshed after Training Profile change');
   } catch (err) {
     console.error('❌  Cache refresh failed (profile webhook):', err.message);
+  }
+});
+
+// ─── POST /api/upload-certificate ────────────────────────────
+// Called when a user completes a "Document Upload" type training.
+// Accepts one or more files, saves them locally, updates the training
+// record's Certificates field, and marks the block as complete.
+app.post('/api/upload-certificate', requireAuth, upload.array('files', 10), async (req, res) => {
+  try {
+    const { blockId } = req.body;
+    if (!blockId)         return res.status(400).json({ error: 'blockId is required' });
+    if (!req.files?.length) return res.status(400).json({ error: 'At least one file is required' });
+
+    const { pageId: userPageId, contractorPageIds = [] } = req.session;
+    const today = new Date().toISOString().split('T')[0];
+
+    // Build external file references using the server's own URL
+    const baseUrl  = process.env.APP_URL || `http://localhost:${PORT}`;
+    const fileRefs = req.files.map(f => ({
+      name:     f.originalname,
+      type:     'external',
+      external: { url: `${baseUrl}/uploads/${f.filename}` },
+    }));
+
+    // ── Find the correct training record ──────────────────────────
+    // For contractor users: look up by Contractor + Training Block first,
+    // since contractor records are NOT linked to an Employee.
+    let existing = [];
+    let isContractorRecord = false;
+
+    if (contractorPageIds.length) {
+      for (const cpId of contractorPageIds) {
+        const found = await queryAll(DB.trainingRecords, {
+          and: [
+            { property: 'Contractor',     relation: { contains: cpId    } },
+            { property: 'Training Block', relation: { contains: blockId } },
+          ],
+        });
+        if (found.length) { existing = found; isContractorRecord = true; break; }
+      }
+    }
+
+    // Fall back to employee-level lookup for non-contractor blocks
+    if (!existing.length) {
+      existing = await queryAll(DB.trainingRecords, {
+        and: [
+          { property: 'Employee',       relation: { contains: userPageId } },
+          { property: 'Training Block', relation: { contains: blockId    } },
+        ],
+      });
+    }
+
+    let recordId;
+    if (existing.length) {
+      await notionFetch(`/pages/${existing[0].id}`, 'PATCH', {
+        properties: {
+          'Date Completed': { date:  { start: today } },
+          'Certificates':   { files: fileRefs        },
+        },
+      });
+      recordId = existing[0].id;
+      console.log(`✔  Certificate upload: updated ${isContractorRecord ? 'contractor' : 'employee'} record ${recordId} (${req.session.name})`);
+    } else {
+      // No existing record — create a new employee-linked one
+      const blockName = cache.blocks[blockId]?.name || 'Training Completion';
+      const newPage   = await notionFetch('/pages', 'POST', {
+        parent: { database_id: DB.trainingRecords },
+        properties: {
+          'Name':           { title:    [{ text: { content: blockName } }] },
+          'Employee':       { relation: [{ id: userPageId }]               },
+          'Training Block': { relation: [{ id: blockId    }]               },
+          'Date Completed': { date:     { start: today }                   },
+          'Certificates':   { files:    fileRefs        },
+        },
+      });
+      recordId = newPage.id;
+      console.log(`✔  Certificate upload: created record ${recordId} (${req.session.name})`);
+    }
+
+    res.json({
+      ok:       true,
+      recordId,
+      date:     today,
+      files:    req.files.map(f => f.originalname),
+    });
+
+  } catch (err) {
+    console.error('Upload certificate error:', err.message);
+    // Clean up uploaded files on error
+    req.files?.forEach(f => { try { fs.unlinkSync(f.path); } catch {} });
+    res.status(500).json({ error: 'Failed to save certificate: ' + err.message });
   }
 });
 
