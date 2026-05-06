@@ -1081,6 +1081,60 @@ app.get('/api/block/:blockId/files', requireAuth, async (req, res) => {
   }
 });
 
+// ─── GET /api/block/:blockId/certificates ────────────────────
+// Returns uploaded certificate files for a Document Upload block.
+// Looks up the training record (by contractor first, then employee)
+// and returns the files stored in its Certificates property.
+app.get('/api/block/:blockId/certificates', requireAuth, async (req, res) => {
+  try {
+    const { blockId } = req.params;
+    const { pageId: userPageId, contractorPageIds = [] } = req.session;
+
+    const getFiles = (p) => {
+      if (!p) return [];
+      return (p.files || []).map(f => ({
+        name: f.name || 'File',
+        url:  f.type === 'file' ? f.file?.url : (f.type === 'external' ? f.external?.url : null),
+      })).filter(f => f.url);
+    };
+
+    // Look up the training record — contractor first, then employee
+    let record = null;
+
+    if (contractorPageIds.length) {
+      for (const cpId of contractorPageIds) {
+        const found = await queryAll(DB.trainingRecords, {
+          and: [
+            { property: 'Contractor',     relation: { contains: cpId    } },
+            { property: 'Training Block', relation: { contains: blockId } },
+          ],
+        });
+        if (found.length) { record = found[0]; break; }
+      }
+    }
+
+    if (!record) {
+      const found = await queryAll(DB.trainingRecords, {
+        and: [
+          { property: 'Employee',       relation: { contains: userPageId } },
+          { property: 'Training Block', relation: { contains: blockId    } },
+        ],
+      });
+      if (found.length) record = found[0];
+    }
+
+    if (!record) return res.json({ certificates: [] });
+
+    const page         = await notionFetch(`/pages/${record.id}`);
+    const certificates = getFiles(prop(page, 'Certificates'));
+
+    res.json({ certificates });
+  } catch (err) {
+    console.error(`❌ /api/block/${req.params.blockId}/certificates error:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── GET /api/quizzes ─────────────────────────────────────────
 // Returns all AI-generated quizzes so the frontend can merge them
 // with the static quiz-data.js fallbacks.

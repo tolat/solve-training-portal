@@ -679,8 +679,8 @@ function openBlock(index) {
   const materialsDiv = document.getElementById('blockMaterials');
   if (materialsDiv) {
     if (isDocumentUploadBlock(block)) {
-      materialsDiv.innerHTML = '';
       if (materialsTimer) { clearInterval(materialsTimer); materialsTimer = null; }
+      loadCertificates(block.id, materialsDiv);
     } else {
       loadMaterials(block.id, materialsDiv, true);
       if (materialsTimer) clearInterval(materialsTimer);
@@ -751,6 +751,34 @@ function markViewed() {
     document.getElementById('uploadSection').classList.remove('show');
     document.getElementById('quizResult').style.display = 'none';
   }
+}
+
+// Fetch and display uploaded certificates for a Document Upload block.
+function loadCertificates(blockId, materialsDiv) {
+  materialsDiv.innerHTML = '<p class="materials-loading">Loading certificates…</p>';
+  apiFetch(`/api/block/${blockId}/certificates`).then(({ certificates }) => {
+    if (!certificates?.length) {
+      materialsDiv.innerHTML = '';
+      return;
+    }
+    materialsDiv.innerHTML = `
+      <div class="materials-section">
+        <div class="materials-title">📎 Uploaded Certificates</div>
+        <div class="material-group">
+          ${certificates.map(f => `
+            <a class="material-link" href="${escHtml(f.url)}" target="_blank" rel="noopener">
+              <span class="material-link-icon">📄</span>
+              <span>${escHtml(f.name)}</span>
+            </a>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }).catch(err => {
+    if (err.message === 'session_expired') return;
+    console.error('loadCertificates error:', err);
+    materialsDiv.innerHTML = '';
+  });
 }
 
 // ============================================================
@@ -855,6 +883,9 @@ async function submitUpload() {
     `;
     document.getElementById('btnSubmitUpload').style.display = 'none';
     showToast('Certificate uploaded successfully ✅');
+    // Refresh the certificates panel to show the newly uploaded file
+    const mDiv = document.getElementById('blockMaterials');
+    if (mDiv) loadCertificates(block.id, mDiv);
 
   } catch (err) {
     resultEl.className = 'quiz-result fail show';
