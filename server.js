@@ -208,10 +208,11 @@ async function refreshCache() {
   const roles = {};
   for (const p of rolePages) {
     roles[p.id] = {
-      id:         p.id,
-      name:       titleTxt(prop(p, 'Name')),
-      profileIds: relIds(prop(p, 'Training Profiles')),
-      department: prop(p, 'Department')?.select?.name || null,
+      id:                      p.id,
+      name:                    titleTxt(prop(p, 'Name')),
+      profileIds:              relIds(prop(p, 'Training Profiles')),
+      department:              prop(p, 'Department')?.select?.name || null,
+      importContractorTrainings: prop(p, 'Import Contractor Trainings')?.checkbox === true,
     };
   }
 
@@ -723,7 +724,7 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
     if (contractorPageIds.length) {
       for (const roleObj of roles) {
         const cachedRole = cache.roles[roleObj.id];
-        if (!cachedRole || cachedRole.department !== 'Sub Contractor') continue;
+        if (!cachedRole || !cachedRole.importContractorTrainings) continue;
 
         const contractorBlockIds  = new Set();
         const contractorBlockMap  = {};  // blockId → block object (may not be in cache)
