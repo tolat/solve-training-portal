@@ -338,33 +338,46 @@ function renderRoles() {
 
   document.getElementById('rolesTitle').textContent = currentUser.name + "'s Training";
 
-  // Apply the same stage filters used in renderCourse so counts stay consistent:
-  // only E-stages, only up to the employee's current stage ordering.
   const empOrdering = trainingData.employeeStageOrdering ?? 999;
-  function isVisibleBlock(b) {
-    // Always show contractor blocks — they use contractor pipeline stages, not E-stages
-    if (b.isContractorBlock) return true;
-    // Always show blocks with no stage assignment (supplement/other)
-    if (b.stageOrdering === 999) return true;
-    // Only show blocks with an Employee or Contractor stage type.
-    // Blocks linked only to Solar/Roofing/Dealer stages are not shown.
-    if (!b.hasEmployeeStage) return false;
-    // Don't show blocks from stages beyond the employee's current progression
-    if (empOrdering < 999 && b.stageOrdering > empOrdering) return false;
-    return true;
+
+  // Returns true if a block should be shown for the given role.
+  // - importContractorTrainings roles: show only blocks with a Contractor stage
+  // - Regular employee roles: show only blocks with an Employee stage (within progression)
+  function isVisibleForRole(b, role) {
+    if (b.isContractorBlock) return true; // explicitly tagged contractor blocks always show
+    if (role.importContractorTrainings) {
+      // Contractor role: require a Contractor-type stage
+      return b.hasContractorStage || b.contractorStageOrdering < 999;
+    } else {
+      // Employee role: require an Employee-type stage within current progression
+      if (b.stageOrdering === 999 && b.hasEmployeeStage) return true;
+      if (!b.hasEmployeeStage) return false;
+      if (empOrdering < 999 && b.stageOrdering > empOrdering) return false;
+      return true;
+    }
   }
 
-  const visibleAll = blocks.filter(isVisibleBlock);
-  const totalDone  = visibleAll.filter(b => completedMap[b.id]?.status === 'OK').length;
-  document.getElementById('rolesSubtitle').textContent = `${totalDone} of ${visibleAll.length} modules completed across all roles`;
+  // Global count across all roles (deduplicated)
+  const seenIds   = new Set();
+  let totalVisible = 0, totalDone = 0;
+  (roles || []).forEach(role => {
+    role.blockIds.map(id => blocks.find(b => b.id === id)).filter(Boolean)
+      .filter(b => isVisibleForRole(b, role))
+      .forEach(b => {
+        if (seenIds.has(b.id)) return;
+        seenIds.add(b.id);
+        totalVisible++;
+        if (completedMap[b.id]?.status === 'OK') totalDone++;
+      });
+  });
+  document.getElementById('rolesSubtitle').textContent = `${totalDone} of ${totalVisible} modules completed across all roles`;
 
   const grid = document.getElementById('rolesGrid');
   grid.innerHTML = '';
 
   (roles || []).forEach(role => {
     const roleBlocks    = role.blockIds.map(id => blocks.find(b => b.id === id)).filter(Boolean);
-    // Visible = filtered to E-stages within the employee's current stage
-    const visibleBlocks = roleBlocks.filter(isVisibleBlock);
+    const visibleBlocks = roleBlocks.filter(b => isVisibleForRole(b, role));
     if (!visibleBlocks.length) return; // skip roles with nothing visible at this stage
     const done    = visibleBlocks.filter(b => completedMap[b.id]?.status === 'OK').length;
     const overdue = visibleBlocks.filter(b => completedMap[b.id]?.status === 'Overdue').length;
@@ -377,10 +390,10 @@ function renderRoles() {
       <div class="role-card-name">${escHtml(role.name)}</div>
       <div class="role-card-stats">
         <span>${done} of ${total} completed</span>
-        <span>${pct}%</span>
+        <span style="color:var(--text);font-weight:600">${pct}%</span>
+        ${overdue ? `<span class="role-card-overdue" style="margin:0">⚠️ ${overdue} overdue</span>` : ''}
       </div>
       <div class="role-card-bar"><div class="role-card-fill" style="width:${pct}%"></div></div>
-      ${overdue ? `<div class="role-card-overdue">⚠️ ${overdue} overdue</div>` : ''}
     `;
     card.onclick = () => openRole(role.id, role.name);
     grid.appendChild(card);
@@ -419,18 +432,23 @@ function renderCourse(blocksOverride) {
   const { completedMap } = trainingData;
   const allBlocks = blocksOverride || trainingData.blocks;
 
-  // ── Filter to visible blocks ───────────────────────────────────
-  const empOrdering = trainingData.employeeStageOrdering ?? 999;
+  // ── Filter to visible blocks based on current role type ───────
+  const empOrdering  = trainingData.employeeStageOrdering ?? 999;
+  const currentRole  = (trainingData.roles || []).find(r => r.id === currentRoleId);
+  const importing    = currentRole?.importContractorTrainings || false;
+
   const blocks = allBlocks.filter(b => {
-    // Always show contractor blocks — their stages don't start with 'E'
     if (b.isContractorBlock) return true;
-    // Always show unassigned blocks (stageOrdering 999)
-    if (b.stageOrdering === 999) return true;
-    // Only show blocks with an Employee or Contractor stage type
-    if (!b.hasEmployeeStage) return false;
-    // Don't show stages beyond the employee's current progression
-    if (empOrdering < 999 && b.stageOrdering > empOrdering) return false;
-    return true;
+    if (importing) {
+      // Contractor role: show only blocks with a Contractor-type stage
+      return b.hasContractorStage || b.contractorStageOrdering < 999;
+    } else {
+      // Employee role: show only blocks with an Employee-type stage within progression
+      if (b.stageOrdering === 999 && b.hasEmployeeStage) return true;
+      if (!b.hasEmployeeStage) return false;
+      if (empOrdering < 999 && b.stageOrdering > empOrdering) return false;
+      return true;
+    }
   });
 
   currentBlocks = blocks;
@@ -493,20 +511,33 @@ function renderCourse(blocksOverride) {
   const stageIndex  = new Map(); // stageName → group
 
   for (const block of blocks) {
-    const key = block.stageName || 'Other';
+    // Use contractor stage name/ordering when in a contractor role
+    const key      = importing ? (block.contractorStageName || block.stageName || 'Other')
+                               : (block.stageName || 'Other');
+    const ordering = importing ? (block.contractorStageOrdering ?? block.stageOrdering)
+                               : block.stageOrdering;
     if (!stageIndex.has(key)) {
-      const group = { stageName: key, stageOrdering: block.stageOrdering, blocks: [] };
+      const group = { stageName: key, stageOrdering: ordering, blocks: [] };
       stageIndex.set(key, group);
       stageGroups.push(group);
     }
     stageIndex.get(key).blocks.push(block);
   }
 
+  // Sort stage groups by ordering, with "Other" always last
+  stageGroups.sort((a, b) => {
+    if (a.stageName === 'Other' && b.stageName !== 'Other') return 1;
+    if (b.stageName === 'Other' && a.stageName !== 'Other') return -1;
+    return a.stageOrdering - b.stageOrdering;
+  });
+
   // Access rule: per-stage sequential unlocking.
   // A block is open if it is the first in its stage OR the previous block
   // in the same stage is completed. Completed blocks are always accessible.
   function isAccessible(block) {
-    const group = stageIndex.get(block.stageName || 'Other');
+    const key   = importing ? (block.contractorStageName || block.stageName || 'Other')
+                            : (block.stageName || 'Other');
+    const group = stageIndex.get(key);
     if (!group) return true;
     const pos = group.blocks.indexOf(block);
     if (pos === 0) return true;

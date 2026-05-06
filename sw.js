@@ -6,7 +6,7 @@
  *   • API calls       → Network-first (fresh data when online, fallback offline message)
  */
 
-const CACHE_NAME = 'solve-training-v2';
+const CACHE_NAME = 'solve-training-v3';
 
 // Truly static assets that rarely change — served cache-first
 const STATIC_ASSETS = [
