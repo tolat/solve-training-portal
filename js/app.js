@@ -390,10 +390,10 @@ function renderRoles() {
       <div class="role-card-name">${escHtml(role.name)}</div>
       <div class="role-card-stats">
         <span>${done} of ${total} completed</span>
-        <span style="color:var(--text);font-weight:600">${pct}%</span>
-        ${overdue ? `<span class="role-card-overdue" style="margin:0">⚠️ ${overdue} overdue</span>` : ''}
+        <span>${pct}%</span>
       </div>
       <div class="role-card-bar"><div class="role-card-fill" style="width:${pct}%"></div></div>
+      ${overdue ? `<div class="role-card-overdue">⚠️ ${overdue} overdue</div>` : ''}
     `;
     card.onclick = () => openRole(role.id, role.name);
     grid.appendChild(card);
