@@ -197,14 +197,16 @@ async function refreshCache() {
       return { ordering, name };
     };
 
-    const empInfo = minStageInfo(stagesByType('Employee'));
-    const ctrInfo = minStageInfo(stagesByType('Contractor'));
+    const empInfo    = minStageInfo(stagesByType('Employee'));
+    const ctrInfo    = minStageInfo(stagesByType('Contractor'));
+    const dealerInfo = minStageInfo(stagesByType('Dealer'));
 
     const hasEmployeeStage   = empInfo.ordering < 999;
     const hasContractorStage = ctrInfo.ordering < 999;
+    const hasDealerStage     = dealerInfo.ordering < 999;
 
     // stageOrdering: employee ordering if available, contractor fallback for sorting
-    // stageName: employee stage name ONLY — never fall back to contractor stage name
+    // stageName: employee stage name ONLY — never fall back to other stage types
     const stageOrdering = empInfo.ordering < 999 ? empInfo.ordering : ctrInfo.ordering;
     const stageName     = empInfo.name || 'Other';
 
@@ -215,12 +217,15 @@ async function refreshCache() {
       notes:        richText(prop(p, 'Notes')),
       policyNo:     prop(p, 'Policy No.')?.select?.name || null,
       types:        prop(p, 'Type')?.multi_select?.map(s => s.name) || [],
-      stageOrdering,          // employee ordering (primary sort key)
-      stageName,              // employee stage name (primary display)
+      stageOrdering,
+      stageName,
       hasEmployeeStage,
       hasContractorStage,
-      contractorStageOrdering: ctrInfo.ordering,  // for contractor role filtering
+      hasDealerStage,
+      contractorStageOrdering: ctrInfo.ordering,
       contractorStageName:     ctrInfo.name,
+      dealerStageOrdering:     dealerInfo.ordering,
+      dealerStageName:         dealerInfo.name,
       stageIds,
     };
   }
@@ -467,7 +472,8 @@ app.post('/api/login', async (req, res) => {
     const roleIds           = relIds(prop(user, 'Roles'));
     const onboardingStage   = prop(user, 'Ordered Onboarding Stage')?.select?.name || null;
     const contractorPageIds = relIds(prop(user, 'Contractor Pages'));
-    const token             = createSession({ pageId: user.id, name, email: email.toLowerCase().trim(), roleIds, onboardingStage, contractorPageIds });
+    const dealerOrgPageIds  = relIds(prop(user, 'Dealer Organizations'));
+    const token             = createSession({ pageId: user.id, name, email: email.toLowerCase().trim(), roleIds, onboardingStage, contractorPageIds, dealerOrgPageIds });
 
     console.log(`✔  Login: ${name} (${email}) — Stage: ${onboardingStage || 'none'}`);
     res.json({ token, name, email: email.toLowerCase().trim(), onboardingStage });
@@ -616,7 +622,8 @@ app.get('/api/token-by-employee-id', async (req, res) => {
     const roleIds           = relIds(prop(user, 'Roles'));
     const onboardingStage   = prop(user, 'Ordered Onboarding Stage')?.select?.name || null;
     const contractorPageIds = relIds(prop(user, 'Contractor Pages'));
-    const token             = createSession({ pageId: user.id, name, email, roleIds, onboardingStage, contractorPageIds });
+    const dealerOrgPageIds  = relIds(prop(user, 'Dealer Organizations'));
+    const token             = createSession({ pageId: user.id, name, email, roleIds, onboardingStage, contractorPageIds, dealerOrgPageIds });
 
     console.log(`✔  Token-by-ID: ${name} (${employee_id}) — Stage: ${onboardingStage || 'none'}`);
     res.json({ token, name, email, onboardingStage });
@@ -632,7 +639,7 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
     // Auto-refresh cache if stale
     if (Date.now() - cache.ts > CACHE_TTL) await refreshCache();
 
-    const { roleIds, pageId: userPageId, onboardingStage, contractorPageIds = [] } = req.session;
+    const { roleIds, pageId: userPageId, onboardingStage, contractorPageIds = [], dealerOrgPageIds = [] } = req.session;
 
     // Resolve the employee's current stage to a numeric ordering for client-side filtering.
     // 'Ordered Onboarding Stage' uses "NN - Label" format (e.g. "04 - Technical Training").
@@ -679,8 +686,7 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
       relation: { contains: userPageId },
     });
 
-    // Also fetch contractor training records if the user has contractor pages
-    // (contractor records use the Contractor field, not Employee)
+    // Contractor training records (Contractor field)
     let contractorRecordPages = [];
     for (const cpId of contractorPageIds) {
       const cpRecords = await queryAll(DB.trainingRecords, {
@@ -690,7 +696,17 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
       contractorRecordPages = contractorRecordPages.concat(cpRecords);
     }
 
-    const allRecordPages = [...employeeRecordPages, ...contractorRecordPages];
+    // Dealer org training records (Dealer Organization field)
+    let dealerRecordPages = [];
+    for (const orgId of dealerOrgPageIds) {
+      const orgRecords = await queryAll(DB.trainingRecords, {
+        property: 'Dealer',
+        relation: { contains: orgId },
+      });
+      dealerRecordPages = dealerRecordPages.concat(orgRecords);
+    }
+
+    const allRecordPages = [...employeeRecordPages, ...contractorRecordPages, ...dealerRecordPages];
 
     const completedMap = {};
     for (const r of allRecordPages) {
@@ -847,6 +863,76 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
       });
     }
 
+    // ── Dealer org virtual roles ──────────────────────────────
+    // Each dealer org the user belongs to becomes its own role named after the org.
+    // Path: dealerOrgPage → Training Records → Training Block
+    for (const orgId of dealerOrgPageIds) {
+      try {
+        const orgPage = await notionFetch(`/pages/${orgId}`);
+        // Get org name from its title property
+        const orgName = Object.values(orgPage.properties || {})
+          .map(p => titleTxt(p)).find(n => n) || 'Dealer Organization';
+
+        const trainingRecordIds = relIds(prop(orgPage, 'Training Records'));
+        const dealerBlockIds    = new Set();
+        const dealerBlockMap    = {};
+
+        for (const recordId of trainingRecordIds) {
+          try {
+            const record   = await notionFetch(`/pages/${recordId}`);
+            const blockRel = relIds(prop(record, 'Training Block'));
+            if (!blockRel[0]) continue;
+
+            const blockId = blockRel[0];
+            let block = cache.blocks[blockId];
+
+            if (!block) {
+              try {
+                const bp = await notionFetch(`/pages/${blockId}`);
+                block = {
+                  id:           bp.id,
+                  name:         titleTxt(prop(bp, 'Name')),
+                  trainingLink: prop(bp, 'Training link')?.url || null,
+                  notes:        richText(prop(bp, 'Notes')),
+                  policyNo:     prop(bp, 'Policy No.')?.select?.name || null,
+                  types:        prop(bp, 'Type')?.multi_select?.map(s => s.name) || [],
+                  stageOrdering: 999, stageName: 'Contractor',
+                  hasEmployeeStage: false, hasContractorStage: false, hasDealerStage: true,
+                  dealerStageOrdering: 1, dealerStageName: null,
+                  stageIds: [],
+                };
+              } catch { continue; }
+            }
+
+            dealerBlockIds.add(blockId);
+            dealerBlockMap[blockId] = { ...block, isDealerBlock: true };
+          } catch (e) {
+            console.warn(`⚠️  Dealer org record ${recordId}:`, e.message);
+          }
+        }
+
+        // Replace/add dealer blocks in the main blocks array
+        for (const [blockId, block] of Object.entries(dealerBlockMap)) {
+          const idx = blocks.findIndex(b => b.id === blockId);
+          if (idx >= 0) blocks[idx] = block;
+          else blocks.push(block);
+          allRoleBlockIds.add(blockId);
+        }
+
+        if (dealerBlockIds.size) {
+          roles.push({
+            id:           `__dealer__${orgId}`,
+            name:         orgName,
+            blockIds:     Array.from(dealerBlockIds),
+            isDealerRole: true,
+          });
+          console.log(`🏪  Dealer org "${orgName}": ${dealerBlockIds.size} blocks`);
+        }
+      } catch (e) {
+        console.warn(`⚠️  Could not fetch dealer org ${orgId}:`, e.message);
+      }
+    }
+
     res.json({
       blocks,
       completedMap,
@@ -939,12 +1025,14 @@ app.post('/api/sync', requireAuth, async (req, res) => {
       const roleIds           = relIds(prop(user, 'Roles'));
       const onboardingStage   = prop(user, 'Ordered Onboarding Stage')?.select?.name || null;
       const contractorPageIds = relIds(prop(user, 'Contractor Pages'));
+    const dealerOrgPageIds  = relIds(prop(user, 'Dealer Organizations'));
 
       // req.session is the live session object — mutating it is enough.
       req.session.name              = name;
       req.session.roleIds           = roleIds;
       req.session.onboardingStage   = onboardingStage;
       req.session.contractorPageIds = contractorPageIds;
+      req.session.dealerOrgPageIds  = dealerOrgPageIds;
 
       console.log(`🔄  Sync: employee data refreshed for ${name} — Stage: ${onboardingStage || 'none'}`);
       res.json({ ok: true, syncedAt: cache.ts, name, onboardingStage });
@@ -983,6 +1071,7 @@ app.get('/api/debug/user', async (req, res) => {
     const roleIds           = relIds(prop(user, 'Roles'));
     const onboardingStage   = prop(user, 'Ordered Onboarding Stage')?.select?.name || null;
     const contractorPageIds = relIds(prop(user, 'Contractor Pages'));
+    const dealerOrgPageIds  = relIds(prop(user, 'Dealer Organizations'));
     const userPageId        = user.id;
 
     // ── Contractor page inspection ──────────────────────────
@@ -1290,11 +1379,9 @@ app.post('/api/upload-certificate', requireAuth, upload.array('files', 10), asyn
     }));
 
     // ── Find the correct training record ──────────────────────────
-    // For contractor users: look up by Contractor + Training Block first,
-    // since contractor records are NOT linked to an Employee.
     let existing = [];
-    let isContractorRecord = false;
 
+    // Contractor records
     if (contractorPageIds.length) {
       for (const cpId of contractorPageIds) {
         const found = await queryAll(DB.trainingRecords, {
@@ -1303,11 +1390,24 @@ app.post('/api/upload-certificate', requireAuth, upload.array('files', 10), asyn
             { property: 'Training Block', relation: { contains: blockId } },
           ],
         });
-        if (found.length) { existing = found; isContractorRecord = true; break; }
+        if (found.length) { existing = found; break; }
       }
     }
 
-    // Fall back to employee-level lookup for non-contractor blocks
+    // Dealer org records
+    if (!existing.length && dealerOrgPageIds.length) {
+      for (const orgId of dealerOrgPageIds) {
+        const found = await queryAll(DB.trainingRecords, {
+          and: [
+            { property: 'Dealer', relation: { contains: orgId    } },
+            { property: 'Training Block',       relation: { contains: blockId  } },
+          ],
+        });
+        if (found.length) { existing = found; break; }
+      }
+    }
+
+    // Fall back to employee-level lookup
     if (!existing.length) {
       existing = await queryAll(DB.trainingRecords, {
         and: [
@@ -1326,7 +1426,7 @@ app.post('/api/upload-certificate', requireAuth, upload.array('files', 10), asyn
         },
       });
       recordId = existing[0].id;
-      console.log(`✔  Certificate upload: updated ${isContractorRecord ? 'contractor' : 'employee'} record ${recordId} (${req.session.name})`);
+      console.log(`✔  Certificate upload: updated record ${recordId} (${req.session.name})`);
     } else {
       // No existing record — create a new employee-linked one
       const blockName = cache.blocks[blockId]?.name || 'Training Completion';

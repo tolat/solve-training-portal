@@ -344,12 +344,12 @@ function renderRoles() {
   // - importContractorTrainings roles: show only blocks with a Contractor stage
   // - Regular employee roles: show only blocks with an Employee stage (within progression)
   function isVisibleForRole(b, role) {
-    if (b.isContractorBlock) return true; // explicitly tagged contractor blocks always show
+    if (b.isContractorBlock || b.isDealerBlock) return true;
     if (role.importContractorTrainings) {
-      // Contractor role: require a Contractor-type stage
       return b.hasContractorStage || b.contractorStageOrdering < 999;
+    } else if (role.isDealerRole) {
+      return b.hasDealerStage || b.dealerStageOrdering < 999;
     } else {
-      // Employee role: require an Employee-type stage within current progression
       if (b.stageOrdering === 999 && b.hasEmployeeStage) return true;
       if (!b.hasEmployeeStage) return false;
       if (empOrdering < 999 && b.stageOrdering > empOrdering) return false;
@@ -436,14 +436,15 @@ function renderCourse(blocksOverride) {
   const empOrdering  = trainingData.employeeStageOrdering ?? 999;
   const currentRole  = (trainingData.roles || []).find(r => r.id === currentRoleId);
   const importing    = currentRole?.importContractorTrainings || false;
+  const isDealer     = currentRole?.isDealerRole || false;
 
   const blocks = allBlocks.filter(b => {
-    if (b.isContractorBlock) return true;
+    if (b.isContractorBlock || b.isDealerBlock) return true;
     if (importing) {
-      // Contractor role: show only blocks with a Contractor-type stage
       return b.hasContractorStage || b.contractorStageOrdering < 999;
+    } else if (isDealer) {
+      return b.hasDealerStage || b.dealerStageOrdering < 999;
     } else {
-      // Employee role: show only blocks with an Employee-type stage within progression
       if (b.stageOrdering === 999 && b.hasEmployeeStage) return true;
       if (!b.hasEmployeeStage) return false;
       if (empOrdering < 999 && b.stageOrdering > empOrdering) return false;
@@ -511,10 +512,11 @@ function renderCourse(blocksOverride) {
   const stageIndex  = new Map(); // stageName → group
 
   for (const block of blocks) {
-    // Use contractor stage name/ordering when in a contractor role
     const key      = importing ? (block.contractorStageName || block.stageName || 'Other')
+                   : isDealer  ? (block.dealerStageName     || block.stageName || 'Other')
                                : (block.stageName || 'Other');
     const ordering = importing ? (block.contractorStageOrdering ?? block.stageOrdering)
+                   : isDealer  ? (block.dealerStageOrdering     ?? block.stageOrdering)
                                : block.stageOrdering;
     if (!stageIndex.has(key)) {
       const group = { stageName: key, stageOrdering: ordering, blocks: [] };
@@ -536,6 +538,7 @@ function renderCourse(blocksOverride) {
   // in the same stage is completed. Completed blocks are always accessible.
   function isAccessible(block) {
     const key   = importing ? (block.contractorStageName || block.stageName || 'Other')
+                : isDealer  ? (block.dealerStageName     || block.stageName || 'Other')
                             : (block.stageName || 'Other');
     const group = stageIndex.get(key);
     if (!group) return true;
