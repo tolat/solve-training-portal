@@ -849,23 +849,9 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
       }
     }
 
-    // Any blocks that exist in training records but aren't in any role's chain
-    // get surfaced as a virtual "Other Assigned Trainings" role so the
-    // frontend renders them without needing any changes.
-    const supplementBlockIds = blocks
-      .filter(b => !allRoleBlockIds.has(b.id))
-      .map(b => b.id);
-    if (supplementBlockIds.length) {
-      roles.push({
-        id: '__supplement__',
-        name: 'Other Assigned Trainings',
-        blockIds: supplementBlockIds,
-      });
-    }
-
     // ── Dealer org virtual roles ──────────────────────────────
-    // Each dealer org the user belongs to becomes its own role named after the org.
-    // Path: dealerOrgPage → Training Records → Training Block
+    // Processed BEFORE supplement check so dealer blocks don't leak into
+    // "Other Assigned Trainings". Path: dealerOrgPage → Training Records → Training Block
     for (const orgId of dealerOrgPageIds) {
       try {
         const orgPage = await notionFetch(`/pages/${orgId}`);
@@ -931,6 +917,18 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
       } catch (e) {
         console.warn(`⚠️  Could not fetch dealer org ${orgId}:`, e.message);
       }
+    }
+
+    // Supplement: blocks in training records not in any role (employee, contractor, or dealer)
+    const supplementBlockIds = blocks
+      .filter(b => !allRoleBlockIds.has(b.id))
+      .map(b => b.id);
+    if (supplementBlockIds.length) {
+      roles.push({
+        id: '__supplement__',
+        name: 'Other Assigned Trainings',
+        blockIds: supplementBlockIds,
+      });
     }
 
     res.json({
