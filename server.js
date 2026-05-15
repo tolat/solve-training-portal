@@ -62,12 +62,13 @@ if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
 
 // ─── Notion Database IDs ──────────────────────────────────────
 const DB = {
-  companyDirectory: '583517ad-9eb7-4c1c-b563-47ef14c9f9d3',
-  trainingRecords:  '2a0b73d8-b43a-8022-843f-cd9712081cbc',
-  trainingBlocks:   '2a8b73d8-b43a-8081-b8dd-c8d6d3f90d75',
-  trainingProfiles: '2a8b73d8-b43a-809b-a218-d333d4f2a2f3',
-  roles:            '2b1b73d8-b43a-8013-ad34-f824f122013f',
-  pipelineStages:   '26fb73d8-b43a-8062-ab48-cb65735c1eb2',
+  companyDirectory:     '583517ad-9eb7-4c1c-b563-47ef14c9f9d3',
+  trainingRecords:      '2a0b73d8-b43a-8022-843f-cd9712081cbc',
+  trainingBlocks:       '2a8b73d8-b43a-8081-b8dd-c8d6d3f90d75',
+  trainingProfiles:     '2a8b73d8-b43a-809b-a218-d333d4f2a2f3',
+  roles:                '2b1b73d8-b43a-8013-ad34-f824f122013f',
+  pipelineStages:       '26fb73d8-b43a-8062-ab48-cb65735c1eb2',
+  trainingBlockQuizzes: '2d403da0-4fe8-4355-90aa-84ea3ea3aabc',
 };
 
 // ─── Notion API helpers ───────────────────────────────────────
@@ -283,31 +284,71 @@ function getSession(token) {
 }
 
 // ─── Generated quiz store ─────────────────────────────────────
-// Persisted to disk so quizzes survive server restarts.
-// Shape: { [blockIdNoDashes]: [ { q, options, correct }, … ] }
-const QUIZ_FILE = path.join(__dirname, 'quizzes-generated.json');
+// ─── Notion-backed quiz store ─────────────────────────────────
+// Quizzes live in Training Block Quizzes.db in Notion so they
+// survive redeployments. In-memory cache for fast serving.
+// Shape: { [blockIdNoDashes]: { questions: [...], pageId: string } }
 
-let generatedQuizzes = {};
+let generatedQuizzes = {};  // blockIdNoDashes → questions array (in-memory cache)
+let quizPageIds       = {};  // blockIdNoDashes → Notion page ID (for updates)
 
-function loadGeneratedQuizzes() {
+async function loadGeneratedQuizzes() {
   try {
-    const raw = require('fs').readFileSync(QUIZ_FILE, 'utf8');
-    generatedQuizzes = JSON.parse(raw);
-    console.log(`📚  Loaded generated quizzes for ${Object.keys(generatedQuizzes).length} block(s)`);
-  } catch {
-    generatedQuizzes = {};
-  }
-}
-
-function saveGeneratedQuizzes() {
-  try {
-    require('fs').writeFileSync(QUIZ_FILE, JSON.stringify(generatedQuizzes, null, 2));
+    const pages = await queryAll(DB.trainingBlockQuizzes);
+    let count = 0;
+    for (const p of pages) {
+      const blockId = (p.properties?.['Block ID']?.rich_text || []).map(t => t.plain_text).join('').trim();
+      const jsonStr = (p.properties?.['Questions JSON']?.rich_text || []).map(t => t.plain_text).join('').trim();
+      if (!blockId || !jsonStr) continue;
+      try {
+        generatedQuizzes[blockId] = JSON.parse(jsonStr);
+        quizPageIds[blockId]      = p.id;
+        count++;
+      } catch {}
+    }
+    console.log(`📚  Loaded quizzes from Notion for ${count} block(s)`);
   } catch (e) {
-    console.error('⚠️   Could not save quizzes-generated.json:', e.message);
+    console.error('⚠️   Could not load quizzes from Notion:', e.message);
   }
 }
 
-loadGeneratedQuizzes();
+async function saveGeneratedQuizzes(blockIdNoDashes, questions) {
+  const today    = new Date().toISOString().split('T')[0];
+  const jsonStr  = JSON.stringify(questions);
+  // Notion rich_text: max 2000 chars per item — split if needed
+  const chunks   = [];
+  for (let i = 0; i < jsonStr.length; i += 1990) {
+    chunks.push({ text: { content: jsonStr.slice(i, i + 1990) } });
+  }
+  const props = {
+    'Questions JSON': { rich_text: chunks },
+    'Question Count': { number: questions.length },
+    'Source':         { select: { name: 'AI Generated' } },
+    'Last Generated': { date: { start: today } },
+  };
+
+  try {
+    if (quizPageIds[blockIdNoDashes]) {
+      // Update existing Notion page
+      await notionFetch(`/pages/${quizPageIds[blockIdNoDashes]}`, 'PATCH', { properties: props });
+    } else {
+      // Create new Notion page
+      const dashId = `${blockIdNoDashes.slice(0,8)}-${blockIdNoDashes.slice(8,12)}-${blockIdNoDashes.slice(12,16)}-${blockIdNoDashes.slice(16,20)}-${blockIdNoDashes.slice(20)}`;
+      const newPage = await notionFetch('/pages', 'POST', {
+        parent: { database_id: DB.trainingBlockQuizzes },
+        properties: {
+          'Name':           { title: [{ text: { content: blockIdNoDashes } }] },
+          'Block ID':       { rich_text: [{ text: { content: blockIdNoDashes } }] },
+          'Training Block': { relation: [{ id: dashId }] },
+          ...props,
+        },
+      });
+      quizPageIds[blockIdNoDashes] = newPage.id;
+    }
+  } catch (e) {
+    console.error(`⚠️   Could not save quiz to Notion for ${blockIdNoDashes}:`, e.message);
+  }
+}
 
 // ─── AI quiz generation ───────────────────────────────────────
 async function fetchBlockPageText(blockId) {
@@ -404,7 +445,7 @@ async function regenerateQuizForBlock(blockId) {
     const questions = await generateQuizForBlock(block);
     if (questions) {
       generatedQuizzes[key] = questions;
-      saveGeneratedQuizzes();
+      await saveGeneratedQuizzes(key, questions);
       console.log(`✅  Quiz generated for "${block.name}" (${questions.length} questions)`);
     }
   } catch (e) {
@@ -1500,7 +1541,7 @@ app.get('*', (req, res) => {
 });
 
 // ─── Start ────────────────────────────────────────────────────
-refreshCache()
+Promise.all([refreshCache(), loadGeneratedQuizzes()])
   .then(() => {
     app.listen(PORT, () => {
       console.log(`\n⚡  Solve Training Portal → http://localhost:${PORT}\n`);
