@@ -340,10 +340,10 @@ function renderRoles() {
 
   // Show inline profile button when header-main is hidden
   if (window._hideHeader) {
-    const bar = document.getElementById('inlineProfileBar');
+    const btn    = document.getElementById('inlineProfileBtn');
     const nameEl = document.getElementById('inlineProfileName');
-    if (bar) bar.style.display = 'flex';
-    if (nameEl) nameEl.textContent = currentUser.name;
+    if (btn)    btn.style.display    = 'inline-flex';
+    if (nameEl) nameEl.textContent   = currentUser.name;
   }
 
   const empOrdering = trainingData.employeeStageOrdering ?? 999;
