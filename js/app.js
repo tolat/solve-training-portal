@@ -218,7 +218,7 @@ async function initApp() {
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('appHeader').style.display = 'flex';
   document.getElementById('headerUser').style.display = 'inline-flex';
-  document.getElementById('btnLogout').style.display = 'inline-flex';
+  document.getElementById('btnLogout').style.display = currentUser?.autoLogin ? 'none' : 'inline-flex';
   document.getElementById('headerUser').textContent = currentUser.name;
   showStageBadge(currentUser.onboardingStage);
 
@@ -1310,12 +1310,10 @@ function showToast(msg) {
       }
 
       authToken   = data.token;
-      currentUser = { name: data.name, email: data.email, onboardingStage: data.onboardingStage || null };
+      currentUser = { name: data.name, email: data.email, onboardingStage: data.onboardingStage || null, autoLogin: !!data.autoLogin };
       localStorage.setItem(SESSION_KEY, authToken);
 
-      // Update header — hide sign out for auto-login (employee_id) sessions
       document.getElementById('headerUser').style.display  = 'inline-flex';
-      document.getElementById('btnLogout').style.display   = data.autoLogin ? 'none' : 'inline-flex';
       document.getElementById('headerUser').textContent    = currentUser.name;
       showStageBadge(currentUser.onboardingStage);
 
@@ -1350,7 +1348,7 @@ function showToast(msg) {
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('appHeader').style.display   = 'flex';
   document.getElementById('headerUser').style.display  = 'inline-flex';
-  document.getElementById('btnLogout').style.display   = 'inline-flex';
+  document.getElementById('btnLogout').style.display   = currentUser?.autoLogin ? 'none' : 'inline-flex';
   document.getElementById('headerUser').textContent    = currentUser?.name || '';
   showStageBadge(currentUser?.onboardingStage || null);
 
