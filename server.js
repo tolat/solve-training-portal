@@ -328,6 +328,19 @@ async function saveGeneratedQuizzes(blockIdNoDashes, questions) {
   };
 
   try {
+    // Resolve page ID: prefer in-memory cache, fall back to Notion query
+    // This prevents duplicate pages when the in-memory cache wasn't loaded
+    if (!quizPageIds[blockIdNoDashes]) {
+      const existing = await queryAll(DB.trainingBlockQuizzes, {
+        property: 'Block ID',
+        rich_text: { equals: blockIdNoDashes },
+      });
+      if (existing.length) {
+        quizPageIds[blockIdNoDashes] = existing[0].id;
+        console.log(`🔍  Found existing quiz page for ${blockIdNoDashes} — updating`);
+      }
+    }
+
     if (quizPageIds[blockIdNoDashes]) {
       // Update existing Notion page
       await notionFetch(`/pages/${quizPageIds[blockIdNoDashes]}`, 'PATCH', { properties: props });
@@ -344,6 +357,7 @@ async function saveGeneratedQuizzes(blockIdNoDashes, questions) {
         },
       });
       quizPageIds[blockIdNoDashes] = newPage.id;
+      console.log(`✨  Created new quiz page for ${blockIdNoDashes}`);
     }
   } catch (e) {
     console.error(`⚠️   Could not save quiz to Notion for ${blockIdNoDashes}:`, e.message);
