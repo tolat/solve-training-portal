@@ -342,7 +342,7 @@ function renderRoles() {
   if (window._hideHeader) {
     const bar = document.getElementById('inlineProfileBar');
     const nameEl = document.getElementById('inlineProfileName');
-    if (bar) bar.style.display = 'block';
+    if (bar) bar.style.display = 'flex';
     if (nameEl) nameEl.textContent = currentUser.name;
   }
 
@@ -406,6 +406,15 @@ function renderRoles() {
     card.onclick = () => openRole(role.id, role.name);
     grid.appendChild(card);
   });
+
+  if (!grid.children.length) {
+    grid.innerHTML = `
+      <div style="text-align:center;padding:48px 24px;color:var(--gray);">
+        <div style="font-size:36px;margin-bottom:12px;">🎓</div>
+        <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px;">No trainings available</div>
+        <div style="font-size:13px;">You have no training modules assigned at your current stage.</div>
+      </div>`;
+  }
 
   showScreen('screenRoles');
 }
