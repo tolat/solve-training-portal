@@ -207,6 +207,7 @@ function showStageBadge(stage) {
   if (stage) {
     el.textContent = stage;
     el.style.display = 'inline-flex';
+    if (window._hideHeader) el.style.margin = '0 12px';
   } else {
     el.style.display = 'none';
   }
@@ -340,10 +341,10 @@ function renderRoles() {
 
   // Show inline profile button when header-main is hidden
   if (window._hideHeader) {
-    const btn    = document.getElementById('inlineProfileBtn');
+    const bar    = document.getElementById('inlineProfileBar');
     const nameEl = document.getElementById('inlineProfileName');
-    if (btn)    btn.style.display    = 'inline-flex';
-    if (nameEl) nameEl.textContent   = currentUser.name;
+    if (bar)    bar.style.display  = 'flex';
+    if (nameEl) nameEl.textContent = currentUser.name;
   }
 
   const empOrdering = trainingData.employeeStageOrdering ?? 999;
