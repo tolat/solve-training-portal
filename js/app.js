@@ -1287,6 +1287,12 @@ function showToast(msg) {
   const urlParams  = new URLSearchParams(window.location.search);
   const employeeId = urlParams.get('employee_id');
 
+  // Hide the header-main bar if hideHeader=true is in the URL
+  if (urlParams.get('hideHeader') === 'true') {
+    const hm = document.querySelector('.header-main');
+    if (hm) hm.style.display = 'none';
+  }
+
   if (employeeId) {
     // Show loading state (hide login screen)
     document.getElementById('loginScreen').style.display = 'none';
