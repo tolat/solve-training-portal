@@ -1325,6 +1325,37 @@ app.post('/api/regenerate-quiz/:blockId', async (req, res) => {
   );
 });
 
+// ─── POST /api/regenerate-missing-quizzes ────────────────────
+// Regenerates quizzes only for blocks that don't already have one in
+// quizzes-generated.json. Safe to call at any time — won't overwrite
+// existing generated quizzes.
+app.post('/api/regenerate-missing-quizzes', async (req, res) => {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return res.status(503).json({ error: 'ANTHROPIC_API_KEY is not set — quiz generation disabled.' });
+  }
+
+  if (Date.now() - cache.ts > CACHE_TTL) await refreshCache();
+
+  const allBlockIds = Object.keys(cache.blocks);
+  const missing     = allBlockIds.filter(id => {
+    const key = id.replace(/-/g, '');
+    return !generatedQuizzes[key];
+  });
+
+  res.json({ ok: true, message: `Queuing quiz generation for ${missing.length} block(s) in background.`, total: allBlockIds.length, missing: missing.length });
+
+  // Process in background sequentially to avoid hammering the API
+  (async () => {
+    console.log(`🤖  regenerate-missing-quizzes: ${missing.length} blocks to generate`);
+    for (const blockId of missing) {
+      await regenerateQuizForBlock(blockId).catch(e =>
+        console.warn(`⚠️  Quiz generation failed for ${blockId}:`, e.message)
+      );
+    }
+    console.log(`✅  regenerate-missing-quizzes complete`);
+  })();
+});
+
 // ─── POST /api/webhook/notion/role ───────────────────────────
 // Called by a Notion Automation when a Role is created or updated.
 // Just refreshes the cache so the new role is available immediately.
