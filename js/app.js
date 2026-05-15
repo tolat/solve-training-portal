@@ -338,6 +338,14 @@ function renderRoles() {
 
   document.getElementById('rolesTitle').textContent = currentUser.name + "'s Training";
 
+  // Show inline profile button when header-main is hidden
+  if (window._hideHeader) {
+    const bar = document.getElementById('inlineProfileBar');
+    const nameEl = document.getElementById('inlineProfileName');
+    if (bar) bar.style.display = 'block';
+    if (nameEl) nameEl.textContent = currentUser.name;
+  }
+
   const empOrdering = trainingData.employeeStageOrdering ?? 999;
 
   // Returns true if a block should be shown for the given role.
@@ -1287,10 +1295,12 @@ function showToast(msg) {
   const urlParams  = new URLSearchParams(window.location.search);
   const employeeId = urlParams.get('employee_id');
 
-  // Hide the header-main bar if hideHeader=true is in the URL
+  // Hide the header-main bar if hideHeader=true is in the URL,
+  // and show the inline profile button on the roles page instead.
   if (urlParams.get('hideHeader') === 'true') {
     const hm = document.querySelector('.header-main');
     if (hm) hm.style.display = 'none';
+    window._hideHeader = true;
   }
 
   if (employeeId) {

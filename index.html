@@ -142,6 +142,13 @@
 
 <!-- ─── Roles Screen ──────────────────────────────────────── -->
 <div class="screen" id="screenRoles">
+  <!-- Profile button shown here only when hideHeader=true -->
+  <div id="inlineProfileBar" style="display:none;padding:12px 24px 0;text-align:right;">
+    <button onclick="showProfile()" style="display:inline-flex;align-items:center;gap:7px;background:var(--green);border:none;color:#fff;border-radius:20px;padding:6px 14px 6px 10px;cursor:pointer;font-size:13px;font-weight:500;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+      <span id="inlineProfileName"></span>
+    </button>
+  </div>
   <div class="sync-bar" id="syncBarRoles">
     <span id="syncBarRolesText">Training data up to date</span>
     <button id="syncNowBtnRoles" onclick="manualSync()"><span class="sync-spin"></span>Sync now</button>
