@@ -1375,7 +1375,8 @@ app.post('/api/regenerate-missing-quizzes', async (req, res) => {
     return res.status(503).json({ error: 'ANTHROPIC_API_KEY is not set — quiz generation disabled.' });
   }
 
-  if (Date.now() - cache.ts > CACHE_TTL) await refreshCache();
+  // Always force a fresh cache + quiz reload so newly added blocks are included
+  await Promise.all([refreshCache(), loadGeneratedQuizzes()]);
 
   const allBlockIds = Object.keys(cache.blocks);
   const missing     = allBlockIds.filter(id => {
