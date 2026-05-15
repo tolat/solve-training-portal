@@ -626,7 +626,7 @@ app.get('/api/token-by-employee-id', async (req, res) => {
     const token             = createSession({ pageId: user.id, name, email, roleIds, onboardingStage, contractorPageIds, dealerOrgPageIds });
 
     console.log(`✔  Token-by-ID: ${name} (${employee_id}) — Stage: ${onboardingStage || 'none'}`);
-    res.json({ token, name, email, onboardingStage });
+    res.json({ token, name, email, onboardingStage, autoLogin: true });
   } catch (err) {
     console.error('token-by-employee-id error:', err.message);
     res.status(500).json({ error: 'Server error: ' + err.message });

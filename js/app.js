@@ -1313,9 +1313,9 @@ function showToast(msg) {
       currentUser = { name: data.name, email: data.email, onboardingStage: data.onboardingStage || null };
       localStorage.setItem(SESSION_KEY, authToken);
 
-      // Update header immediately
+      // Update header — hide sign out for auto-login (employee_id) sessions
       document.getElementById('headerUser').style.display  = 'inline-flex';
-      document.getElementById('btnLogout').style.display   = 'inline-flex';
+      document.getElementById('btnLogout').style.display   = data.autoLogin ? 'none' : 'inline-flex';
       document.getElementById('headerUser').textContent    = currentUser.name;
       showStageBadge(currentUser.onboardingStage);
 
