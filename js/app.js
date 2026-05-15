@@ -395,7 +395,7 @@ function renderRoles() {
     const card = document.createElement('div');
     card.className = 'role-card';
     card.innerHTML = `
-      <div class="role-card-name">${escHtml(role.name)}</div>
+      <div class="role-card-name">${escHtml(role.name)}${role.contractorName ? `<span style="font-size:12px;font-weight:400;color:var(--gray);margin-left:8px;">${escHtml(role.contractorName)}</span>` : ''}</div>
       <div class="role-card-stats">
         <span>${done} of ${total} completed</span>
         <span>${pct}%</span>
@@ -475,8 +475,9 @@ function renderCourse(blocksOverride) {
   const done = blocks.filter(b => isBlockCompleted(b.id)).length;
   const pct  = blocks.length ? Math.round(done / blocks.length * 100) : 0;
 
-  const roleLabel = currentRoleId
-    ? (trainingData.roles.find(r => r.id === currentRoleId)?.name || 'Training')
+  const currentRoleObj = currentRoleId ? trainingData.roles.find(r => r.id === currentRoleId) : null;
+  const roleLabel = currentRoleObj
+    ? currentRoleObj.name + (currentRoleObj.contractorName ? ` — ${currentRoleObj.contractorName}` : '')
     : currentUser.name + "'s Training";
   document.getElementById('courseRoleName').textContent       = roleLabel;
   document.getElementById('courseTotalCount').textContent     = blocks.length;

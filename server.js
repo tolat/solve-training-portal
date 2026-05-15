@@ -781,10 +781,15 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
 
         const contractorBlockIds  = new Set();
         const contractorBlockMap  = {};  // blockId → block object (may not be in cache)
+        const contractorNames     = [];  // company names for display
 
         for (const cpId of contractorPageIds) {
           try {
             const cpPage            = await notionFetch(`/pages/${cpId}`);
+            // Grab the contractor company name from the page title
+            const cpName = Object.values(cpPage.properties || {})
+              .map(p => titleTxt(p)).find(n => n?.trim());
+            if (cpName) contractorNames.push(cpName);
             const trainingRecordIds = relIds(prop(cpPage, 'Training Records'));
             for (const recordId of trainingRecordIds) {
               try {
@@ -844,8 +849,9 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
           }
         }
 
-        roleObj.blockIds = Array.from(contractorBlockIds);
-        console.log(`🏗️  Sub Contractor role "${roleObj.name}": ${contractorBlockIds.size} blocks from contractor pages`);
+        roleObj.blockIds        = Array.from(contractorBlockIds);
+        roleObj.contractorName  = contractorNames.join(', ') || null;
+        console.log(`🏗️  Sub Contractor role "${roleObj.name}" (${roleObj.contractorName}): ${contractorBlockIds.size} blocks from contractor pages`);
       }
     }
 
