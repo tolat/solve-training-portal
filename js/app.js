@@ -11,6 +11,7 @@ let currentBlocks     = [];
 let currentBlockIndex = null;
 let currentRoleId     = null;
 let materialsTimer    = null;  // auto-refresh signed file URLs every 55 min
+let autoSyncTimer     = null;  // background sync every 15 min while app is open
 
 // AI-generated quizzes fetched from /api/quizzes — merged with static QUIZ_MAP
 // Keys are block IDs with no dashes, same as QUIZ_MAP
@@ -256,6 +257,13 @@ async function initApp() {
     renderRoles();
     showScreen('screenRoles');
     updateSyncBar();
+
+    // Auto-sync every 15 minutes while the app is open
+    if (autoSyncTimer) clearInterval(autoSyncTimer);
+    autoSyncTimer = setInterval(() => {
+      console.log('[AutoSync] Background sync triggered');
+      manualSync();
+    }, 15 * 60 * 1000);
 
   } catch (err) {
     showScreen('screenLoading');
@@ -1260,6 +1268,7 @@ async function doChangePassword() {
 async function logout() {
   try { await apiFetch('/api/logout', 'POST'); } catch {}
   if (materialsTimer) { clearInterval(materialsTimer); materialsTimer = null; }
+  if (autoSyncTimer)  { clearInterval(autoSyncTimer);  autoSyncTimer  = null; }
   authToken    = null;
   currentUser  = null;
   trainingData = null;
