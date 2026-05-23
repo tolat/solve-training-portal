@@ -125,9 +125,10 @@ async function doLogin() {
     }
 
     authToken   = data.token;
-    currentUser = { name: data.name, email: data.email, onboardingStage: data.onboardingStage || null };
+    currentUser = { name: data.name, email: data.email, onboardingStage: data.onboardingStage || null, mustChangePassword: !!data.mustChangePassword };
     localStorage.setItem(SESSION_KEY, authToken);
     await initApp();
+    if (data.mustChangePassword) showProfile(true);
 
   } catch (err) {
     errEl.textContent = 'Could not connect to server. Is the server running?';
@@ -308,7 +309,7 @@ async function manualSync() {
         const roleBlockSet = new Set(role.blockIds);
         currentBlocks = trainingData.blocks.filter(b => roleBlockSet.has(b.id));
       }
-      renderCourse(currentBlocks);
+      renderCourse(currentBlocks, true); // skipCompleteRedirect: don't jump to completion screen on background sync
     } else {
       renderRoles();
     }
@@ -439,7 +440,7 @@ function openRole(roleId, roleName) {
 
   // Show back button
   document.getElementById('headerBack').style.display = 'inline-flex';
-  renderCourse(currentBlocks);
+  renderCourse(currentBlocks, true); // skipCompleteRedirect: user explicitly opened this role
 }
 
 // ============================================================
@@ -453,7 +454,7 @@ function isBlockOverdue(blockId) {
   return trainingData?.completedMap?.[blockId]?.status === 'Overdue';
 }
 
-function renderCourse(blocksOverride) {
+function renderCourse(blocksOverride, skipCompleteRedirect = false) {
   if (!trainingData) return;
   const { completedMap } = trainingData;
   const allBlocks = blocksOverride || trainingData.blocks;
@@ -615,10 +616,22 @@ function renderCourse(blocksOverride) {
     }
   });
 
-  // Check completion
+  // Add an "all complete" notice at the top of the list when the user
+  // is browsing a fully-completed role (not when auto-redirecting to completion).
   if (done === blocks.length && blocks.length > 0) {
-    renderCompletion();
-    showScreen('screenComplete');
+    if (skipCompleteRedirect) {
+      const banner = document.createElement('div');
+      banner.className = 'completion-notice';
+      banner.innerHTML = `
+        <span class="completion-notice-icon">🎉</span>
+        <span>All training complete! You can still click any module below to review its resources.</span>
+      `;
+      list.insertBefore(banner, list.firstChild);
+      showScreen('screenCourse');
+    } else {
+      renderCompletion();
+      showScreen('screenComplete');
+    }
   } else {
     showScreen('screenCourse');
   }
@@ -700,11 +713,15 @@ function openBlock(index) {
   }
 
   if (passed) {
-    if (!isDocUpload) viewedConfirm.classList.add('show');
+    if (!isDocUpload) {
+      viewedConfirm.classList.add('show');
+      // Update the confirmation text to a review-mode message (not the "complete quiz" prompt)
+      viewedConfirm.innerHTML = '📖 <strong>Reviewing completed training.</strong> Resources and materials are available below.';
+    }
     const dateStr = trainingData.completedMap[block.id]?.date || '';
     const completedHTML = `
       <div class="quiz-result-title">✅ Already Completed${dateStr ? ' — ' + dateStr : ''}</div>
-      <div class="quiz-result-msg">You've already completed this module.</div>
+      <div class="quiz-result-msg">You've already completed this module. You can review the materials above at any time.</div>
       <button class="btn btn-outline" onclick="goBack()">← Back to Course</button>
     `;
     if (isDocUpload) {
@@ -1172,8 +1189,8 @@ function goBack() {
   if (currentRoleId) {
     const active = document.querySelector('.screen.active')?.id;
     if (active === 'screenBlock') {
-      // Back from block → role course list
-      renderCourse(currentBlocks);
+      // Back from block → role course list; never redirect to completion when navigating back
+      renderCourse(currentBlocks, true);
     } else {
       // Back from role course → roles overview
       document.getElementById('headerBack').style.display = 'none';
@@ -1196,7 +1213,7 @@ function goBack() {
 // ============================================================
 // PROFILE
 // ============================================================
-function showProfile() {
+function showProfile(forced = false) {
   if (!currentUser || !trainingData) return;
 
   // Avatar initials
@@ -1214,11 +1231,17 @@ function showProfile() {
   document.getElementById('profileStage').textContent = currentUser.onboardingStage || '—';
 
   // Clear password fields and messages
-  ['pwCurrent', 'pwNew', 'pwConfirm'].forEach(id => document.getElementById(id).value = '');
+  ['pwNew', 'pwConfirm'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('profileError').className   = 'login-error';
   document.getElementById('profileSuccess').className = 'forgot-success';
 
-  document.getElementById('headerBack').style.display = 'inline-flex';
+  if (forced) {
+    const errEl = document.getElementById('profileError');
+    errEl.textContent = '⚠️ You are using the default password. Please set a new one before continuing.';
+    errEl.className   = 'login-error show';
+  }
+
+  document.getElementById('headerBack').style.display = forced ? 'none' : 'inline-flex';
   showScreen('screenProfile');
 }
 
@@ -1229,16 +1252,15 @@ async function doChangePassword() {
   errEl.className  = 'login-error';
   okEl.className   = 'forgot-success';
 
-  const current  = document.getElementById('pwCurrent').value;
-  const newPw    = document.getElementById('pwNew').value;
-  const confirm  = document.getElementById('pwConfirm').value;
+  const newPw   = document.getElementById('pwNew').value;
+  const confirm = document.getElementById('pwConfirm').value;
 
-  if (!current || !newPw || !confirm) {
-    errEl.textContent = 'Please fill in all three fields.';
+  if (!newPw || !confirm) {
+    errEl.textContent = 'Please fill in both password fields.';
     errEl.className   = 'login-error show'; return;
   }
   if (newPw !== confirm) {
-    errEl.textContent = 'New passwords do not match.';
+    errEl.textContent = 'Passwords do not match.';
     errEl.className   = 'login-error show'; return;
   }
   if (newPw.length < 6) {
@@ -1249,10 +1271,10 @@ async function doChangePassword() {
   btnEl.disabled    = true;
   btnEl.textContent = 'Updating…';
   try {
-    await apiFetch('/api/change-password', 'POST', { currentPassword: current, newPassword: newPw });
+    await apiFetch('/api/change-password', 'POST', { newPassword: newPw });
     okEl.textContent = '✅ Password updated successfully.';
     okEl.className   = 'forgot-success show';
-    ['pwCurrent', 'pwNew', 'pwConfirm'].forEach(id => document.getElementById(id).value = '');
+    ['pwNew', 'pwConfirm'].forEach(id => document.getElementById(id).value = '');
   } catch (e) {
     errEl.textContent = e.message || 'Failed to update password.';
     errEl.className   = 'login-error show';

@@ -518,7 +518,8 @@ app.post('/api/login', async (req, res) => {
 
     const user  = results[0];
     const name  = titleTxt(prop(user, 'Name'));
-    const storedPw = richText(prop(user, 'Training Portal Password')) || 'solveenergy';
+    const customPw = richText(prop(user, 'Training Portal Password'));
+    const storedPw = customPw || 'solveenergy';
 
     if (storedPw !== password) {
       return res.status(401).json({ error: 'Incorrect password.' });
@@ -530,8 +531,11 @@ app.post('/api/login', async (req, res) => {
     const dealerOrgPageIds  = relIds(prop(user, 'Dealer Organizations'));
     const token             = createSession({ pageId: user.id, name, email: email.toLowerCase().trim(), roleIds, onboardingStage, contractorPageIds, dealerOrgPageIds });
 
-    console.log(`✔  Login: ${name} (${email}) — Stage: ${onboardingStage || 'none'}`);
-    res.json({ token, name, email: email.toLowerCase().trim(), onboardingStage });
+    // Flag if the user is still on the default password so the frontend can prompt them
+    const mustChangePassword = !customPw;
+
+    console.log(`✔  Login: ${name} (${email}) — Stage: ${onboardingStage || 'none'}${mustChangePassword ? ' [default password]' : ''}`);
+    res.json({ token, name, email: email.toLowerCase().trim(), onboardingStage, mustChangePassword });
 
   } catch (err) {
     console.error('Login error:', err.message);
@@ -549,29 +553,23 @@ app.post('/api/logout', requireAuth, (req, res) => {
 // ─── POST /api/change-password ───────────────────────────────
 app.post('/api/change-password', requireAuth, async (req, res) => {
   try {
-    const { currentPassword, newPassword } = req.body || {};
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ error: 'Current and new password are required.' });
+    const { newPassword } = req.body || {};
+    if (!newPassword) {
+      return res.status(400).json({ error: 'New password is required.' });
     }
     if (newPassword.length < 6) {
       return res.status(400).json({ error: 'New password must be at least 6 characters.' });
     }
 
-    const { email, pageId } = req.session;
+    const { email } = req.session;
 
-    // Look up the user's current stored password
     const results = await queryAll(DB.companyDirectory, {
       property: 'Email',
       email: { equals: email },
     });
     if (!results.length) return res.status(404).json({ error: 'User not found.' });
 
-    const user     = results[0];
-    const storedPw = richText(prop(user, 'Training Portal Password')) || 'solveenergy';
-
-    if (storedPw !== currentPassword) {
-      return res.status(401).json({ error: 'Current password is incorrect.' });
-    }
+    const user = results[0];
 
     // Update the password in Notion
     await notionFetch(`/pages/${user.id}`, 'PATCH', {
