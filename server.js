@@ -824,26 +824,35 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
     }
 
     // ── Sub Contractor roles ──────────────────────────────────
-    // For any role with Department = "Sub Contractor", replace its block list
-    // with training blocks pulled from the user's contractor pages.
-    // Path: contractorPage → Training Records (relation) → Training Block (relation)
+    // One virtual role per contractor page — same pattern as dealer orgs.
+    // Path: contractorPage → Training Records → Training Block
+    // The original "import contractor trainings" role is removed and replaced
+    // with one card per linked contractor so trainings stay separate.
     if (contractorPageIds.length) {
-      for (const roleObj of roles) {
-        const cachedRole = cache.roles[roleObj.id];
-        if (!cachedRole || !cachedRole.importContractorTrainings) continue;
+      // Find which roles are contractor-importing templates
+      const contractorTemplateIds = new Set(
+        roles
+          .filter(r => cache.roles[r.id]?.importContractorTrainings)
+          .map(r => r.id)
+      );
 
-        const contractorBlockIds  = new Set();
-        const contractorBlockMap  = {};  // blockId → block object (may not be in cache)
-        const contractorNames     = [];  // company names for display
+      if (contractorTemplateIds.size) {
+        // Remove the template roles — they'll be replaced by per-contractor virtuals
+        for (let i = roles.length - 1; i >= 0; i--) {
+          if (contractorTemplateIds.has(roles[i].id)) roles.splice(i, 1);
+        }
 
         for (const cpId of contractorPageIds) {
           try {
-            const cpPage            = await notionFetch(`/pages/${cpId}`);
-            // Grab the contractor company name from the page title
+            const cpPage = await notionFetch(`/pages/${cpId}`);
+            // Contractor company name from the page title property
             const cpName = Object.values(cpPage.properties || {})
-              .map(p => titleTxt(p)).find(n => n?.trim());
-            if (cpName) contractorNames.push(cpName);
-            const trainingRecordIds = relIds(prop(cpPage, 'Training Records'));
+              .map(p => titleTxt(p)).find(n => n?.trim()) || 'Contractor';
+
+            const trainingRecordIds  = relIds(prop(cpPage, 'Training Records'));
+            const contractorBlockIds = new Set();
+            const contractorBlockMap = {};
+
             for (const recordId of trainingRecordIds) {
               try {
                 const record   = await notionFetch(`/pages/${recordId}`);
@@ -853,21 +862,20 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
                 const blockId = blockRel[0];
                 let block = cache.blocks[blockId];
 
-                // If the block isn't in the cache (e.g. contractor-specific blocks
-                // added after the last cache refresh), fetch it directly from Notion.
+                // Fetch on-demand if the block isn't in the cache yet
                 if (!block) {
                   try {
                     const bp = await notionFetch(`/pages/${blockId}`);
                     block = {
-                      id:           bp.id,
-                      name:         titleTxt(prop(bp, 'Name')),
-                      trainingLink: prop(bp, 'Training link')?.url || null,
-                      notes:        richText(prop(bp, 'Notes')),
-                      policyNo:     prop(bp, 'Policy No.')?.select?.name || null,
-                      types:        prop(bp, 'Type')?.multi_select?.map(s => s.name) || [],
+                      id:               bp.id,
+                      name:             titleTxt(prop(bp, 'Name')),
+                      trainingLink:     prop(bp, 'Training link')?.url || null,
+                      notes:            richText(prop(bp, 'Notes')),
+                      policyNo:         prop(bp, 'Policy No.')?.select?.name || null,
+                      types:            prop(bp, 'Type')?.multi_select?.map(s => s.name) || [],
                       stageOrdering:    999,
                       stageName:        'Contractor',
-                      hasEmployeeStage: true,  // always show for contractor users
+                      hasEmployeeStage: true,
                       stageIds:         [],
                     };
                     console.log(`📦  Contractor block fetched on-demand: ${block.name}`);
@@ -879,32 +887,33 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
 
                 contractorBlockIds.add(blockId);
                 allRoleBlockIds.add(blockId);
-                // Tag as contractor block so the frontend always shows it
-                // regardless of pipeline stage (contractor stages ≠ employee E-stages)
                 contractorBlockMap[blockId] = { ...block, isContractorBlock: true };
               } catch (e) {
-                console.warn(`⚠️  Could not fetch contractor training record ${recordId}:`, e.message);
+                console.warn(`⚠️  Could not fetch contractor record ${recordId}:`, e.message);
               }
+            }
+
+            // Add / replace blocks in the shared blocks array
+            for (const [blockId, block] of Object.entries(contractorBlockMap)) {
+              const idx = blocks.findIndex(b => b.id === blockId);
+              if (idx >= 0) blocks[idx] = block;
+              else blocks.push(block);
+            }
+
+            if (contractorBlockIds.size > 0) {
+              roles.push({
+                id:                        `__contractor__${cpId}`,
+                name:                      cpName,
+                blockIds:                  Array.from(contractorBlockIds),
+                importContractorTrainings: true,
+                contractorName:            cpName,
+              });
+              console.log(`🏗️  Contractor role "${cpName}": ${contractorBlockIds.size} blocks`);
             }
           } catch (e) {
             console.warn(`⚠️  Could not fetch contractor page ${cpId}:`, e.message);
           }
         }
-
-        // Add contractor blocks to the main blocks array.
-        // REPLACE any existing entry so the isContractorBlock flag is always present.
-        for (const [blockId, block] of Object.entries(contractorBlockMap)) {
-          const existingIdx = blocks.findIndex(b => b.id === blockId);
-          if (existingIdx >= 0) {
-            blocks[existingIdx] = block;
-          } else {
-            blocks.push(block);
-          }
-        }
-
-        roleObj.blockIds        = Array.from(contractorBlockIds);
-        roleObj.contractorName  = contractorNames.join(', ') || null;
-        console.log(`🏗️  Sub Contractor role "${roleObj.name}" (${roleObj.contractorName}): ${contractorBlockIds.size} blocks from contractor pages`);
       }
     }
 
