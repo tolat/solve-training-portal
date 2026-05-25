@@ -771,9 +771,6 @@ function openBlock(index) {
 // VIDEO + PDF HELPERS
 // ============================================================
 
-// Detect iOS (PDFs don't render in iframes on iOS Safari)
-const isIosSafari = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
-
 /**
  * Given a URL, return HTML for the training resource area:
  *   – YouTube/Vimeo → responsive iframe embed
@@ -846,50 +843,6 @@ function buildTrainingResourceHTML(url) {
     </div>`;
 }
 
-// ── PDF modal ─────────────────────────────────────────────────
-function openPdfModal(url, name) {
-  const modal   = document.getElementById('pdfModal');
-  const content = document.getElementById('pdfModalContent');
-  document.getElementById('pdfModalTitle').textContent = name || 'Document';
-  document.getElementById('pdfModalExternal').href     = url;
-
-  if (isIosSafari) {
-    // iOS Safari can't render PDFs in iframes — show a prominent open button
-    content.innerHTML = `
-      <div class="pdf-ios-fallback">
-        <div class="pdf-ios-icon">📄</div>
-        <div class="pdf-ios-msg">PDF previews aren't supported on iOS Safari.</div>
-        <a class="btn btn-primary" href="${escHtml(url)}" target="_blank" rel="noopener">Open PDF ↗</a>
-      </div>`;
-  } else {
-    content.innerHTML = `<iframe class="pdf-iframe" src="${escHtml(url)}" title="${escHtml(name || 'Document')}"></iframe>`;
-  }
-
-  modal.classList.add('active');
-  document.body.style.overflow = 'hidden'; // prevent scroll-behind
-}
-
-function closePdfModal(e) {
-  // Close only if clicking the backdrop (not the modal inner box)
-  if (e && e.target !== document.getElementById('pdfModal')) return;
-  const modal = document.getElementById('pdfModal');
-  modal.classList.remove('active');
-  document.getElementById('pdfModalContent').innerHTML = ''; // free iframe memory
-  document.body.style.overflow = '';
-}
-
-// ── Close PDF modal on Escape key ────────────────────────────
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') {
-    const modal = document.getElementById('pdfModal');
-    if (modal?.classList.contains('active')) {
-      modal.classList.remove('active');
-      document.getElementById('pdfModalContent').innerHTML = '';
-      document.body.style.overflow = '';
-    }
-  }
-});
-
 // Fetch (or silently refresh) signed file URLs for a training block.
 // showSpinner=true on first load; false on background refresh so links don't flash.
 function loadMaterials(blockId, materialsDiv, showSpinner) {
@@ -907,40 +860,18 @@ function loadMaterials(blockId, materialsDiv, showSpinner) {
       groups[f.group].push(f);
     });
 
-    // Helper: decide icon and whether to intercept click for PDF modal
-    function fileIcon(name) {
-      const ext = (name || '').split('.').pop().toLowerCase();
-      if (ext === 'pdf') return '📄';
-      if (['doc','docx'].includes(ext)) return '📝';
-      if (['xls','xlsx'].includes(ext)) return '📊';
-      if (['jpg','jpeg','png','gif','webp'].includes(ext)) return '🖼️';
-      if (['mp4','webm','mov'].includes(ext)) return '🎬';
-      return '📎';
-    }
-
     materialsDiv.innerHTML = `
       <div class="materials-section">
         <div class="materials-title">📎 Training Materials</div>
         ${Object.entries(groups).map(([label, flist]) => `
           <div class="material-group">
             <div class="material-group-label">${escHtml(label)}</div>
-            ${flist.map(f => {
-              const isPdf = /\.pdf(\?|$)/i.test(f.url) || f.name.toLowerCase().endsWith('.pdf');
-              if (isPdf) {
-                // Intercept PDF clicks — open in popup modal
-                return `<a class="material-link material-link-pdf"
-                          href="${escHtml(f.url)}" target="_blank" rel="noopener"
-                          onclick="event.preventDefault(); openPdfModal('${escHtml(f.url).replace(/'/g,"\\'")}', '${escHtml(f.name).replace(/'/g,"\\'")}')">
-                          <span class="material-link-icon">📄</span>
-                          <span>${escHtml(f.name)}</span>
-                          <span class="pdf-preview-badge">Preview</span>
-                        </a>`;
-              }
-              return `<a class="material-link" href="${escHtml(f.url)}" target="_blank" rel="noopener">
-                        <span class="material-link-icon">${fileIcon(f.name)}</span>
-                        <span>${escHtml(f.name)}</span>
-                      </a>`;
-            }).join('')}
+            ${flist.map(f => `
+              <a class="material-link" href="${escHtml(f.url)}" target="_blank" rel="noopener">
+                <span class="material-link-icon">📄</span>
+                <span>${escHtml(f.name)}</span>
+              </a>
+            `).join('')}
           </div>
         `).join('')}
       </div>
