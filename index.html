@@ -200,13 +200,8 @@
     </div>
     <div class="block-policy" id="blockPolicy"></div>
     <div class="block-notes" id="blockNotes" style="display:none"></div>
-    <div class="link-box" id="linkBox" style="display:none">
-      <div class="link-box-icon">🔗</div>
-      <div class="link-box-text">
-        <div class="link-box-label">Training Resource</div>
-        <div class="link-box-url"><a id="trainingLink" href="#" target="_blank" rel="noopener"></a></div>
-      </div>
-    </div>
+    <!-- Training resource area: plain link, embedded video, or nothing -->
+    <div id="trainingResourceArea"></div>
     <div class="no-link-box" id="noLinkBox" style="display:none">
       📄 This training is delivered in-person or via your manager. Review the materials below and confirm with your trainer before proceeding.
     </div>
@@ -250,6 +245,23 @@
       <div class="quiz-result-title" id="quizResultTitle"></div>
       <div class="quiz-result-msg" id="quizResultMsg"></div>
       <div id="quizResultActions"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── PDF Viewer Modal ──────────────────────────────────── -->
+<div id="pdfModal" class="pdf-modal" onclick="closePdfModal(event)">
+  <div class="pdf-modal-inner">
+    <div class="pdf-modal-header">
+      <span class="pdf-modal-title" id="pdfModalTitle"></span>
+      <div class="pdf-modal-actions">
+        <a class="btn btn-outline" id="pdfModalExternal" href="#" target="_blank" rel="noopener" style="font-size:12px;padding:6px 12px;">Open in new tab ↗</a>
+        <button class="btn btn-outline" onclick="closePdfModal()" style="font-size:12px;padding:6px 12px;">✕ Close</button>
+      </div>
+    </div>
+    <div class="pdf-modal-body">
+      <!-- Filled by JS: iframe on desktop, fallback button on iOS -->
+      <div id="pdfModalContent"></div>
     </div>
   </div>
 </div>
