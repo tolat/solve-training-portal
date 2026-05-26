@@ -740,6 +740,9 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
     });
 
     // Contractor training records (Contractor field)
+    // Also build a per-contractor completedMap so each contractor role shows
+    // only its own completion status — not a mix from all linked contractors.
+    const contractorCompletedMaps = {};  // cpId → { blockId → {date, recordId, status} }
     let contractorRecordPages = [];
     for (const cpId of contractorPageIds) {
       const cpRecords = await queryAll(DB.trainingRecords, {
@@ -747,6 +750,21 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
         relation: { contains: cpId },
       });
       contractorRecordPages = contractorRecordPages.concat(cpRecords);
+
+      // Build isolated completedMap for this contractor
+      const cpMap = {};
+      for (const r of cpRecords) {
+        const blockRel = relIds(prop(r, 'Training Block'));
+        if (!blockRel.length) continue;
+        const dateCompleted = prop(r, 'Date Completed')?.date?.start || null;
+        const rawStatus     = prop(r, 'Status')?.formula?.string || null;
+        let status;
+        if      (rawStatus?.includes('OK'))      status = 'OK';
+        else if (rawStatus?.includes('Overdue')) status = 'Overdue';
+        else                                     status = dateCompleted ? 'OK' : 'Overdue';
+        cpMap[blockRel[0]] = { date: dateCompleted, recordId: r.id, status };
+      }
+      contractorCompletedMaps[cpId] = cpMap;
     }
 
     // Dealer org training records (Dealer Organization field)
@@ -907,6 +925,9 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
                 blockIds:                  Array.from(contractorBlockIds),
                 importContractorTrainings: true,
                 contractorName:            cpName,
+                // Per-contractor completedMap so this role's status is isolated
+                // from other contractors the user may be linked to.
+                completedMap:              contractorCompletedMaps[cpId] || {},
               });
               console.log(`🏗️  Contractor role "${cpName}": ${contractorBlockIds.size} blocks`);
             }

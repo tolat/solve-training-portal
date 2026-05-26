@@ -375,17 +375,19 @@ function renderRoles() {
     }
   }
 
-  // Global count across all roles (deduplicated)
+  // Global count across all roles (deduplicated).
+  // Each role uses its own completedMap if it has one (contractor roles do).
   const seenIds   = new Set();
   let totalVisible = 0, totalDone = 0;
   (roles || []).forEach(role => {
+    const roleMap = role.completedMap || completedMap;
     role.blockIds.map(id => blocks.find(b => b.id === id)).filter(Boolean)
       .filter(b => isVisibleForRole(b, role))
       .forEach(b => {
         if (seenIds.has(b.id)) return;
         seenIds.add(b.id);
         totalVisible++;
-        if (completedMap[b.id]?.status === 'OK') totalDone++;
+        if (roleMap[b.id]?.status === 'OK') totalDone++;
       });
   });
   document.getElementById('rolesSubtitle').textContent = `${totalDone} of ${totalVisible} modules completed across all roles`;
@@ -394,11 +396,13 @@ function renderRoles() {
   grid.innerHTML = '';
 
   (roles || []).forEach(role => {
+    // Use the role's own completedMap when available (contractor roles carry one)
+    const roleMap       = role.completedMap || completedMap;
     const roleBlocks    = role.blockIds.map(id => blocks.find(b => b.id === id)).filter(Boolean);
     const visibleBlocks = roleBlocks.filter(b => isVisibleForRole(b, role));
     if (!visibleBlocks.length) return; // skip roles with nothing visible at this stage
-    const done    = visibleBlocks.filter(b => completedMap[b.id]?.status === 'OK').length;
-    const overdue = visibleBlocks.filter(b => completedMap[b.id]?.status === 'Overdue').length;
+    const done    = visibleBlocks.filter(b => roleMap[b.id]?.status === 'OK').length;
+    const overdue = visibleBlocks.filter(b => roleMap[b.id]?.status === 'Overdue').length;
     const total   = visibleBlocks.length;
     const pct = total ? Math.round(done / total * 100) : 0;
 
@@ -446,17 +450,43 @@ function openRole(roleId, roleName) {
 // ============================================================
 // COURSE OVERVIEW
 // ============================================================
+/**
+ * Returns the completedMap relevant to the current role context.
+ * Contractor roles carry their own per-contractor completedMap so that
+ * completion status from one contractor doesn't bleed into another.
+ * All other roles (employee, dealer, supplement) use the global map.
+ */
+function getActiveCompletedMap() {
+  if (currentRoleId) {
+    const role = (trainingData?.roles || []).find(r => r.id === currentRoleId);
+    if (role?.completedMap) return role.completedMap;
+  }
+  return trainingData?.completedMap || {};
+}
+
 function isBlockCompleted(blockId) {
-  return trainingData?.completedMap?.[blockId]?.status === 'OK';
+  return getActiveCompletedMap()[blockId]?.status === 'OK';
 }
 
 function isBlockOverdue(blockId) {
-  return trainingData?.completedMap?.[blockId]?.status === 'Overdue';
+  return getActiveCompletedMap()[blockId]?.status === 'Overdue';
+}
+
+/** Write a local completion entry to the correct map (role-specific or global). */
+function markBlockCompleteLocally(blockId, data) {
+  const role = currentRoleId ? (trainingData?.roles || []).find(r => r.id === currentRoleId) : null;
+  if (role?.completedMap) {
+    role.completedMap[blockId] = data;
+  } else {
+    if (!trainingData.completedMap) trainingData.completedMap = {};
+    trainingData.completedMap[blockId] = data;
+  }
+  saveCache(trainingData);
 }
 
 function renderCourse(blocksOverride, skipCompleteRedirect = false) {
   if (!trainingData) return;
-  const { completedMap } = trainingData;
+  const completedMap = getActiveCompletedMap();
   const allBlocks = blocksOverride || trainingData.blocks;
 
   // ── Filter to visible blocks based on current role type ───────
@@ -715,7 +745,7 @@ function openBlock(index) {
       // Update the confirmation text to a review-mode message (not the "complete quiz" prompt)
       viewedConfirm.innerHTML = '📖 <strong>Reviewing completed training.</strong> Resources and materials are available below.';
     }
-    const dateStr = trainingData.completedMap[block.id]?.date || '';
+    const dateStr = getActiveCompletedMap()[block.id]?.date || '';
     const completedHTML = `
       <div class="quiz-result-title">✅ Already Completed${dateStr ? ' — ' + dateStr : ''}</div>
       <div class="quiz-result-msg">You've already completed this module. You can review the materials above at any time.</div>
@@ -1162,13 +1192,11 @@ async function submitQuiz() {
     `;
 
     // Update local completedMap immediately for smooth UX
-    trainingData.completedMap[block.id] = { date: today, recordId: null, status: 'OK' };
-    saveCache(trainingData);
+    markBlockCompleteLocally(block.id, { date: today, recordId: null, status: 'OK' });
 
     try {
       const result = await apiFetch('/api/complete', 'POST', { blockId: block.id, blockName: block.name });
-      trainingData.completedMap[block.id] = { date: today, recordId: result.recordId, status: 'OK' };
-      saveCache(trainingData);
+      markBlockCompleteLocally(block.id, { date: today, recordId: result.recordId, status: 'OK' });
 
       resultDiv.innerHTML = `
         <div class="quiz-result-title">🎉 Passed! ${correct}/${questions.length} correct ✅</div>
@@ -1234,7 +1262,7 @@ function renderCompletion() {
     `You've completed all ${currentBlocks.length} training modules. Well done, ${currentUser.name}!`;
   const list = document.getElementById('completionList');
   list.innerHTML = currentBlocks.map(b => {
-    const dateStr = trainingData.completedMap[b.id]?.date || '';
+    const dateStr = getActiveCompletedMap()[b.id]?.date || '';
     return `<div class="completion-item"><span>✅</span><span>${escHtml(b.name)}${dateStr ? ' <span style="font-size:11px;color:#64748b">(' + dateStr + ')</span>' : ''}</span></div>`;
   }).join('');
 }
