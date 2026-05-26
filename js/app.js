@@ -398,6 +398,9 @@ function renderRoles() {
   (roles || []).forEach(role => {
     // Use the role's own completedMap when available (contractor roles carry one)
     const roleMap       = role.completedMap || completedMap;
+    if (role.importContractorTrainings) {
+      console.log(`[renderRoles] ${role.name} — has own completedMap: ${!!role.completedMap}, entries: ${Object.keys(roleMap).length}, statuses:`, Object.fromEntries(Object.entries(roleMap).map(([k,v])=>[k.slice(0,8),v.status])));
+    }
     const roleBlocks    = role.blockIds.map(id => blocks.find(b => b.id === id)).filter(Boolean);
     const visibleBlocks = roleBlocks.filter(b => isVisibleForRole(b, role));
     if (!visibleBlocks.length) return; // skip roles with nothing visible at this stage
@@ -785,7 +788,11 @@ function openBlock(index) {
   if (materialsDiv) {
     if (isDocumentUploadBlock(block)) {
       if (materialsTimer) { clearInterval(materialsTimer); materialsTimer = null; }
-      loadCertificates(block.id, materialsDiv);
+      // Pass the contractor page ID so the server fetches the right record
+      const contractorPageId = currentRoleId?.startsWith('__contractor__')
+        ? currentRoleId.replace('__contractor__', '')
+        : null;
+      loadCertificates(block.id, materialsDiv, contractorPageId);
     } else {
       loadMaterials(block.id, materialsDiv, true);
       if (materialsTimer) clearInterval(materialsTimer);
@@ -936,9 +943,13 @@ function markViewed() {
 }
 
 // Fetch and display uploaded certificates for a Document Upload block.
-function loadCertificates(blockId, materialsDiv) {
+// Pass contractorPageId to scope the lookup to the contractor currently being viewed.
+function loadCertificates(blockId, materialsDiv, contractorPageId = null) {
   materialsDiv.innerHTML = '<p class="materials-loading">Loading certificates…</p>';
-  apiFetch(`/api/block/${blockId}/certificates`).then(({ certificates }) => {
+  const certUrl = contractorPageId
+    ? `/api/block/${blockId}/certificates?contractorId=${encodeURIComponent(contractorPageId)}`
+    : `/api/block/${blockId}/certificates`;
+  apiFetch(certUrl).then(({ certificates }) => {
     if (!certificates?.length) {
       materialsDiv.innerHTML = '';
       return;
@@ -1067,7 +1078,12 @@ async function submitUpload() {
     showToast('Certificate uploaded successfully ✅');
     // Refresh the certificates panel to show the newly uploaded file
     const mDiv = document.getElementById('blockMaterials');
-    if (mDiv) loadCertificates(block.id, mDiv);
+    if (mDiv) {
+      const contractorPageId = currentRoleId?.startsWith('__contractor__')
+        ? currentRoleId.replace('__contractor__', '')
+        : null;
+      loadCertificates(block.id, mDiv, contractorPageId);
+    }
 
   } catch (err) {
     resultEl.className = 'quiz-result fail show';

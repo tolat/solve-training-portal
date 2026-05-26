@@ -765,6 +765,7 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
         cpMap[blockRel[0]] = { date: dateCompleted, recordId: r.id, status };
       }
       contractorCompletedMaps[cpId] = cpMap;
+      console.log(`📊 Contractor completedMap [${cpId}]: ${cpRecords.length} records found via 'Contractor' property → statuses:`, Object.fromEntries(Object.entries(cpMap).map(([k,v]) => [k.slice(0,8), v.status])));
     }
 
     // Dealer org training records (Dealer Organization field)
@@ -1302,6 +1303,9 @@ app.get('/api/block/:blockId/certificates', requireAuth, async (req, res) => {
   try {
     const { blockId } = req.params;
     const { pageId: userPageId, contractorPageIds = [] } = req.session;
+    // Frontend passes contractorId when viewing a specific contractor's role
+    // so we fetch the correct training record rather than the first match.
+    const contractorId = req.query.contractorId || null;
 
     const getFiles = (p) => {
       if (!p) return [];
@@ -1311,11 +1315,16 @@ app.get('/api/block/:blockId/certificates', requireAuth, async (req, res) => {
       })).filter(f => f.url);
     };
 
-    // Look up the training record — contractor first, then employee
+    // Look up the training record — scoped to the specific contractor if provided,
+    // otherwise try all contractor page IDs, then fall back to employee.
     let record = null;
 
-    if (contractorPageIds.length) {
-      for (const cpId of contractorPageIds) {
+    const cpIdsToSearch = (contractorId && contractorPageIds.includes(contractorId))
+      ? [contractorId]          // viewing a specific contractor role — search only that one
+      : contractorPageIds;      // no specific contractor — try all (original behaviour)
+
+    if (cpIdsToSearch.length) {
+      for (const cpId of cpIdsToSearch) {
         const found = await queryAll(DB.trainingRecords, {
           and: [
             { property: 'Contractor',     relation: { contains: cpId    } },
