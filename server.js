@@ -448,9 +448,45 @@ async function regenerateQuizForBlock(blockId) {
   const dashId = blockId.includes('-') ? blockId
     : `${blockId.slice(0,8)}-${blockId.slice(8,12)}-${blockId.slice(12,16)}-${blockId.slice(16,20)}-${blockId.slice(20)}`;
 
-  const block = cache.blocks[dashId] || cache.blocks[blockId] || null;
+  let block = cache.blocks[dashId] || cache.blocks[blockId] || null;
+
+  // Not in cache — try fetching directly from Notion and building the block object
   if (!block) {
-    console.warn(`⚠️   regenerateQuizForBlock: block ${blockId} not in cache`);
+    console.log(`🔍  Block ${dashId} not in cache — fetching from Notion...`);
+    try {
+      const p = await notionFetch(`/pages/${dashId}`);
+      if (p && p.id) {
+        // Build the same block structure as refreshCache does
+        const stageIds  = relIds(prop(p, 'Pipeline Stages'));
+        const stageMap  = cache.stageOrderMap || {};
+
+        const minStageOrdering = stageIds.length
+          ? Math.min(...stageIds.map(id => stageMap[id] ?? 999))
+          : 999;
+
+        block = {
+          id:           p.id,
+          name:         titleTxt(prop(p, 'Name')),
+          trainingLink: prop(p, 'Training link')?.url || null,
+          notes:        richText(prop(p, 'Notes')),
+          policyNo:     prop(p, 'Policy No.')?.select?.name || null,
+          types:        prop(p, 'Type')?.multi_select?.map(s => s.name) || [],
+          stageOrdering: minStageOrdering,
+          stageName:    'Other',
+          stageIds,
+        };
+
+        // Add to cache so future calls don't need to re-fetch
+        cache.blocks[p.id] = block;
+        console.log(`✅  Fetched block from Notion and added to cache: "${block.name}"`);
+      }
+    } catch (e) {
+      console.warn(`⚠️   Could not fetch block ${dashId} from Notion:`, e.message);
+    }
+  }
+
+  if (!block) {
+    console.warn(`⚠️   regenerateQuizForBlock: block ${blockId} not found in cache or Notion`);
     return;
   }
 
