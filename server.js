@@ -434,9 +434,18 @@ Rules:
   const data = await res.json();
   const text = data.content?.[0]?.text || '';
 
-  // Strip any accidental markdown fences then parse
-  const clean = text.replace(/^```[a-z]*\n?/i, '').replace(/```$/m, '').trim();
-  const questions = JSON.parse(clean);
+  // Strip markdown fences, then extract the first JSON array found in the response
+  const stripped = text.replace(/^```[a-z]*\n?/i, '').replace(/```$/m, '').trim();
+  const jsonMatch = stripped.match(/\[[\s\S]*\]/);
+  const clean = jsonMatch ? jsonMatch[0] : stripped;
+
+  let questions;
+  try {
+    questions = JSON.parse(clean);
+  } catch (e) {
+    console.error(`❌  Quiz JSON parse failed for "${block.name}". Raw response:\n${text}`);
+    throw new Error(`Claude did not return valid JSON: ${e.message}`);
+  }
 
   if (!Array.isArray(questions) || !questions.length) throw new Error('Empty quiz returned');
   return questions;
