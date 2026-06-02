@@ -388,13 +388,60 @@ async function generateQuizForBlock(block) {
     return null;
   }
 
+  // Gather all available context for this block
   const pageText = await fetchBlockPageText(block.id);
+
+  // Fetch actual file contents from Notion block properties (forms, guidance, media)
+  // Supports PDFs and images — skips videos and other unsupported types
+  const contentBlocks = [];
+  try {
+    const blockPage = await notionFetch(`/pages/${block.id}`);
+    const getFilesWithUrls = (p) => (p?.files || []).map(f => ({
+      name: f.name || 'file',
+      url:  f.type === 'file' ? f.file?.url : (f.type === 'external' ? f.external?.url : null),
+    })).filter(f => f.url);
+
+    const allFiles = [
+      ...getFilesWithUrls(blockPage.properties?.['Associated forms ']),
+      ...getFilesWithUrls(blockPage.properties?.['Guidance']),
+      ...getFilesWithUrls(blockPage.properties?.['Files & media']),
+    ];
+
+    for (const file of allFiles) {
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      const isPdf   = ext === 'pdf';
+      const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
+      if (!isPdf && !isImage) continue;
+
+      try {
+        const fileRes = await fetch(file.url);
+        if (!fileRes.ok) continue;
+        const buffer = await fileRes.arrayBuffer();
+        const base64 = Buffer.from(buffer).toString('base64');
+        const mediaType = isPdf ? 'application/pdf'
+          : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+          : `image/${ext}`;
+
+        contentBlocks.push({
+          type: isPdf ? 'document' : 'image',
+          source: { type: 'base64', media_type: mediaType, data: base64 },
+        });
+        console.log(`📄  Attached file to quiz prompt: ${file.name} (${mediaType})`);
+      } catch (e) {
+        console.warn(`⚠️   Could not fetch file "${file.name}" for quiz generation:`, e.message);
+      }
+    }
+  } catch (e) {
+    console.warn(`⚠️   Could not fetch block files for quiz generation:`, e.message);
+  }
+
+  const trainingLinkContext = block.trainingLink ? `\nTraining Link: ${block.trainingLink}` : '';
 
   const prompt = `You are writing quiz questions for an employee training portal at Solve Energy, a solar energy company in British Columbia, Canada.
 
-Training Module: ${block.name}${block.policyNo ? `\nPolicy Number: ${block.policyNo}` : ''}${block.notes ? `\nNotes: ${block.notes}` : ''}${pageText ? `\nTraining Content:\n${pageText}` : ''}
+Training Module: ${block.name}${block.policyNo ? `\nPolicy Number: ${block.policyNo}` : ''}${block.notes ? `\nNotes: ${block.notes}` : ''}${trainingLinkContext}${pageText ? `\nTraining Content:\n${pageText}` : ''}
 
-Generate 5 multiple-choice quiz questions that test real understanding of this training material. Make them practical and scenario-based where possible — not just definition recall.
+Generate 5 multiple-choice quiz questions that test real understanding of this training material. Base your questions on the attached files and any content provided above. Make them practical and scenario-based where possible — not just definition recall. If detailed content is not provided, generate questions based on what a reasonable training on this topic at a solar/roofing company in BC would cover.
 
 Return ONLY a valid JSON array, no markdown fences, no explanation:
 [
@@ -412,6 +459,9 @@ Rules:
 - Questions should be challenging but unambiguous
 - Incorrect options should be plausible, not obviously wrong`;
 
+  // Build message content — prepend any file blocks before the text prompt
+  contentBlocks.push({ type: 'text', text: prompt });
+
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -420,9 +470,9 @@ Rules:
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-opus-4-6',  // upgraded to Opus for better file comprehension
       max_tokens: 2048,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: 'user', content: contentBlocks }],
     }),
   });
 
