@@ -441,7 +441,7 @@ async function generateQuizForBlock(block) {
 
 Training Module: ${block.name}${block.policyNo ? `\nPolicy Number: ${block.policyNo}` : ''}${block.notes ? `\nNotes: ${block.notes}` : ''}${trainingLinkContext}${pageText ? `\nTraining Content:\n${pageText}` : ''}
 
-Generate 5 multiple-choice quiz questions that test real understanding of this training material. Base your questions on the attached files and any content provided above. Make them practical and scenario-based where possible — not just definition recall. If detailed content is not provided, generate questions based on what a reasonable training on this topic at a solar/roofing company in BC would cover.
+Generate between 5 and 15 multiple-choice quiz questions that test real understanding of this training material. Use your judgment on how many to generate based on the complexity and depth of the material — simple or sparse modules warrant 5 questions, dense or multi-topic modules warrant up to 15. Base your questions on the attached files and any content provided above. Make them practical and scenario-based where possible — not just definition recall. If detailed content is not provided, generate questions based on what a reasonable training on this topic at a solar/roofing company in BC would cover.
 
 Return ONLY a valid JSON array, no markdown fences, no explanation:
 [
@@ -453,6 +453,7 @@ Return ONLY a valid JSON array, no markdown fences, no explanation:
 ]
 
 Rules:
+- Minimum 5 questions, maximum 15 questions
 - Exactly 4 options per question
 - "correct" is the 0-based index of the correct answer
 - Vary which index is correct across questions — don't always use 0 or 1
@@ -471,7 +472,7 @@ Rules:
     },
     body: JSON.stringify({
       model: 'claude-opus-4-6',  // upgraded to Opus for better file comprehension
-      max_tokens: 2048,
+      max_tokens: 4096,
       messages: [{ role: 'user', content: contentBlocks }],
     }),
   });
