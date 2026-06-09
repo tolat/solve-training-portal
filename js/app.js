@@ -1211,18 +1211,36 @@ function addFieldOverlay(field, pageDiv, pageW, pageH) {
     `box-sizing:border-box`,
   ].join(';');
 
-  // ── Drag handle (top-left grip) ───────────────────────────
+  // ── Drag handle — sits OUTSIDE the box to the left ───────
   const handle = document.createElement('div');
-  handle.title = 'Drag to reposition';
   handle.style.cssText = [
-    'position:absolute', 'top:0', 'left:0',
-    'width:14px', 'height:14px',
-    'background:#2a9640', 'border-radius:2px 0 2px 0',
+    'position:absolute', 'top:0', 'left:-20px', // outside the overlay
+    'width:18px', 'height:100%',
+    'background:#2a9640', 'border-radius:3px 0 0 3px',
     'cursor:grab', 'z-index:10',
     'display:flex', 'align-items:center', 'justify-content:center',
-    'font-size:8px', 'color:#fff', 'line-height:1', 'user-select:none',
+    'font-size:9px', 'color:#fff', 'line-height:1', 'user-select:none',
   ].join(';');
   handle.textContent = '⠿';
+
+  // Tooltip
+  const tooltip = document.createElement('div');
+  tooltip.textContent = 'Drag to reposition';
+  tooltip.style.cssText = [
+    'position:absolute', 'left:22px', 'top:50%', 'transform:translateY(-50%)',
+    'background:#1a1a1a', 'color:#fff',
+    'font-size:10px', 'white-space:nowrap',
+    'padding:3px 7px', 'border-radius:4px',
+    'pointer-events:none', 'opacity:0',
+    'transition:opacity 0.15s', 'z-index:20',
+  ].join(';');
+  // Arrow pointing right toward the handle
+  tooltip.style.cssText += ';box-shadow:0 1px 4px rgba(0,0,0,0.25)';
+  handle.appendChild(tooltip);
+
+  handle.addEventListener('mouseenter', () => { tooltip.style.opacity = '1'; });
+  handle.addEventListener('mouseleave', () => { tooltip.style.opacity = '0'; });
+
   overlay.appendChild(handle);
 
   // Label (sits above the field, hidden during drag)
@@ -1348,7 +1366,9 @@ async function submitSignedDocument() {
       }
     } else {
       // Find the input element
-      const input = document.querySelector(`[data-field-id="${CSS.escape(field.id)}"]`);
+      // Target input specifically — the overlay div also carries data-field-id so a generic
+      // querySelector would match the div first and return undefined for .value
+      const input = document.querySelector(`input[data-field-id="${CSS.escape(field.id)}"]`);
       if (input) fieldValues[field.id] = input.value;
     }
   }
