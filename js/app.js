@@ -1107,9 +1107,16 @@ async function renderSigningPDF(config, block) {
 
     // Add field overlays for this page (0-indexed page = pageNum - 1)
     if (!config.addedSignaturePage) {
-      const pageFields = (config.fields || []).filter(f => f.page === pageNum - 1);
-      for (const field of pageFields) {
-        addFieldOverlay(field, pageDiv, viewport.width, viewport.height);
+      // Sort by Y so we can cap each field's height to the space before the next one
+      const pageFields = (config.fields || [])
+        .filter(f => f.page === pageNum - 1)
+        .slice()
+        .sort((a, b) => a.y - b.y);
+      for (let i = 0; i < pageFields.length; i++) {
+        const field = pageFields[i];
+        const nextY = pageFields[i + 1]?.y ?? (field.y + field.height + 0.01);
+        const maxH  = Math.max(nextY - field.y - 0.005, field.height); // leave 0.5% gap
+        addFieldOverlay({ ...field, height: Math.min(field.height, maxH) }, pageDiv, viewport.width, viewport.height);
       }
     }
 
@@ -1184,48 +1191,126 @@ async function renderSigningPDF(config, block) {
 }
 
 function addFieldOverlay(field, pageDiv, pageW, pageH) {
-  // Use percentages so the overlay tracks the canvas regardless of CSS scaling
-  const xPct = (field.x      * 100).toFixed(3);
-  const yPct = (field.y      * 100).toFixed(3);
-  const wPct = (field.width  * 100).toFixed(3);
-  const hPct = (field.height * 100).toFixed(3);
-  // Minimum display height for signature pads so they're actually usable
-  const minH = (field.type === 'signature' || field.type === 'initials') ? 6 : 3;
-  const displayH = Math.max(parseFloat(hPct), minH).toFixed(3);
+  const xPct    = (field.x      * 100).toFixed(3);
+  const yPct    = (field.y      * 100).toFixed(3);
+  const wPct    = (field.width  * 100).toFixed(3);
+  const hPct    = (field.height * 100).toFixed(3);
+  const displayH = Math.max(parseFloat(hPct), 2).toFixed(3);
+  const isSig   = field.type === 'signature' || field.type === 'initials';
 
   const overlay = document.createElement('div');
   overlay.className = 'sign-field-overlay';
-  overlay.style.cssText = `position:absolute; left:${xPct}%; top:${yPct}%; width:${wPct}%; height:${displayH}%;`;
+  overlay.dataset.fieldId = field.id;
+  overlay.style.cssText = [
+    `position:absolute`,
+    `left:${xPct}%`, `top:${yPct}%`,
+    `width:${wPct}%`, `height:${displayH}%`,
+    `border:${isSig ? '2px' : '1.5px'} dashed #2a9640`,
+    `border-radius:3px`,
+    `background:${isSig ? 'rgba(42,150,64,0.06)' : 'rgba(42,150,64,0.04)'}`,
+    `box-sizing:border-box`,
+  ].join(';');
 
-  // Label
+  // ── Drag handle (top-left grip) ───────────────────────────
+  const handle = document.createElement('div');
+  handle.title = 'Drag to reposition';
+  handle.style.cssText = [
+    'position:absolute', 'top:0', 'left:0',
+    'width:14px', 'height:14px',
+    'background:#2a9640', 'border-radius:2px 0 2px 0',
+    'cursor:grab', 'z-index:10',
+    'display:flex', 'align-items:center', 'justify-content:center',
+    'font-size:8px', 'color:#fff', 'line-height:1', 'user-select:none',
+  ].join(';');
+  handle.textContent = '⠿';
+  overlay.appendChild(handle);
+
+  // Label (sits above the field, hidden during drag)
   const labelEl = document.createElement('div');
-  labelEl.className   = 'sign-field-label';
   labelEl.textContent = field.label || field.id;
+  labelEl.style.cssText = 'position:absolute; top:-16px; left:0; font-size:9px; color:#2a9640; font-weight:600; white-space:nowrap; pointer-events:none;';
   overlay.appendChild(labelEl);
 
   const today = new Date().toISOString().split('T')[0];
 
-  if (field.type === 'signature' || field.type === 'initials') {
+  if (isSig) {
+    const pxW = Math.round(field.width * pageW);
+    const pxH = Math.round(parseFloat(displayH) / 100 * pageH);
     const sigCanvas = document.createElement('canvas');
-    // Pixel size for the SignaturePad canvas — derive from pageW/H and the display percentage
-    sigCanvas.width  = Math.round(field.width  * pageW);
-    sigCanvas.height = Math.round(parseFloat(displayH) / 100 * pageH);
+    sigCanvas.width  = pxW;
+    sigCanvas.height = pxH;
+    sigCanvas.style.cssText = 'display:block; width:100%; height:100%; cursor:crosshair;';
     overlay.appendChild(sigCanvas);
     if (typeof SignaturePad !== 'undefined') {
-      const pad = new SignaturePad(sigCanvas, { penColor: '#1a3c6e' });
+      const pad = new SignaturePad(sigCanvas, { penColor: '#1a3c6e', minWidth: 1, maxWidth: 2.5 });
       signaturePads[field.id] = pad;
     }
   } else {
     const input = document.createElement('input');
-    input.type      = field.type === 'date' ? 'date' : 'text';
-    input.className = 'sign-field-input';
+    input.type = field.type === 'date' ? 'date' : 'text';
     input.dataset.fieldId = field.id;
-    if (field.type === 'name' && currentUser?.name)  input.value = currentUser.name;
+    input.style.cssText = 'width:100%; height:100%; border:none; background:transparent; font-size:11px; padding:0 4px; box-sizing:border-box; font-family:inherit; color:#1a1a1a; outline:none;';
+    if (field.type === 'name' && currentUser?.name) input.value = currentUser.name;
     if (field.type === 'date') input.value = today;
     overlay.appendChild(input);
   }
 
   pageDiv.appendChild(overlay);
+  makeDraggable(handle, overlay, field, pageDiv, pageW, pageH);
+}
+
+// Drag-to-reposition — pointer events so it works on mouse and touch
+function makeDraggable(handle, overlay, field, pageDiv, pageW, pageH) {
+  let startPx, startPy, startLeft, startTop;
+
+  handle.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    handle.style.cursor = 'grabbing';
+    handle.setPointerCapture(e.pointerId);
+
+    // Current pixel offsets of the overlay within pageDiv
+    startPx   = e.clientX;
+    startPy   = e.clientY;
+    startLeft = parseFloat(overlay.style.left);  // already in %
+    startTop  = parseFloat(overlay.style.top);
+
+    // Temporarily raise z-index so it floats above siblings
+    overlay.style.zIndex = '100';
+  });
+
+  handle.addEventListener('pointermove', e => {
+    if (!handle.hasPointerCapture(e.pointerId)) return;
+
+    // Convert pixel delta → % of pageDiv
+    const deltaXPct = (e.clientX - startPx) / pageW * 100;
+    const deltaYPct = (e.clientY - startPy) / pageH * 100;
+
+    const newLeft = Math.max(0, Math.min(100 - parseFloat(overlay.style.width),  startLeft + deltaXPct));
+    const newTop  = Math.max(0, Math.min(100 - parseFloat(overlay.style.height), startTop  + deltaYPct));
+
+    overlay.style.left = newLeft.toFixed(3) + '%';
+    overlay.style.top  = newTop.toFixed(3)  + '%';
+  });
+
+  handle.addEventListener('pointerup', e => {
+    handle.style.cursor = 'grab';
+    overlay.style.zIndex = '';
+
+    // Persist new position back into currentSigningConfig
+    const newX = parseFloat(overlay.style.left)  / 100;
+    const newY = parseFloat(overlay.style.top)   / 100;
+    if (currentSigningConfig?.fields) {
+      const f = currentSigningConfig.fields.find(f => f.id === field.id);
+      if (f) { f.x = newX; f.y = newY; }
+    }
+
+    // Auto-save corrected positions to server so they persist for future users
+    if (currentSigningConfig?.blockId) {
+      apiFetch(`/api/block/${currentSigningConfig.blockId}/signing-cache`, 'PATCH',
+        { fields: currentSigningConfig.fields }
+      ).catch(() => {}); // fire-and-forget
+    }
+  });
 }
 
 function clearAllSignatures() {

@@ -1968,6 +1968,33 @@ app.post('/api/upload-certificate', requireAuth, upload.array('files', 10), asyn
   }
 });
 
+// ─── PATCH /api/block/:blockId/signing-cache ──────────────────
+// Saves user-corrected field positions (drag-to-reposition) back to the cache.
+app.patch('/api/block/:blockId/signing-cache', requireAuth, (req, res) => {
+  const { blockId } = req.params;
+  const { fields } = req.body || {};
+  if (!Array.isArray(fields)) return res.status(400).json({ error: 'fields array required' });
+  const existing = signingFieldsCache[blockId] || signingFieldsCache[blockId.replace(/-/g, '')];
+  if (!existing) return res.status(404).json({ error: 'No signing config cached for this block' });
+  existing.fields = fields;
+  signingFieldsCache[blockId] = existing;
+  saveSigningFields();
+  console.log(`📌  signing-cache updated for ${blockId} (${fields.length} field(s) repositioned)`);
+  res.json({ ok: true });
+});
+
+// ─── DELETE /api/block/:blockId/signing-cache ─────────────────
+// Clears a cached signing-fields entry so the next config request re-detects.
+app.delete('/api/block/:blockId/signing-cache', requireAuth, (req, res) => {
+  const key = req.params.blockId.replace(/-/g, '');
+  const found = !!(signingFieldsCache[key] || signingFieldsCache[req.params.blockId]);
+  delete signingFieldsCache[key];
+  delete signingFieldsCache[req.params.blockId];
+  saveSigningFields();
+  console.log(`🗑️  Cleared signing cache for ${req.params.blockId} (found=${found})`);
+  res.json({ ok: true, cleared: found });
+});
+
 // ─── POST /api/webhook/signature-fields ──────────────────────
 // Fired by Notion automation on any Training Block page update.
 // Block ID comes from the "Record ID" field in the automation payload.
