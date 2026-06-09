@@ -6,8 +6,8 @@
         "id": "employee_name",
         "type": "name",
         "page": 43,
-        "x": 0.28,
-        "y": 0.538,
+        "x": 0.26984,
+        "y": 0.50017,
         "width": 0.55,
         "height": 0.028,
         "label": "Employee Name"
@@ -16,19 +16,19 @@
         "id": "employee_signature",
         "type": "signature",
         "page": 43,
-        "x": 0.22,
-        "y": 0.578,
+        "x": 0.22472,
+        "y": 0.5342,
         "width": 0.58,
-        "height": 0.030,
+        "height": 0.035,
         "label": "Signature"
       },
       {
         "id": "date",
         "type": "date",
         "page": 43,
-        "x": 0.155,
-        "y": 0.612,
-        "width": 0.40,
+        "x": 0.20315000000000003,
+        "y": 0.568,
+        "width": 0.4,
         "height": 0.028,
         "label": "Date"
       }
