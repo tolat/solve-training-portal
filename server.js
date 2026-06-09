@@ -19,6 +19,10 @@ const nodemailer = require('nodemailer');
 const multer     = require('multer');
 require('dotenv').config();
 
+// pdf-lib is optional — install with: npm install pdf-lib
+let PDFLib;
+try { PDFLib = require('pdf-lib'); } catch { console.warn('⚠️   pdf-lib not installed — document signing disabled. Run: npm install pdf-lib'); }
+
 // ─── File upload storage ──────────────────────────────────────
 // Files are stored in /uploads and served statically.
 // For production, swap this for cloud storage (S3, Cloudinary, etc.)
@@ -362,6 +366,277 @@ async function saveGeneratedQuizzes(blockIdNoDashes, questions) {
   } catch (e) {
     console.error(`⚠️   Could not save quiz to Notion for ${blockIdNoDashes}:`, e.message);
   }
+}
+
+// ─── Signing fields store ─────────────────────────────────────
+// signingFieldsCache: blockId → { blockId, fields, addedSignaturePage, pdfFileName, detectedAt }
+// Persisted to signing-fields.json so detections survive restarts.
+const SIGNING_FIELDS_FILE = path.join(__dirname, 'signing-fields.json');
+let signingFieldsCache = {};
+
+function loadSigningFields() {
+  try {
+    if (fs.existsSync(SIGNING_FIELDS_FILE)) {
+      const raw = fs.readFileSync(SIGNING_FIELDS_FILE, 'utf8');
+      signingFieldsCache = JSON.parse(raw);
+      console.log(`📝  Loaded signing field configs for ${Object.keys(signingFieldsCache).length} block(s)`);
+    }
+  } catch (e) {
+    console.warn('⚠️   Could not load signing-fields.json:', e.message);
+    signingFieldsCache = {};
+  }
+}
+
+function saveSigningFields() {
+  try {
+    fs.writeFileSync(SIGNING_FIELDS_FILE, JSON.stringify(signingFieldsCache, null, 2));
+  } catch (e) {
+    console.warn('⚠️   Could not save signing-fields.json:', e.message);
+  }
+}
+
+// ─── Detect signing fields in a PDF ──────────────────────────
+async function detectSigningFields(blockId) {
+  if (!PDFLib) throw new Error('pdf-lib is not installed');
+
+  // 1. Fetch block page from Notion, get PDF URL from 'Associated forms ' property
+  const blockPage = await notionFetch(`/pages/${blockId}`);
+  const formsFiles = (blockPage.properties?.['Associated forms ']?.files || []);
+  let pdfUrl = null;
+  let pdfFileName = null;
+  for (const f of formsFiles) {
+    const url = f.type === 'file' ? f.file?.url : (f.type === 'external' ? f.external?.url : null);
+    const name = f.name || 'file';
+    if (url && name.toLowerCase().endsWith('.pdf')) {
+      pdfUrl = url;
+      pdfFileName = name;
+      break;
+    }
+  }
+  if (!pdfUrl) throw new Error('No PDF found in Associated forms property');
+
+  // 2. Download PDF
+  const pdfRes = await fetch(pdfUrl);
+  if (!pdfRes.ok) throw new Error(`Could not download PDF: ${pdfRes.status}`);
+  const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
+
+  // 3. Try AcroForm fields
+  const { PDFDocument } = PDFLib;
+  let pdfDoc;
+  try { pdfDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true }); } catch (e) {
+    throw new Error(`pdf-lib could not load PDF: ${e.message}`);
+  }
+
+  let fields = [];
+  let addedSignaturePage = false;
+
+  try {
+    const form = pdfDoc.getForm();
+    const acroFields = form.getFields();
+    if (acroFields.length > 0) {
+      const pages = pdfDoc.getPages();
+      for (const f of acroFields) {
+        try {
+          const widgets = f.acroField.getWidgets();
+          if (!widgets.length) continue;
+          const widget = widgets[0];
+          const rect = widget.getRectangle();
+          // Determine which page this widget is on
+          let pageIdx = 0;
+          for (let pi = 0; pi < pages.length; pi++) {
+            const pageRef = widget.P();
+            if (pageRef && pages[pi].ref === pageRef) { pageIdx = pi; break; }
+          }
+          const page = pages[pageIdx];
+          const { width: pw, height: ph } = page.getSize();
+          // Convert from PDF coords (bottom-left origin) to % (top-left origin)
+          const xPct = rect.x / pw;
+          const yPct = 1 - (rect.y / ph) - (rect.height / ph);
+          const wPct = rect.width / pw;
+          const hPct = rect.height / ph;
+
+          // Skip fields belonging to internal staff (manager, witness, supervisor, etc.)
+          const fname = f.getName().toLowerCase();
+          const isInternal = /manager|witness|supervisor|employer|company\s*rep|admin|approver|authorize/.test(fname);
+          if (isInternal) continue;
+
+          // Infer field type
+          let type = 'text';
+          const constructor = f.constructor.name;
+          if (constructor === 'PDFSignature' || fname.includes('sig')) type = 'signature';
+          else if (fname.includes('initial')) type = 'initials';
+          else if (fname.includes('date')) type = 'date';
+          else if (fname.includes('name')) type = 'name';
+
+          fields.push({
+            id: f.getName(),
+            type,
+            page: pageIdx,
+            x: xPct, y: yPct, width: wPct, height: hPct,
+            label: f.getName(),
+          });
+        } catch {}
+      }
+    }
+  } catch {}
+
+  // 4. If no AcroForm fields — send PDF to Claude for detection
+  if (!fields.length) {
+    const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+    if (ANTHROPIC_API_KEY) {
+      try {
+        const base64 = pdfBuffer.toString('base64');
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key': ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'claude-opus-4-6',
+            max_tokens: 2048,
+            messages: [{
+              role: 'user',
+              content: [
+                {
+                  type: 'document',
+                  source: { type: 'base64', media_type: 'application/pdf', data: base64 },
+                },
+                {
+                  type: 'text',
+                  text: 'Identify the fields in this document that the employee, contractor, sales rep, or affected party (i.e. the non-Solve, non-manager, non-witness signee) needs to fill in. Include fields like their name, signature, initials, and date. Exclude any fields intended for managers, witnesses, supervisors, employers, or internal company staff. IMPORTANT: for x/y/width/height, give the coordinates of the blank fill area (the underline or empty space where the person would write) — NOT the label text above or beside it. y=0 is the top of the page, y=1 is the bottom. For each field return a JSON array with objects: id (string), type (one of: signature, initials, name, date, text), page (0-based integer), x, y, width, height (all as 0-to-1 fractions of page dimensions, top-left origin), label (string). Return ONLY a valid JSON array, no markdown, no explanation.',
+                },
+              ],
+            }],
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const text = (data.content?.[0]?.text || '').trim();
+          const stripped = text.replace(/^```[a-z]*\n?/i, '').replace(/```$/m, '').trim();
+          const jsonMatch = stripped.match(/\[[\s\S]*\]/);
+          if (jsonMatch) {
+            try {
+              const parsed = JSON.parse(jsonMatch[0]);
+              if (Array.isArray(parsed) && parsed.length) fields = parsed;
+            } catch {}
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️   Claude field detection failed:', e.message);
+      }
+    }
+  }
+
+  // 5. If still no fields — use default signature page layout
+  if (!fields.length) {
+    addedSignaturePage = true;
+    fields = [
+      { id: 'signature', type: 'signature', page: 0, x: 0.26, y: 0.74, width: 0.59, height: 0.065, label: 'Signature' },
+      { id: 'name',      type: 'name',      page: 0, x: 0.26, y: 0.82, width: 0.59, height: 0.033, label: 'Full Name' },
+      { id: 'date',      type: 'date',      page: 0, x: 0.26, y: 0.90, width: 0.33, height: 0.033, label: 'Date' },
+    ];
+    // page index 0 here means the synthetic last page that stampSignedPDF will append
+    // We'll fix references at stamp time by using total page count
+  }
+
+  return { blockId, fields, addedSignaturePage, pdfFileName, detectedAt: Date.now() };
+}
+
+// ─── Stamp signed PDF ─────────────────────────────────────────
+async function stampSignedPDF(config, fieldValues) {
+  if (!PDFLib) throw new Error('pdf-lib is not installed');
+  const { PDFDocument, rgb, StandardFonts } = PDFLib;
+
+  // 1. Fetch fresh PDF URL from Notion (S3 URLs expire)
+  const blockPage = await notionFetch(`/pages/${config.blockId}`);
+  const formsFiles = (blockPage.properties?.['Associated forms ']?.files || []);
+  let pdfUrl = null;
+  for (const f of formsFiles) {
+    const url = f.type === 'file' ? f.file?.url : (f.type === 'external' ? f.external?.url : null);
+    const name = f.name || 'file';
+    if (url && name.toLowerCase().endsWith('.pdf')) { pdfUrl = url; break; }
+  }
+  if (!pdfUrl) throw new Error('Could not refresh PDF URL from Notion');
+
+  const pdfRes = await fetch(pdfUrl);
+  if (!pdfRes.ok) throw new Error(`Could not download PDF for signing: ${pdfRes.status}`);
+  const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
+
+  const pdfDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+  // 3. If addedSignaturePage: append a signature page
+  if (config.addedSignaturePage) {
+    const sigPage = pdfDoc.addPage([612, 792]);
+    const { width: pw, height: ph } = sigPage.getSize();
+    sigPage.drawText('Electronic Signature', {
+      x: 50, y: ph - 60, size: 20, font, color: rgb(0.08, 0.22, 0.43),
+    });
+    sigPage.drawText('By signing below I confirm I have read and understood the above document.', {
+      x: 50, y: ph - 88, size: 10, font, color: rgb(0.35, 0.35, 0.35),
+    });
+    // Signature line at y≈190 from top (PDF y = ph - 190)
+    sigPage.drawText('Signature:', { x: 50, y: ph - 200, size: 11, font, color: rgb(0.1, 0.1, 0.1) });
+    sigPage.drawLine({ start: { x: 155, y: ph - 200 }, end: { x: 560, y: ph - 200 }, thickness: 1, color: rgb(0.7, 0.7, 0.7) });
+    // Full Name at y≈255
+    sigPage.drawText('Full Name:', { x: 50, y: ph - 265, size: 11, font, color: rgb(0.1, 0.1, 0.1) });
+    sigPage.drawLine({ start: { x: 155, y: ph - 265 }, end: { x: 560, y: ph - 265 }, thickness: 1, color: rgb(0.7, 0.7, 0.7) });
+    // Date at y≈320
+    sigPage.drawText('Date:', { x: 50, y: ph - 330, size: 11, font, color: rgb(0.1, 0.1, 0.1) });
+    sigPage.drawLine({ start: { x: 155, y: ph - 330 }, end: { x: 360, y: ph - 330 }, thickness: 1, color: rgb(0.7, 0.7, 0.7) });
+  }
+
+  // 4. Flatten AcroForm if present
+  try { pdfDoc.getForm().flatten(); } catch {}
+
+  // 5. Stamp each field
+  const pages = pdfDoc.getPages();
+  const totalPages = pages.length;
+
+  for (const field of config.fields) {
+    const value = fieldValues[field.id];
+    if (value === undefined || value === null || value === '') continue;
+
+    // If addedSignaturePage, field.page=0 refers to the synthetic last page
+    const pageIdx = config.addedSignaturePage ? totalPages - 1 : field.page;
+    const page = pages[Math.min(pageIdx, totalPages - 1)];
+    const { width: pw, height: ph } = page.getSize();
+
+    // Convert % coords back to PDF points (flip Y: pdfY = ph*(1-y-height))
+    const pdfX = field.x * pw;
+    const pdfY = ph * (1 - field.y - field.height);
+    const pdfW = field.width * pw;
+    const pdfH = field.height * ph;
+
+    if (field.type === 'signature' || field.type === 'initials') {
+      // value is base64 PNG data URL
+      try {
+        const base64Data = value.replace(/^data:image\/png;base64,/, '');
+        const imgBytes = Buffer.from(base64Data, 'base64');
+        const pngImg = await pdfDoc.embedPng(imgBytes);
+        page.drawImage(pngImg, { x: pdfX, y: pdfY, width: pdfW, height: pdfH });
+      } catch (e) {
+        console.warn(`⚠️   Could not embed signature image for field ${field.id}:`, e.message);
+      }
+    } else {
+      // text / name / date
+      const textStr = String(value);
+      const fontSize = Math.min(12, pdfH * 0.65);
+      try {
+        page.drawText(textStr, {
+          x: pdfX + 2, y: pdfY + (pdfH - fontSize) / 2, size: fontSize,
+          font, color: rgb(0.05, 0.05, 0.05),
+          maxWidth: pdfW - 4,
+        });
+      } catch (e) {
+        console.warn(`⚠️   Could not draw text for field ${field.id}:`, e.message);
+      }
+    }
+  }
+
+  return await pdfDoc.save();
 }
 
 // ─── AI quiz generation ───────────────────────────────────────
@@ -1460,6 +1735,16 @@ app.get('/api/quizzes', requireAuth, (req, res) => {
   res.json(generatedQuizzes);
 });
 
+// ─── GET /api/quizzes/:blockId ────────────────────────────────
+// Returns just the quiz for one block — used for lazy loading.
+// blockId may be passed with or without dashes.
+app.get('/api/quizzes/:blockId', requireAuth, (req, res) => {
+  const key = req.params.blockId.replace(/-/g, '');
+  const quiz = generatedQuizzes[key];
+  if (!quiz) return res.status(404).json({ error: 'No quiz for this block' });
+  res.json({ [key]: quiz });
+});
+
 // ─── POST /api/webhook/notion ─────────────────────────────────
 // Called by a Notion Automation whenever a Training Block page changes.
 //
@@ -1683,13 +1968,188 @@ app.post('/api/upload-certificate', requireAuth, upload.array('files', 10), asyn
   }
 });
 
+// ─── POST /api/webhook/signature-fields ──────────────────────
+// Fired by Notion automation on any Training Block page update.
+// Block ID comes from the "Record ID" field in the automation payload.
+// Only runs field detection if the block's Type includes "Signature Required".
+app.post('/api/webhook/signature-fields', async (req, res) => {
+  res.json({ ok: true, message: 'Received' });
+
+  // Notion automations send the page ID in a field called "Record ID"
+  const blockId = req.body?.['Record ID'] || req.body?.id || req.body?.blockId || null;
+  if (!blockId) {
+    console.log('🔔  signature-fields webhook: no Record ID in payload');
+    return;
+  }
+
+  // Fetch the page from Notion to check its Type field
+  let blockPage;
+  try {
+    blockPage = await notionFetch(`/pages/${blockId.replace(/-/g, '')}`);
+  } catch (e) {
+    console.error(`❌  signature-fields webhook: could not fetch page ${blockId}:`, e.message);
+    return;
+  }
+
+  const types = prop(blockPage, 'Type')?.multi_select?.map(s => s.name) || [];
+  if (!types.includes('Signature Required')) {
+    console.log(`🔔  signature-fields webhook: block ${blockId} is not Signature Required (types: [${types.join(', ')}]) — skipping`);
+    return;
+  }
+
+  console.log(`🔔  signature-fields webhook: detecting fields for block ${blockId}`);
+  try {
+    const config = await detectSigningFields(blockId);
+    signingFieldsCache[blockId] = config;
+    saveSigningFields();
+    console.log(`✅  Detected ${config.fields.length} signing field(s) for block ${blockId} (addedSignaturePage: ${config.addedSignaturePage})`);
+  } catch (e) {
+    console.error(`❌  signature-fields detection failed for ${blockId}:`, e.message);
+  }
+});
+
+// ─── GET /api/block/:blockId/signing-config ───────────────────
+// Returns field definitions + fresh PDF URL for the signing screen.
+// Detects on-demand if not already cached.
+app.get('/api/block/:blockId/signing-config', requireAuth, async (req, res) => {
+  try {
+    const { blockId } = req.params;
+
+    let config = signingFieldsCache[blockId];
+    if (!config) {
+      console.log(`🔍  signing-config: no cache for ${blockId} — detecting now`);
+      config = await detectSigningFields(blockId);
+      signingFieldsCache[blockId] = config;
+      saveSigningFields();
+    }
+
+    // Always get a fresh PDF URL (Notion S3 URLs expire)
+    const blockPage = await notionFetch(`/pages/${blockId}`);
+    const formsFiles = (blockPage.properties?.['Associated forms ']?.files || []);
+    let pdfUrl = null;
+    for (const f of formsFiles) {
+      const url = f.type === 'file' ? f.file?.url : (f.type === 'external' ? f.external?.url : null);
+      const name = f.name || 'file';
+      if (url && name.toLowerCase().endsWith('.pdf')) { pdfUrl = url; break; }
+    }
+
+    res.json({ ...config, pdfUrl });
+  } catch (err) {
+    console.error(`❌  /api/block/${req.params.blockId}/signing-config:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/sign-document ──────────────────────────────────
+// Receives signed field values, stamps the PDF, saves it, uploads
+// to the training record's Certificates field, marks record complete.
+app.post('/api/sign-document', requireAuth, async (req, res) => {
+  try {
+    const { blockId, fieldValues } = req.body || {};
+    if (!blockId)     return res.status(400).json({ error: 'blockId is required' });
+    if (!fieldValues) return res.status(400).json({ error: 'fieldValues is required' });
+
+    const config = signingFieldsCache[blockId];
+    if (!config) return res.status(400).json({ error: 'No signing config found for this block. Please re-open the document.' });
+
+    const { pageId: userPageId, contractorPageIds = [], dealerOrgPageIds = [] } = req.session;
+    const today   = new Date().toISOString().split('T')[0];
+    const baseUrl = process.env.APP_URL || `http://localhost:${PORT}`;
+
+    // Stamp the PDF
+    const signedBytes = await stampSignedPDF(config, fieldValues);
+
+    // Save to /uploads
+    const timestamp = Date.now();
+    const filename  = `signed-${blockId.replace(/-/g, '')}-${timestamp}.pdf`;
+    const filePath  = path.join(UPLOAD_DIR, filename);
+    fs.writeFileSync(filePath, signedBytes);
+    console.log(`✍️   Signed PDF saved: ${filename}`);
+
+    // Build file reference
+    const fileRef = {
+      name:     'Signed Document.pdf',
+      type:     'external',
+      external: { url: `${baseUrl}/uploads/${filename}` },
+    };
+
+    // ── Find the correct training record (same as upload-certificate) ──
+    let existing = [];
+
+    if (contractorPageIds.length) {
+      for (const cpId of contractorPageIds) {
+        const found = await queryAll(DB.trainingRecords, {
+          and: [
+            { property: 'Contractor',     relation: { contains: cpId    } },
+            { property: 'Training Block', relation: { contains: blockId } },
+          ],
+        });
+        if (found.length) { existing = found; break; }
+      }
+    }
+
+    if (!existing.length && dealerOrgPageIds.length) {
+      for (const orgId of dealerOrgPageIds) {
+        const found = await queryAll(DB.trainingRecords, {
+          and: [
+            { property: 'Dealer',         relation: { contains: orgId   } },
+            { property: 'Training Block', relation: { contains: blockId } },
+          ],
+        });
+        if (found.length) { existing = found; break; }
+      }
+    }
+
+    if (!existing.length) {
+      existing = await queryAll(DB.trainingRecords, {
+        and: [
+          { property: 'Employee',       relation: { contains: userPageId } },
+          { property: 'Training Block', relation: { contains: blockId    } },
+        ],
+      });
+    }
+
+    let recordId;
+    if (existing.length) {
+      await notionFetch(`/pages/${existing[0].id}`, 'PATCH', {
+        properties: {
+          'Date Completed': { date:  { start: today } },
+          'Certificates':   { files: [fileRef]       },
+        },
+      });
+      recordId = existing[0].id;
+      console.log(`✅  sign-document: updated record ${recordId} (${req.session.name})`);
+    } else {
+      const blockName = cache.blocks[blockId]?.name || 'Signed Document';
+      const newPage   = await notionFetch('/pages', 'POST', {
+        parent: { database_id: DB.trainingRecords },
+        properties: {
+          'Name':           { title:    [{ text: { content: blockName } }] },
+          'Employee':       { relation: [{ id: userPageId }]               },
+          'Training Block': { relation: [{ id: blockId    }]               },
+          'Date Completed': { date:     { start: today }                   },
+          'Certificates':   { files:    [fileRef]       },
+        },
+      });
+      recordId = newPage.id;
+      console.log(`✅  sign-document: created record ${recordId} (${req.session.name})`);
+    }
+
+    res.json({ ok: true, recordId, date: today });
+
+  } catch (err) {
+    console.error('sign-document error:', err.message);
+    res.status(500).json({ error: 'Failed to sign document: ' + err.message });
+  }
+});
+
 // ─── Catch-all: serve frontend ────────────────────────────────
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 // ─── Start ────────────────────────────────────────────────────
-Promise.all([refreshCache(), loadGeneratedQuizzes()])
+Promise.all([refreshCache(), loadGeneratedQuizzes(), Promise.resolve(loadSigningFields())])
   .then(() => {
     app.listen(PORT, () => {
       console.log(`\n⚡  Solve Training Portal → http://localhost:${PORT}\n`);

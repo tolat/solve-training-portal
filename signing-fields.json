@@ -1,0 +1,40 @@
+{
+  "37ab73d8-b43a-80bb-af13-fb009ae9bcf7": {
+    "blockId": "37ab73d8-b43a-80bb-af13-fb009ae9bcf7",
+    "fields": [
+      {
+        "id": "employee_name",
+        "type": "name",
+        "page": 43,
+        "x": 0.28,
+        "y": 0.538,
+        "width": 0.55,
+        "height": 0.028,
+        "label": "Employee Name"
+      },
+      {
+        "id": "employee_signature",
+        "type": "signature",
+        "page": 43,
+        "x": 0.22,
+        "y": 0.578,
+        "width": 0.58,
+        "height": 0.030,
+        "label": "Signature"
+      },
+      {
+        "id": "date",
+        "type": "date",
+        "page": 43,
+        "x": 0.155,
+        "y": 0.612,
+        "width": 0.40,
+        "height": 0.028,
+        "label": "Date"
+      }
+    ],
+    "addedSignaturePage": false,
+    "pdfFileName": "Solve_Energy_Employee_Handbook (1).pdf",
+    "detectedAt": 1781023429714
+  }
+}

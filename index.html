@@ -249,6 +249,20 @@
   </div>
 </div>
 
+<!-- ─── SCREEN: Document Signing ─────────────────────────────── -->
+<div class="screen" id="screenSign">
+  <div class="sign-header">
+    <div class="sign-title" id="signTitle"></div>
+    <div class="sign-sub">Review the document and complete all required fields below, then click Sign &amp; Submit.</div>
+  </div>
+  <div id="signPdfContainer"></div>
+  <div class="sign-actions">
+    <button class="btn btn-outline" id="btnClearSignatures" onclick="clearAllSignatures()">Clear Signatures</button>
+    <button class="btn btn-primary" id="btnSubmitSign" onclick="submitSignedDocument()">✍️ Sign &amp; Submit</button>
+  </div>
+  <div class="quiz-result" id="signResult"></div>
+</div>
+
 <!-- ─── SCREEN 3: Completion ─────────────────────────────── -->
 <div class="screen" id="screenComplete">
   <div class="completion-card">
@@ -316,6 +330,8 @@
 
 
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/signature_pad/4.1.7/signature_pad.umd.min.js"></script>
 <script src="js/quiz-data.js"></script>
 <script src="js/app.js"></script>
 
@@ -382,5 +398,9 @@
     }
   })();
 </script>
+
+<!-- PDF viewer (pdf.js) and signature capture (signature_pad) for Signature Required blocks -->
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
 </body>
 </html>

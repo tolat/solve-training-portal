@@ -17,6 +17,10 @@ let autoSyncTimer     = null;  // background sync every 15 min while app is open
 // Keys are block IDs with no dashes, same as QUIZ_MAP
 let dynamicQuizzes = {};
 
+// Document signing state
+let signaturePads = {};
+let currentSigningConfig = null;
+
 // Colour palette — one distinct colour per pipeline stage (cycles if > 8 stages)
 const STAGE_PALETTE = [
   { color: '#2563eb', bg: 'rgba(37,99,235,0.09)',   border: 'rgba(37,99,235,0.28)' },  // blue
@@ -252,9 +256,6 @@ async function initApp() {
       saveCache(trainingData);
     }
 
-    // Load AI-generated quizzes in parallel (non-blocking)
-    loadDynamicQuizzes();
-
     renderRoles();
     showScreen('screenRoles');
     updateSyncBar();
@@ -297,7 +298,6 @@ async function manualSync() {
       showStageBadge(currentUser.onboardingStage);
     }
     saveCache(trainingData);
-    loadDynamicQuizzes();
     // Refresh the current screen.
     // If inside a role view, rebuild currentBlocks from fresh trainingData so
     // any newly accessible stages (after a stage advance) are included before
@@ -678,6 +678,11 @@ function openBlock(index) {
   const block   = currentBlocks[index];
   const passed  = isBlockCompleted(block.id);
 
+  // Lazily fetch this block's AI quiz in the background so it's ready if the user taps "Start Quiz"
+  if (!isSignatureBlock(block) && !isDocumentUploadBlock(block)) {
+    prefetchQuizForBlock(block.id);
+  }
+
   document.getElementById('stepRoleName').textContent  = currentUser.name;
   document.getElementById('stepModuleNum').textContent = `Module ${index + 1}`;
   document.getElementById('stepBlockName').textContent = block.name;
@@ -731,19 +736,60 @@ function openBlock(index) {
   const quizSection   = document.getElementById('quizSection');
   const quizResult    = document.getElementById('quizResult');
   const uploadSection = document.getElementById('uploadSection');
+  const blockActions  = document.getElementById('blockActions');
   const isDocUpload   = isDocumentUploadBlock(block);
+  const isSignature   = isSignatureBlock(block);
+
+  // For signature blocks: hide quiz and upload sections via inline style.
+  // For normal/upload blocks: clear inline style so CSS classes (.quiz-section, .show) work normally.
+  if (isSignature) {
+    quizSection.style.display   = 'none';
+    uploadSection.style.display = 'none';
+    blockActions.style.display  = '';
+  } else if (isDocUpload) {
+    quizSection.style.display   = 'none';
+    uploadSection.style.display = '';  // class .quiz-section default; .show class will reveal it
+    blockActions.style.display  = 'none';
+  } else {
+    quizSection.style.display   = '';  // defer to .quiz-section class + .show modifier
+    uploadSection.style.display = '';  // defer to .quiz-section class + .show modifier
+    blockActions.style.display  = '';
+  }
+
+  if (isSignature) {
+    // Show blockActions area for the sign button, but hide the "I've reviewed" button
+    blockActions.style.display  = '';
+    btnViewed.style.display     = 'none';
+    // Insert or reuse the sign button
+    let signBtn = document.getElementById('btnSignDoc');
+    if (!signBtn) {
+      signBtn = document.createElement('button');
+      signBtn.id        = 'btnSignDoc';
+      signBtn.className = 'btn btn-primary';
+      signBtn.textContent = '✍️ Sign Document';
+      signBtn.onclick   = () => openSigningView(block);
+      blockActions.appendChild(signBtn);
+    } else {
+      signBtn.style.display = '';
+      signBtn.onclick       = () => openSigningView(block);
+    }
+  } else {
+    // Hide the sign button when not a signature block
+    const signBtn = document.getElementById('btnSignDoc');
+    if (signBtn) signBtn.style.display = 'none';
+  }
 
   // Document Upload blocks skip the acknowledge step entirely
   if (isDocUpload) {
     btnViewed.style.display = 'none';
     viewedConfirm.classList.remove('show');
-  } else {
+  } else if (!isSignature) {
     btnViewed.textContent   = '✓ I\'ve reviewed this training — start quiz';
     btnViewed.style.display = passed ? 'none' : 'inline-flex';
   }
 
   if (passed) {
-    if (!isDocUpload) {
+    if (!isDocUpload && !isSignature) {
       viewedConfirm.classList.add('show');
       // Update the confirmation text to a review-mode message (not the "complete quiz" prompt)
       viewedConfirm.innerHTML = '📖 <strong>Reviewing completed training.</strong> Resources and materials are available below.';
@@ -754,7 +800,14 @@ function openBlock(index) {
       <div class="quiz-result-msg">You've already completed this module. You can review the materials above at any time.</div>
       <button class="btn btn-outline" onclick="goBack()">← Back to Course</button>
     `;
-    if (isDocUpload) {
+    if (isSignature) {
+      // Signature block: show completed notice in viewedConfirm (always visible on block screen)
+      viewedConfirm.classList.add('show');
+      viewedConfirm.innerHTML = `✅ <strong>Already signed & completed${dateStr ? ' — ' + dateStr : ''}.</strong> You can sign again using the button below.`;
+      // Update sign button to "Sign Again"
+      const signBtn = document.getElementById('btnSignDoc');
+      if (signBtn) { signBtn.textContent = '✍️ Sign Again'; }
+    } else if (isDocUpload) {
       uploadSection.classList.add('show');
       quizSection.classList.remove('show');
       document.getElementById('uploadResult').className = 'quiz-result pass show';
@@ -767,7 +820,7 @@ function openBlock(index) {
       quizResult.innerHTML = completedHTML;
     }
   } else {
-    if (!isDocUpload) viewedConfirm.classList.remove('show');
+    if (!isDocUpload && !isSignature) viewedConfirm.classList.remove('show');
     quizSection.classList.remove('show');
     quizResult.className    = 'quiz-result';
     quizResult.style.display = 'none';
@@ -776,6 +829,9 @@ function openBlock(index) {
       // Show upload panel immediately — no acknowledge step needed
       resetUpload();
       uploadSection.classList.add('show');
+    } else if (isSignature) {
+      // Signature block: just show the sign button (already set up above)
+      uploadSection.classList.remove('show');
     } else {
       uploadSection.classList.remove('show');
       resetUpload();
@@ -786,7 +842,7 @@ function openBlock(index) {
   // (those use the upload UI instead; showing files there would be confusing)
   const materialsDiv = document.getElementById('blockMaterials');
   if (materialsDiv) {
-    if (isDocumentUploadBlock(block)) {
+    if (isDocUpload) {
       if (materialsTimer) { clearInterval(materialsTimer); materialsTimer = null; }
       // Pass the contractor page ID so the server fetches the right record
       const contractorPageId = currentRoleId?.startsWith('__contractor__')
@@ -924,6 +980,10 @@ function isDocumentUploadBlock(block) {
   return (block?.types || []).some(t => t.toLowerCase().replace(/[\s_-]/g, '') === 'documentupload');
 }
 
+function isSignatureBlock(block) {
+  return (block?.types || []).includes('Signature Required');
+}
+
 function markViewed() {
   document.getElementById('viewedConfirm').classList.add('show');
   document.getElementById('btnViewed').style.display = 'none';
@@ -972,6 +1032,273 @@ function loadCertificates(blockId, materialsDiv, contractorPageId = null) {
     console.error('loadCertificates error:', err);
     materialsDiv.innerHTML = '';
   });
+}
+
+// ============================================================
+// DOCUMENT SIGNING
+// ============================================================
+
+async function openSigningView(block) {
+  showToast('Loading document…');
+  try {
+    const config = await apiFetch(`/api/block/${block.id}/signing-config`);
+    currentSigningConfig = config;
+    document.getElementById('signTitle').textContent = block.name;
+    // Clear any previous result
+    const signResultEl = document.getElementById('signResult');
+    if (signResultEl) { signResultEl.className = 'quiz-result'; signResultEl.innerHTML = ''; }
+    await renderSigningPDF(config, block);
+    showScreen('screenSign');
+    document.getElementById('headerBack').style.display = 'inline-flex';
+  } catch (err) {
+    if (err.message === 'session_expired') return;
+    showToast('⚠️ Could not load signing document: ' + err.message);
+  }
+}
+
+async function renderSigningPDF(config, block) {
+  const container = document.getElementById('signPdfContainer');
+  container.innerHTML = '';
+  // Clear old signature pads
+  signaturePads = {};
+
+  if (!config.pdfUrl) {
+    container.innerHTML = '<p style="color:var(--danger);padding:16px;">No PDF available for this document.</p>';
+    return;
+  }
+
+  // Configure pdf.js worker
+  if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  } else {
+    container.innerHTML = '<p style="color:var(--danger);padding:16px;">PDF viewer library not loaded. Please refresh the page.</p>';
+    return;
+  }
+
+  let pdf;
+  try {
+    pdf = await pdfjsLib.getDocument(config.pdfUrl).promise;
+  } catch (e) {
+    container.innerHTML = `<p style="color:var(--danger);padding:16px;">Could not load PDF: ${escHtml(e.message)}</p>`;
+    return;
+  }
+
+  const scale = 1.5;
+  const numOriginalPages = config.addedSignaturePage ? pdf.numPages : pdf.numPages;
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale });
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = viewport.width;
+    canvas.height = viewport.height;
+    // Pin CSS size to match canvas pixel dimensions exactly — avoids
+    // height:auto scaling that would mis-align absolute-positioned overlays
+    canvas.style.width  = viewport.width  + 'px';
+    canvas.style.height = viewport.height + 'px';
+    const ctx = canvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    const pageDiv = document.createElement('div');
+    pageDiv.className    = 'sign-page-wrapper';
+    pageDiv.style.cssText = `position:relative; display:inline-block; width:${viewport.width}px; height:${viewport.height}px; overflow:visible;`;
+    pageDiv.appendChild(canvas);
+
+    // Add field overlays for this page (0-indexed page = pageNum - 1)
+    if (!config.addedSignaturePage) {
+      const pageFields = (config.fields || []).filter(f => f.page === pageNum - 1);
+      for (const field of pageFields) {
+        addFieldOverlay(field, pageDiv, viewport.width, viewport.height);
+      }
+    }
+
+    container.appendChild(pageDiv);
+  }
+
+  // If addedSignaturePage: append a synthetic signature page div
+  if (config.addedSignaturePage) {
+    // Scale: pdf points (612x792) × 1.5 = 918×1188 display pixels
+    const synthW = 612 * scale;
+    const synthH = 792 * scale;
+
+    const synthDiv = document.createElement('div');
+    synthDiv.className = 'sign-synthetic-page';
+    synthDiv.style.width  = synthW + 'px';
+    synthDiv.style.minHeight = synthH + 'px';
+
+    const today = new Date().toISOString().split('T')[0];
+    synthDiv.innerHTML = `
+      <h2>Electronic Signature</h2>
+      <p>By signing below I confirm I have read and understood the above document.</p>
+    `;
+
+    // Render each field defined in the config on this synthetic page
+    for (const field of (config.fields || [])) {
+      const fieldW = Math.round(field.width  * synthW);
+      const fieldH = Math.round(field.height * synthH);
+      const fieldX = Math.round(field.x      * synthW);
+      const fieldY = Math.round(field.y      * synthH);
+
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = `position:absolute;left:${fieldX}px;top:${fieldY}px;width:${fieldW}px;height:${fieldH}px;`;
+      wrapper.className = 'sign-field-overlay';
+
+      // Label
+      const labelEl = document.createElement('div');
+      labelEl.className   = 'sign-field-label';
+      labelEl.textContent = field.label || field.id;
+      wrapper.appendChild(labelEl);
+
+      if (field.type === 'signature' || field.type === 'initials') {
+        const sigCanvas = document.createElement('canvas');
+        sigCanvas.width  = fieldW;
+        sigCanvas.height = fieldH;
+        wrapper.appendChild(sigCanvas);
+        if (typeof SignaturePad !== 'undefined') {
+          const pad = new SignaturePad(sigCanvas, { penColor: '#1a3c6e' });
+          signaturePads[field.id] = pad;
+        }
+      } else {
+        const input = document.createElement('input');
+        input.type      = field.type === 'date' ? 'date' : 'text';
+        input.className = 'sign-field-input';
+        input.dataset.fieldId = field.id;
+        // Auto-fill name and date
+        if (field.type === 'name' && currentUser?.name)  input.value = currentUser.name;
+        if (field.type === 'date') input.value = today;
+        wrapper.appendChild(input);
+      }
+
+      // Synthetic page is relative-positioned container
+      synthDiv.style.position = 'relative';
+      synthDiv.appendChild(wrapper);
+    }
+
+    const pageDiv = document.createElement('div');
+    pageDiv.className = 'sign-page-wrapper';
+    pageDiv.style.width  = synthW + 'px';
+    pageDiv.appendChild(synthDiv);
+    container.appendChild(pageDiv);
+  }
+}
+
+function addFieldOverlay(field, pageDiv, pageW, pageH) {
+  // Use percentages so the overlay tracks the canvas regardless of CSS scaling
+  const xPct = (field.x      * 100).toFixed(3);
+  const yPct = (field.y      * 100).toFixed(3);
+  const wPct = (field.width  * 100).toFixed(3);
+  const hPct = (field.height * 100).toFixed(3);
+  // Minimum display height for signature pads so they're actually usable
+  const minH = (field.type === 'signature' || field.type === 'initials') ? 6 : 3;
+  const displayH = Math.max(parseFloat(hPct), minH).toFixed(3);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'sign-field-overlay';
+  overlay.style.cssText = `position:absolute; left:${xPct}%; top:${yPct}%; width:${wPct}%; height:${displayH}%;`;
+
+  // Label
+  const labelEl = document.createElement('div');
+  labelEl.className   = 'sign-field-label';
+  labelEl.textContent = field.label || field.id;
+  overlay.appendChild(labelEl);
+
+  const today = new Date().toISOString().split('T')[0];
+
+  if (field.type === 'signature' || field.type === 'initials') {
+    const sigCanvas = document.createElement('canvas');
+    // Pixel size for the SignaturePad canvas — derive from pageW/H and the display percentage
+    sigCanvas.width  = Math.round(field.width  * pageW);
+    sigCanvas.height = Math.round(parseFloat(displayH) / 100 * pageH);
+    overlay.appendChild(sigCanvas);
+    if (typeof SignaturePad !== 'undefined') {
+      const pad = new SignaturePad(sigCanvas, { penColor: '#1a3c6e' });
+      signaturePads[field.id] = pad;
+    }
+  } else {
+    const input = document.createElement('input');
+    input.type      = field.type === 'date' ? 'date' : 'text';
+    input.className = 'sign-field-input';
+    input.dataset.fieldId = field.id;
+    if (field.type === 'name' && currentUser?.name)  input.value = currentUser.name;
+    if (field.type === 'date') input.value = today;
+    overlay.appendChild(input);
+  }
+
+  pageDiv.appendChild(overlay);
+}
+
+function clearAllSignatures() {
+  for (const pad of Object.values(signaturePads)) {
+    pad.clear();
+  }
+}
+
+async function submitSignedDocument() {
+  if (!currentSigningConfig) return;
+  const block = currentBlocks[currentBlockIndex];
+  const resultEl = document.getElementById('signResult');
+  const btnEl    = document.getElementById('btnSubmitSign');
+
+  // Validate: all signature/initials pads must not be empty
+  for (const field of (currentSigningConfig.fields || [])) {
+    if (field.type === 'signature' || field.type === 'initials') {
+      const pad = signaturePads[field.id];
+      if (pad && pad.isEmpty()) {
+        resultEl.className = 'quiz-result fail show';
+        resultEl.innerHTML = `<div class="quiz-result-title">⚠️ Please sign the <strong>${escHtml(field.label || field.id)}</strong> field before submitting.</div>`;
+        resultEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        return;
+      }
+    }
+  }
+
+  // Collect field values
+  const fieldValues = {};
+  for (const field of (currentSigningConfig.fields || [])) {
+    if (field.type === 'signature' || field.type === 'initials') {
+      const pad = signaturePads[field.id];
+      if (pad && !pad.isEmpty()) {
+        fieldValues[field.id] = pad.toDataURL('image/png');
+      }
+    } else {
+      // Find the input element
+      const input = document.querySelector(`[data-field-id="${CSS.escape(field.id)}"]`);
+      if (input) fieldValues[field.id] = input.value;
+    }
+  }
+
+  btnEl.disabled    = true;
+  btnEl.textContent = 'Submitting…';
+  resultEl.className = 'quiz-result';
+  resultEl.innerHTML = '';
+
+  try {
+    const result = await apiFetch('/api/sign-document', 'POST', {
+      blockId:     currentSigningConfig.blockId,
+      fieldValues,
+    });
+
+    // Mark block complete locally
+    markBlockCompleteLocally(block.id, { date: result.date, recordId: result.recordId, status: 'OK' });
+
+    resultEl.className = 'quiz-result pass show';
+    resultEl.innerHTML = `
+      <div class="quiz-result-title">🎉 Document signed — training complete!</div>
+      <div class="quiz-result-msg">Your signed document has been saved. This module is now marked complete.</div>
+      <button class="btn btn-outline" onclick="goBack()">← Back to Course</button>
+    `;
+    btnEl.style.display = 'none';
+    showToast('Document signed successfully ✅');
+    // Re-render the course to update progress
+    renderCourse(currentBlocks);
+  } catch (err) {
+    if (err.message === 'session_expired') return;
+    resultEl.className = 'quiz-result fail show';
+    resultEl.innerHTML = `<div class="quiz-result-title">❌ Signing failed: ${escHtml(err.message)}</div>`;
+    btnEl.disabled    = false;
+    btnEl.textContent = '✍️ Sign & Submit';
+  }
 }
 
 // ============================================================
@@ -1112,16 +1439,16 @@ function getQuiz(block) {
   return dynamicQuizzes[key] || QUIZ_MAP[key] || genericQuiz(block.name);
 }
 
-async function loadDynamicQuizzes() {
+// Lazy-loads the quiz for a single block and merges it into dynamicQuizzes.
+// Called in openBlock() so the quiz is ready before the user taps "Start Quiz".
+async function prefetchQuizForBlock(blockId) {
+  const key = blockId.replace(/-/g, '');
+  if (dynamicQuizzes[key]) return; // already cached this session
   try {
-    const data = await apiFetch('/api/quizzes');
-    if (data && typeof data === 'object') {
-      dynamicQuizzes = data;
-      console.log(`[Quizzes] Loaded ${Object.keys(dynamicQuizzes).length} AI-generated quiz(zes)`);
-    }
-  } catch (e) {
-    // Non-fatal — static quizzes still work
-    console.warn('[Quizzes] Could not load dynamic quizzes:', e.message);
+    const data = await apiFetch(`/api/quizzes/${key}`);
+    if (data && typeof data === 'object') Object.assign(dynamicQuizzes, data);
+  } catch {
+    // 404 = no AI quiz yet; static fallback will be used — that's fine
   }
 }
 
@@ -1301,6 +1628,13 @@ function goBack() {
   if (active === 'screenProfile') {
     document.getElementById('headerBack').style.display = 'none';
     showScreen('screenRoles');
+    return;
+  }
+
+  // Sign screen → go back to the block screen
+  if (active === 'screenSign') {
+    showScreen('screenBlock');
+    document.getElementById('headerBack').style.display = 'inline-flex';
     return;
   }
 
