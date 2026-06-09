@@ -16,8 +16,8 @@
         "id": "employee_signature",
         "type": "signature",
         "page": 43,
-        "x": 0.24139,
-        "y": 0.53481,
+        "x": 0.25234,
+        "y": 0.53522,
         "width": 0.58,
         "height": 0.035,
         "label": "Signature"
@@ -26,8 +26,8 @@
         "id": "date",
         "type": "date",
         "page": 43,
-        "x": 0.23711,
-        "y": 0.57025,
+        "x": 0.23640999999999998,
+        "y": 0.57156,
         "width": 0.4,
         "height": 0.028,
         "label": "Date"
