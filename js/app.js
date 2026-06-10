@@ -729,6 +729,9 @@ function openBlock(index) {
   } else {
     resourceArea.innerHTML  = '';
     noLinkBox.style.display = 'block';
+    noLinkBox.textContent   = isDocUpload
+      ? '📎 Use the section below to upload your certificates or documents for this training.'
+      : '📄 This training is delivered in-person or via your manager. Review the materials below and confirm with your trainer before proceeding.';
   }
 
   const viewedConfirm = document.getElementById('viewedConfirm');
