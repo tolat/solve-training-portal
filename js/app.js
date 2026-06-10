@@ -838,17 +838,23 @@ function openBlock(index) {
     }
   }
 
-  // Show materials section — but not for Document Upload blocks
-  // (those use the upload UI instead; showing files there would be confusing)
+  // Show materials section (guidance/forms/media) for all block types.
+  // For Document Upload blocks, also append previously-uploaded certificates below.
   const materialsDiv = document.getElementById('blockMaterials');
   if (materialsDiv) {
+    const contractorPageId = currentRoleId?.startsWith('__contractor__')
+      ? currentRoleId.replace('__contractor__', '')
+      : null;
     if (isDocUpload) {
-      if (materialsTimer) { clearInterval(materialsTimer); materialsTimer = null; }
-      // Pass the contractor page ID so the server fetches the right record
-      const contractorPageId = currentRoleId?.startsWith('__contractor__')
-        ? currentRoleId.replace('__contractor__', '')
-        : null;
-      loadCertificates(block.id, materialsDiv, contractorPageId);
+      if (materialsTimer) clearInterval(materialsTimer);
+      // Load guidance/forms/media first, then append uploaded certificates beneath them
+      loadMaterials(block.id, materialsDiv, true)
+        .then(() => loadCertificates(block.id, materialsDiv, contractorPageId, true));
+      materialsTimer = setInterval(
+        () => loadMaterials(block.id, materialsDiv, false)
+                .then(() => loadCertificates(block.id, materialsDiv, contractorPageId, true)),
+        55 * 60 * 1000
+      );
     } else {
       loadMaterials(block.id, materialsDiv, true);
       if (materialsTimer) clearInterval(materialsTimer);
@@ -938,9 +944,10 @@ function buildTrainingResourceHTML(url) {
 
 // Fetch (or silently refresh) signed file URLs for a training block.
 // showSpinner=true on first load; false on background refresh so links don't flash.
+// Returns a Promise so callers can chain .then() after the DOM is updated.
 function loadMaterials(blockId, materialsDiv, showSpinner) {
   if (showSpinner) materialsDiv.innerHTML = '<p class="materials-loading">Loading materials…</p>';
-  apiFetch(`/api/block/${blockId}/files`).then(files => {
+  return apiFetch(`/api/block/${blockId}/files`).then(files => {
     const allFiles = [
       ...(files.associatedForms || []).map(f => ({ ...f, group: 'Associated Forms' })),
       ...(files.guidance        || []).map(f => ({ ...f, group: 'Guidance' })),
@@ -1003,19 +1010,23 @@ function markViewed() {
 }
 
 // Fetch and display uploaded certificates for a Document Upload block.
-// Pass contractorPageId to scope the lookup to the contractor currently being viewed.
-function loadCertificates(blockId, materialsDiv, contractorPageId = null) {
-  materialsDiv.innerHTML = '<p class="materials-loading">Loading certificates…</p>';
+// contractorPageId: scope the lookup to the contractor currently being viewed.
+// append: when true, add a certificates section after existing content (e.g. after guidance);
+//         when false (default), replace the entire div.
+function loadCertificates(blockId, materialsDiv, contractorPageId = null, append = false) {
+  if (!append) materialsDiv.innerHTML = '<p class="materials-loading">Loading certificates…</p>';
+  // Remove any stale certificates section before (re)inserting
+  materialsDiv.querySelector('.certificates-section')?.remove();
   const certUrl = contractorPageId
     ? `/api/block/${blockId}/certificates?contractorId=${encodeURIComponent(contractorPageId)}`
     : `/api/block/${blockId}/certificates`;
   apiFetch(certUrl).then(({ certificates }) => {
     if (!certificates?.length) {
-      materialsDiv.innerHTML = '';
+      if (!append) materialsDiv.innerHTML = '';
       return;
     }
-    materialsDiv.innerHTML = `
-      <div class="materials-section">
+    const html = `
+      <div class="materials-section certificates-section">
         <div class="materials-title">📎 Uploaded Certificates</div>
         <div class="material-group">
           ${certificates.map(f => `
@@ -1027,10 +1038,15 @@ function loadCertificates(blockId, materialsDiv, contractorPageId = null) {
         </div>
       </div>
     `;
+    if (append) {
+      materialsDiv.insertAdjacentHTML('beforeend', html);
+    } else {
+      materialsDiv.innerHTML = html;
+    }
   }).catch(err => {
     if (err.message === 'session_expired') return;
     console.error('loadCertificates error:', err);
-    materialsDiv.innerHTML = '';
+    if (!append) materialsDiv.innerHTML = '';
   });
 }
 
@@ -1508,13 +1524,13 @@ async function submitUpload() {
     `;
     document.getElementById('btnSubmitUpload').style.display = 'none';
     showToast('Certificate uploaded successfully ✅');
-    // Refresh the certificates panel to show the newly uploaded file
+    // Refresh the certificates panel to show the newly uploaded file (append beneath guidance)
     const mDiv = document.getElementById('blockMaterials');
     if (mDiv) {
       const contractorPageId = currentRoleId?.startsWith('__contractor__')
         ? currentRoleId.replace('__contractor__', '')
         : null;
-      loadCertificates(block.id, mDiv, contractorPageId);
+      loadCertificates(block.id, mDiv, contractorPageId, true);
     }
 
   } catch (err) {
