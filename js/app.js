@@ -729,9 +729,6 @@ function openBlock(index) {
   } else {
     resourceArea.innerHTML  = '';
     noLinkBox.style.display = 'block';
-    noLinkBox.textContent   = isDocUpload
-      ? '📎 Use the section below to upload your certificates or documents for this training.'
-      : '📄 This training is delivered in-person or via your manager. Review the materials below and confirm with your trainer before proceeding.';
   }
 
   const viewedConfirm = document.getElementById('viewedConfirm');
@@ -742,6 +739,13 @@ function openBlock(index) {
   const blockActions  = document.getElementById('blockActions');
   const isDocUpload   = isDocumentUploadBlock(block);
   const isSignature   = isSignatureBlock(block);
+
+  // Update the no-link notice text to match the block type
+  if (noLinkBox.style.display !== 'none') {
+    noLinkBox.textContent = isDocUpload
+      ? '📎 Use the section below to upload your certificates or documents for this training.'
+      : '📄 This training is delivered in-person or via your manager. Review the materials below and confirm with your trainer before proceeding.';
+  }
 
   // For signature blocks: hide quiz and upload sections via inline style.
   // For normal/upload blocks: clear inline style so CSS classes (.quiz-section, .show) work normally.
