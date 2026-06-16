@@ -596,29 +596,12 @@ function renderCourse(blocksOverride, skipCompleteRedirect = false) {
     return a.stageOrdering - b.stageOrdering;
   });
 
-  // Access rule: per-stage sequential unlocking.
-  // A block is open if it is the first in its stage OR the previous block
-  // in the same stage is completed. Completed blocks are always accessible.
-  function isAccessible(block) {
-    const key   = importing ? (block.contractorStageName || block.stageName || 'Other')
-                : isDealer  ? (block.dealerStageName     || block.stageName || 'Other')
-                            : (block.stageName || 'Other');
-    const group = stageIndex.get(key);
-    if (!group) return true;
-    const pos = group.blocks.indexOf(block);
-    if (pos === 0) return true;
-    return isBlockCompleted(group.blocks[pos - 1].id);
-  }
-
-  // ── Status priority for sort: completed(0) → overdue(1) → open(2) → locked(3) ──
+  // All blocks are always accessible — no sequential locking.
+  // ── Status priority for sort: completed(0) → overdue(1) → open(2) ──
   function blockPriority(block) {
-    const completed = isBlockCompleted(block.id);
-    const overdue   = isBlockOverdue(block.id);
-    const open      = completed || isAccessible(block);
-    if (completed) return 0;
-    if (overdue)   return 1;
-    if (open)      return 2;
-    return 3;
+    if (isBlockCompleted(block.id)) return 0;
+    if (isBlockOverdue(block.id))   return 1;
+    return 2;
   }
 
   // ── Render one section per stage ──────────────────────────────
@@ -631,22 +614,15 @@ function renderCourse(blocksOverride, skipCompleteRedirect = false) {
       const gi        = blocks.indexOf(block);
       const completed = isBlockCompleted(block.id);
       const overdue   = isBlockOverdue(block.id);
-      const open      = completed || isAccessible(block);
 
       if (completed) {
         const dateStr    = completedMap[block.id]?.date || '';
         const statusText = `✓ Done${dateStr ? ' (' + dateStr + ')' : ''}`;
         addModuleItem(block, gi, 'completed', statusText, true);
       } else if (overdue) {
-        addModuleItem(block, gi,
-          open ? 'overdue current' : 'locked',
-          open ? '⚠️ Overdue — Open' : '🔒 Locked',
-          open);
+        addModuleItem(block, gi, 'overdue current', '⚠️ Overdue — Open', true);
       } else {
-        addModuleItem(block, gi,
-          open ? 'current' : 'locked',
-          open ? '▶ Start' : '🔒 Locked',
-          open);
+        addModuleItem(block, gi, 'current', '▶ Start', true);
       }
     }
   });
