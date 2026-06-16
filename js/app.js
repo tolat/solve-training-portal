@@ -368,6 +368,7 @@ function renderRoles() {
     } else if (role.isDealerRole) {
       return b.hasDealerStage || b.dealerStageOrdering < 999;
     } else {
+      if (completedMap[b.id]) return true; // always show blocks with an existing training record
       if (b.stageOrdering === 999 && b.hasEmployeeStage) return true;
       if (!b.hasEmployeeStage) return false;
       if (empOrdering < 999 && b.stageOrdering > empOrdering) return false;
@@ -505,6 +506,7 @@ function renderCourse(blocksOverride, skipCompleteRedirect = false) {
     } else if (isDealer) {
       return b.hasDealerStage || b.dealerStageOrdering < 999;
     } else {
+      if (completedMap[b.id]) return true; // always show blocks with an existing training record
       if (b.stageOrdering === 999 && b.hasEmployeeStage) return true;
       if (!b.hasEmployeeStage) return false;
       if (empOrdering < 999 && b.stageOrdering > empOrdering) return false;
