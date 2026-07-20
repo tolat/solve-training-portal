@@ -736,7 +736,7 @@ function openBlock(index) {
     blockActions.style.display  = '';
   } else if (isDocUpload || isHRDocUpload) {
     quizSection.style.display   = 'none';
-    uploadSection.style.display = '';
+    uploadSection.style.display = 'block';
     blockActions.style.display  = 'none';
     // Update upload UI labels to match block type
     const uploadTitle = uploadSection.querySelector('.quiz-title');
