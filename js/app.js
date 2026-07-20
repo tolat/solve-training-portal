@@ -657,7 +657,7 @@ function openBlock(index) {
   const passed  = isBlockCompleted(block.id);
 
   // Lazily fetch this block's AI quiz in the background so it's ready if the user taps "Start Quiz"
-  if (!isSignatureBlock(block) && !isDocumentUploadBlock(block)) {
+  if (!isSignatureBlock(block) && !isDocumentUploadBlock(block) && !isHRDocumentUploadBlock(block)) {
     prefetchQuizForBlock(block.id);
   }
 
@@ -716,11 +716,14 @@ function openBlock(index) {
   const uploadSection = document.getElementById('uploadSection');
   const blockActions  = document.getElementById('blockActions');
   const isDocUpload   = isDocumentUploadBlock(block);
+  const isHRDocUpload = isHRDocumentUploadBlock(block);
   const isSignature   = isSignatureBlock(block);
 
   // Update the no-link notice text to match the block type
   if (noLinkBox.style.display !== 'none') {
-    noLinkBox.textContent = isDocUpload
+    noLinkBox.textContent = isHRDocUpload
+      ? '📋 Use the section below to upload your HR document. It will be filed securely.'
+      : isDocUpload
       ? '📎 Use the section below to upload your certificates or documents for this training.'
       : '📄 This training is delivered in-person or via your manager. Review the materials below and confirm with your trainer before proceeding.';
   }
@@ -731,10 +734,23 @@ function openBlock(index) {
     quizSection.style.display   = 'none';
     uploadSection.style.display = 'none';
     blockActions.style.display  = '';
-  } else if (isDocUpload) {
+  } else if (isDocUpload || isHRDocUpload) {
     quizSection.style.display   = 'none';
-    uploadSection.style.display = '';  // class .quiz-section default; .show class will reveal it
+    uploadSection.style.display = '';
     blockActions.style.display  = 'none';
+    // Update upload UI labels to match block type
+    const uploadTitle = uploadSection.querySelector('.quiz-title');
+    const uploadSub   = uploadSection.querySelector('.quiz-sub');
+    const btnSubmit   = document.getElementById('btnSubmitUpload');
+    if (isHRDocUpload) {
+      if (uploadTitle) uploadTitle.textContent = '📋 HR Document Upload';
+      if (uploadSub)   uploadSub.textContent   = 'Upload your HR document below. It will be filed securely.';
+      if (btnSubmit)   btnSubmit.textContent   = 'Submit Document';
+    } else {
+      if (uploadTitle) uploadTitle.textContent = '📎 Certificate Upload';
+      if (uploadSub)   uploadSub.textContent   = 'Upload your certificate or supporting documents to complete this training module.';
+      if (btnSubmit)   btnSubmit.textContent   = 'Submit Certificate';
+    }
   } else {
     quizSection.style.display   = '';  // defer to .quiz-section class + .show modifier
     uploadSection.style.display = '';  // defer to .quiz-section class + .show modifier
@@ -764,8 +780,8 @@ function openBlock(index) {
     if (signBtn) signBtn.style.display = 'none';
   }
 
-  // Document Upload blocks skip the acknowledge step entirely
-  if (isDocUpload) {
+  // Document Upload and HR Document Upload blocks skip the acknowledge step entirely
+  if (isDocUpload || isHRDocUpload) {
     btnViewed.style.display = 'none';
     viewedConfirm.classList.remove('show');
   } else if (!isSignature) {
@@ -970,6 +986,10 @@ function loadMaterials(blockId, materialsDiv, showSpinner) {
 
 function isDocumentUploadBlock(block) {
   return (block?.types || []).some(t => t.toLowerCase().replace(/[\s_-]/g, '') === 'documentupload');
+}
+
+function isHRDocumentUploadBlock(block) {
+  return (block?.types || []).some(t => t.toLowerCase().replace(/[\s_-]/g, '') === 'hrdocumentupload');
 }
 
 function isSignatureBlock(block) {
@@ -1468,13 +1488,14 @@ window.addEventListener('load', () => {
 });
 
 async function submitUpload() {
-  const block   = currentBlocks[currentBlockIndex];
+  const block    = currentBlocks[currentBlockIndex];
   const resultEl = document.getElementById('uploadResult');
   const btnEl    = document.getElementById('btnSubmitUpload');
+  const isHRDoc  = isHRDocumentUploadBlock(block);
 
   if (!uploadFiles.length) {
-    resultEl.className   = 'quiz-result fail show';
-    resultEl.innerHTML   = '<div class="quiz-result-title">⚠️ Please select at least one file to upload.</div>';
+    resultEl.className = 'quiz-result fail show';
+    resultEl.innerHTML = '<div class="quiz-result-title">⚠️ Please select at least one file to upload.</div>';
     return;
   }
 
@@ -1488,7 +1509,8 @@ async function submitUpload() {
     formData.append('blockId', block.id);
     uploadFiles.forEach(f => formData.append('files', f));
 
-    const res  = await fetch('/api/upload-certificate', {
+    const endpoint = isHRDoc ? '/api/upload-hr-document' : '/api/upload-certificate';
+    const res  = await fetch(endpoint, {
       method:  'POST',
       headers: { 'Authorization': `Bearer ${authToken}` },
       body:    formData,
@@ -1501,28 +1523,43 @@ async function submitUpload() {
     trainingData.completedMap[block.id] = { date: data.date, recordId: data.recordId, status: 'OK' };
     saveCache(trainingData);
 
-    resultEl.className = 'quiz-result pass show';
-    resultEl.innerHTML = `
-      <div class="quiz-result-title">🎉 Certificate uploaded — training complete!</div>
-      <div class="quiz-result-msg">Your document has been saved. This module is now marked complete.</div>
-      <button class="btn btn-outline" onclick="goBack()">← Back to Course</button>
-    `;
-    document.getElementById('btnSubmitUpload').style.display = 'none';
-    showToast('Certificate uploaded successfully ✅');
-    // Refresh the certificates panel to show the newly uploaded file (append beneath guidance)
-    const mDiv = document.getElementById('blockMaterials');
-    if (mDiv) {
-      const contractorPageId = currentRoleId?.startsWith('__contractor__')
-        ? currentRoleId.replace('__contractor__', '')
-        : null;
-      loadCertificates(block.id, mDiv, contractorPageId, true);
+    if (isHRDoc) {
+      resultEl.className = 'quiz-result pass show';
+      resultEl.innerHTML = `
+        <div class="quiz-result-title">✅ Document submitted</div>
+        <div class="quiz-result-msg">
+          The following file(s) have been securely filed:
+          <ul style="margin:8px 0 8px 18px;text-align:left">${data.files.map(f => `<li>${escHtml(f)}</li>`).join('')}</ul>
+          This module is now marked complete.
+        </div>
+        <button class="btn btn-outline" onclick="goBack()">← Back to Course</button>
+      `;
+      showToast('HR document submitted ✅');
+    } else {
+      resultEl.className = 'quiz-result pass show';
+      resultEl.innerHTML = `
+        <div class="quiz-result-title">🎉 Certificate uploaded — training complete!</div>
+        <div class="quiz-result-msg">Your document has been saved. This module is now marked complete.</div>
+        <button class="btn btn-outline" onclick="goBack()">← Back to Course</button>
+      `;
+      showToast('Certificate uploaded successfully ✅');
+      // Refresh the certificates panel to show the newly uploaded file (append beneath guidance)
+      const mDiv = document.getElementById('blockMaterials');
+      if (mDiv) {
+        const contractorPageId = currentRoleId?.startsWith('__contractor__')
+          ? currentRoleId.replace('__contractor__', '')
+          : null;
+        loadCertificates(block.id, mDiv, contractorPageId, true);
+      }
     }
+
+    document.getElementById('btnSubmitUpload').style.display = 'none';
 
   } catch (err) {
     resultEl.className = 'quiz-result fail show';
     resultEl.innerHTML = `<div class="quiz-result-title">❌ Upload failed: ${escHtml(err.message)}</div>`;
     btnEl.disabled    = false;
-    btnEl.textContent = 'Submit Certificate';
+    btnEl.textContent = isHRDoc ? 'Submit Document' : 'Submit Certificate';
   }
 }
 

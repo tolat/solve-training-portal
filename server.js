@@ -73,6 +73,7 @@ const DB = {
   roles:                '2b1b73d8-b43a-8013-ad34-f824f122013f',
   pipelineStages:       '26fb73d8-b43a-8062-ab48-cb65735c1eb2',
   trainingBlockQuizzes: '2d403da0-4fe8-4355-90aa-84ea3ea3aabc',
+  hrDocuments:          '366b73d8-b43a-80dc-98e1-f7df637d49c7',
 };
 
 // ─── Notion API helpers ───────────────────────────────────────
@@ -1965,6 +1966,74 @@ app.post('/api/upload-certificate', requireAuth, upload.array('files', 10), asyn
     // Clean up uploaded files on error
     req.files?.forEach(f => { try { fs.unlinkSync(f.path); } catch {} });
     res.status(500).json({ error: 'Failed to save certificate: ' + err.message });
+  }
+});
+
+// ─── POST /api/upload-hr-document ────────────────────────────
+// Called when a user completes an "HR Document Upload" type training.
+// Creates a new entry in HR Documents.db and marks the training record complete.
+app.post('/api/upload-hr-document', requireAuth, upload.array('files', 10), async (req, res) => {
+  try {
+    const { blockId } = req.body;
+    if (!blockId)           return res.status(400).json({ error: 'blockId is required' });
+    if (!req.files?.length) return res.status(400).json({ error: 'At least one file is required' });
+
+    const { pageId: userPageId } = req.session;
+    const today     = new Date().toISOString().split('T')[0];
+    const baseUrl   = process.env.APP_URL || `http://localhost:${PORT}`;
+    const blockName = cache.blocks[blockId]?.name || 'HR Document';
+
+    const fileRefs = req.files.map(f => ({
+      name:     f.originalname,
+      type:     'external',
+      external: { url: `${baseUrl}/uploads/${f.filename}` },
+    }));
+
+    // Create HR Documents DB entry
+    await notionFetch('/pages', 'POST', {
+      parent: { database_id: DB.hrDocuments },
+      properties: {
+        'Name':          { title:    [{ text: { content: blockName } }] },
+        'Person':        { relation: [{ id: userPageId }]               },
+        'Files & media': { files:    fileRefs                           },
+        'Type':          { select:   { name: 'Government ID' }          },
+      },
+    });
+
+    // Mark the training record complete
+    const existing = await queryAll(DB.trainingRecords, {
+      and: [
+        { property: 'Employee',       relation: { contains: userPageId } },
+        { property: 'Training Block', relation: { contains: blockId    } },
+      ],
+    });
+
+    let recordId;
+    if (existing.length) {
+      await notionFetch(`/pages/${existing[0].id}`, 'PATCH', {
+        properties: { 'Date Completed': { date: { start: today } } },
+      });
+      recordId = existing[0].id;
+    } else {
+      const newPage = await notionFetch('/pages', 'POST', {
+        parent: { database_id: DB.trainingRecords },
+        properties: {
+          'Name':           { title:    [{ text: { content: blockName } }] },
+          'Employee':       { relation: [{ id: userPageId }]               },
+          'Training Block': { relation: [{ id: blockId    }]               },
+          'Date Completed': { date:     { start: today }                   },
+        },
+      });
+      recordId = newPage.id;
+    }
+
+    console.log(`✔  HR doc upload: filed for ${req.session.name}, block: ${blockName}`);
+    res.json({ ok: true, recordId, date: today, files: req.files.map(f => f.originalname) });
+
+  } catch (err) {
+    console.error('Upload HR document error:', err.message);
+    req.files?.forEach(f => { try { fs.unlinkSync(f.path); } catch {} });
+    res.status(500).json({ error: 'Failed to submit HR document: ' + err.message });
   }
 });
 
