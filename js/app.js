@@ -719,33 +719,46 @@ function openBlock(index) {
   const isHRDocUpload = isHRDocumentUploadBlock(block);
   const isSignature   = isSignatureBlock(block);
 
-  // Update the no-link notice text to match the block type
+  // Update the no-link notice text to match the block type.
+  // Signature blocks: suppress the notice entirely — the sign button is self-explanatory.
   if (noLinkBox.style.display !== 'none') {
-    noLinkBox.textContent = isHRDocUpload
-      ? '📋 Use the section below to upload your HR document. It will be filed securely.'
-      : isDocUpload
-      ? '📎 Use the section below to upload your certificates or documents for this training.'
-      : '📄 This training is delivered in-person or via your manager. Review the materials below and confirm with your trainer before proceeding.';
+    if (isSignature) {
+      noLinkBox.style.display = 'none';
+    } else {
+      noLinkBox.textContent = isHRDocUpload
+        ? '📋 Use the section below to upload your HR document. It will be filed securely.'
+        : isDocUpload
+        ? '📎 Use the section below to upload your certificates or documents for this training.'
+        : '📄 This training is delivered in-person or via your manager. Review the materials below and confirm with your trainer before proceeding.';
+    }
   }
 
-  // Guidance blurb — contextual instruction on what to do with the resource/link above.
-  // For upload/signature blocks, the noLinkBox already carries the right message; hide blurb.
-  // For all other blocks, replace the noLinkBox with a blurb that tells the user exactly what to do.
+  // Guidance blurb — tells the user exactly what to do with the resource/link.
   const blurbEl = document.getElementById('blockGuidanceBlurb');
   if (blurbEl) {
-    if (isDocUpload || isHRDocUpload || isSignature) {
+    if (isSignature) {
+      // Signature blocks: no blurb needed
       blurbEl.style.display = 'none';
-      // noLinkBox stays visible with its upload/signature-specific text
+    } else if (isDocUpload || isHRDocUpload) {
+      // Upload blocks: show blurb only when there's a resource to read/watch first
+      const uploadAction = isHRDocUpload ? 'upload your HR document below' : 'upload your certificate below';
+      if (block.trainingLink && isVideoLink(block.trainingLink)) {
+        blurbEl.innerHTML = `📹 <strong>Watch the video above</strong>, then ${uploadAction} to complete this module.`;
+        blurbEl.style.display = 'block';
+      } else if (block.trainingLink) {
+        blurbEl.innerHTML = `🔗 <strong>Review the resource at the link above</strong>, then ${uploadAction} to complete this module.`;
+        blurbEl.style.display = 'block';
+      } else {
+        blurbEl.style.display = 'none'; // noLinkBox upload message already covers this
+      }
     } else if (block.trainingLink && isVideoLink(block.trainingLink)) {
       blurbEl.innerHTML = '📹 <strong>Watch the video above</strong>, then click <strong>"I\'ve reviewed this training — start quiz"</strong> when you\'re ready to take the quiz.';
       blurbEl.style.display = 'block';
-      // noLinkBox is already hidden (trainingLink is set)
     } else if (block.trainingLink) {
       blurbEl.innerHTML = '🔗 <strong>Complete the training at the link above</strong>, then click <strong>"I\'ve reviewed this training — start quiz"</strong> when you\'re done.';
       blurbEl.style.display = 'block';
-      // noLinkBox is already hidden (trainingLink is set)
     } else {
-      // No external link — guide the user to review embedded materials below
+      // No link — guide the user to review embedded materials below
       blurbEl.innerHTML = '📄 <strong>Read or review the materials below</strong>, then click <strong>"I\'ve reviewed this training — start quiz"</strong> when you\'re ready.';
       blurbEl.style.display = 'block';
       noLinkBox.style.display = 'none'; // blurb replaces the generic noLinkBox for regular blocks
