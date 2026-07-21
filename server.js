@@ -95,6 +95,55 @@ async function notionFetch(endpoint, method = 'GET', body = null) {
 }
 
 /**
+ * Upload a local file to Notion using the File Upload API (single-part).
+ * Returns the file_upload ID to reference in Notion property values.
+ */
+async function uploadFileToNotion(filePath, originalName, mimeType) {
+  const NOTION_FILE_VERSION = '2026-03-11';
+  const authHeader = { Authorization: `Bearer ${NOTION_TOKEN}` };
+
+  // Step 1: Create file upload object → get ID
+  const createRes = await fetch('https://api.notion.com/v1/file_uploads', {
+    method: 'POST',
+    headers: {
+      ...authHeader,
+      'Notion-Version': NOTION_FILE_VERSION,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      mode: 'single_part',
+      filename: originalName,
+      content_type: mimeType || 'application/octet-stream',
+    }),
+  });
+  if (!createRes.ok) {
+    const err = await createRes.text();
+    throw new Error(`Notion file upload create failed (${createRes.status}): ${err}`);
+  }
+  const { id: fileUploadId } = await createRes.json();
+
+  // Step 2: Send file contents as multipart/form-data (do NOT set Content-Type — fetch adds boundary)
+  const fileBuffer = await fs.promises.readFile(filePath);
+  const form = new FormData();
+  form.append('file', new Blob([fileBuffer], { type: mimeType || 'application/octet-stream' }), originalName);
+
+  const sendRes = await fetch(`https://api.notion.com/v1/file_uploads/${fileUploadId}/send`, {
+    method: 'POST',
+    headers: {
+      ...authHeader,
+      'Notion-Version': NOTION_FILE_VERSION,
+    },
+    body: form,
+  });
+  if (!sendRes.ok) {
+    const err = await sendRes.text();
+    throw new Error(`Notion file upload send failed (${sendRes.status}): ${err}`);
+  }
+
+  return fileUploadId;
+}
+
+/**
  * Get ALL ids from a relation property, following Notion's 25-item pagination.
  * Notion caps relation properties at 25 items per page fetch; extra items need
  * a separate call to /pages/{pageId}/properties/{propId}.
@@ -1980,14 +2029,15 @@ app.post('/api/upload-hr-document', requireAuth, upload.array('files', 10), asyn
 
     const { pageId: userPageId } = req.session;
     const today     = new Date().toISOString().split('T')[0];
-    const baseUrl   = process.env.APP_URL || `http://localhost:${PORT}`;
     const blockName = cache.blocks[blockId]?.name || 'HR Document';
 
-    const fileRefs = req.files.map(f => ({
-      name:     f.originalname,
-      type:     'external',
-      external: { url: `${baseUrl}/uploads/${f.filename}` },
-    }));
+    // Upload each file to Notion natively, then clean up temp files
+    const fileRefs = [];
+    for (const f of req.files) {
+      const fileUploadId = await uploadFileToNotion(f.path, f.originalname, f.mimetype);
+      try { fs.unlinkSync(f.path); } catch {}
+      fileRefs.push({ type: 'file_upload', file_upload: { id: fileUploadId } });
+    }
 
     // Create HR Documents DB entry
     await notionFetch('/pages', 'POST', {
@@ -2032,7 +2082,8 @@ app.post('/api/upload-hr-document', requireAuth, upload.array('files', 10), asyn
 
   } catch (err) {
     console.error('Upload HR document error:', err.message);
-    req.files?.forEach(f => { try { fs.unlinkSync(f.path); } catch {} });
+    // Clean up any temp files that weren't already removed during upload
+    req.files?.forEach(f => { try { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); } catch {} });
     res.status(500).json({ error: 'Failed to submit HR document: ' + err.message });
   }
 });
