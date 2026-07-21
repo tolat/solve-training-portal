@@ -728,6 +728,30 @@ function openBlock(index) {
       : '📄 This training is delivered in-person or via your manager. Review the materials below and confirm with your trainer before proceeding.';
   }
 
+  // Guidance blurb — contextual instruction on what to do with the resource/link above.
+  // For upload/signature blocks, the noLinkBox already carries the right message; hide blurb.
+  // For all other blocks, replace the noLinkBox with a blurb that tells the user exactly what to do.
+  const blurbEl = document.getElementById('blockGuidanceBlurb');
+  if (blurbEl) {
+    if (isDocUpload || isHRDocUpload || isSignature) {
+      blurbEl.style.display = 'none';
+      // noLinkBox stays visible with its upload/signature-specific text
+    } else if (block.trainingLink && isVideoLink(block.trainingLink)) {
+      blurbEl.innerHTML = '📹 <strong>Watch the video above</strong>, then click <strong>"I\'ve reviewed this training — start quiz"</strong> when you\'re ready to take the quiz.';
+      blurbEl.style.display = 'block';
+      // noLinkBox is already hidden (trainingLink is set)
+    } else if (block.trainingLink) {
+      blurbEl.innerHTML = '🔗 <strong>Complete the training at the link above</strong>, then click <strong>"I\'ve reviewed this training — start quiz"</strong> when you\'re done.';
+      blurbEl.style.display = 'block';
+      // noLinkBox is already hidden (trainingLink is set)
+    } else {
+      // No external link — guide the user to review embedded materials below
+      blurbEl.innerHTML = '📄 <strong>Read or review the materials below</strong>, then click <strong>"I\'ve reviewed this training — start quiz"</strong> when you\'re ready.';
+      blurbEl.style.display = 'block';
+      noLinkBox.style.display = 'none'; // blurb replaces the generic noLinkBox for regular blocks
+    }
+  }
+
   // For signature blocks: hide quiz and upload sections via inline style.
   // For normal/upload blocks: clear inline style so CSS classes (.quiz-section, .show) work normally.
   if (isSignature) {
@@ -994,6 +1018,15 @@ function isHRDocumentUploadBlock(block) {
 
 function isSignatureBlock(block) {
   return (block?.types || []).includes('Signature Required');
+}
+
+/** Returns true if the URL is a video (YouTube, Vimeo, or direct video file). */
+function isVideoLink(url) {
+  if (!url) return false;
+  if (/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/)|youtu\.be\/)[a-zA-Z0-9_-]{11}/.test(url)) return true;
+  if (/vimeo\.com\/\d+/.test(url)) return true;
+  if (/\.(mp4|webm|ogg|mov)(\?|$)/i.test(url)) return true;
+  return false;
 }
 
 function markViewed() {
