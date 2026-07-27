@@ -1926,7 +1926,7 @@ app.post('/api/upload-certificate', requireAuth, upload.array('files', 10), asyn
     if (!blockId)         return res.status(400).json({ error: 'blockId is required' });
     if (!req.files?.length) return res.status(400).json({ error: 'At least one file is required' });
 
-    const { pageId: userPageId, contractorPageIds = [] } = req.session;
+    const { pageId: userPageId, contractorPageIds = [], dealerOrgPageIds = [] } = req.session;
     const today = new Date().toISOString().split('T')[0];
 
     // Build external file references using the server's own URL
