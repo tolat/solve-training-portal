@@ -596,29 +596,41 @@ function renderCourse(blocksOverride, skipCompleteRedirect = false) {
     return a.stageOrdering - b.stageOrdering;
   });
 
-  // All blocks are always accessible — no sequential locking.
-  // ── Status priority for sort: completed(0) → overdue(1) → open(2) ──
-  function blockPriority(block) {
-    if (isBlockCompleted(block.id)) return 0;
-    if (isBlockOverdue(block.id))   return 1;
-    return 2;
+  // A block is locked if it has a numeric Ordering value AND any lower-ordered block
+  // in the same ordered set is not yet completed.
+  function isBlockLocked(block, orderedBlocks) {
+    if (block.blockOrdering == null) return false;
+    return orderedBlocks.some(
+      b => b.blockOrdering < block.blockOrdering && !isBlockCompleted(b.id)
+    );
   }
 
   // ── Render one section per stage ──────────────────────────────
   stageGroups.forEach((group, idx) => {
     addStageHeader(group.stageName, idx, group.blocks);
 
-    const sorted = [...group.blocks].sort((a, b) => blockPriority(a) - blockPriority(b));
+    // Split: unordered blocks (no Ordering) rendered first, sorted by status.
+    // Ordered blocks follow in their exact Ordering sequence — position is fixed.
+    const unordered = group.blocks.filter(b => b.blockOrdering == null);
+    const ordered   = group.blocks
+      .filter(b => b.blockOrdering != null)
+      .sort((a, b) => a.blockOrdering - b.blockOrdering);
 
-    for (const block of sorted) {
+    const statusPri = b => isBlockCompleted(b.id) ? 0 : isBlockOverdue(b.id) ? 1 : 2;
+    unordered.sort((a, b) => statusPri(a) - statusPri(b));
+
+    for (const block of [...unordered, ...ordered]) {
       const gi        = blocks.indexOf(block);
       const completed = isBlockCompleted(block.id);
       const overdue   = isBlockOverdue(block.id);
+      const locked    = isBlockLocked(block, ordered);
 
       if (completed) {
         const dateStr    = completedMap[block.id]?.date || '';
         const statusText = `✓ Done${dateStr ? ' (' + dateStr + ')' : ''}`;
         addModuleItem(block, gi, 'completed', statusText, true);
+      } else if (locked) {
+        addModuleItem(block, gi, 'locked', '🔒 Complete previous trainings first', false);
       } else if (overdue) {
         addModuleItem(block, gi, 'overdue current', '⚠️ Overdue — Open', true);
       } else {
