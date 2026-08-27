@@ -272,6 +272,7 @@ async function refreshCache() {
       notes:        richText(prop(p, 'Notes')),
       policyNo:     prop(p, 'Policy No.')?.select?.name || null,
       types:        prop(p, 'Type')?.multi_select?.map(s => s.name) || [],
+      blockOrdering: prop(p, 'Ordering')?.number ?? null,
       stageOrdering,
       stageName,
       hasEmployeeStage,

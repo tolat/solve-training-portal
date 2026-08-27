@@ -129,3 +129,5 @@ public
 
 # App-specific
 .env.example
+.DS_Store
+uploads/signed-*.pdf
