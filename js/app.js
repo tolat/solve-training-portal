@@ -992,6 +992,102 @@ function buildTrainingResourceHTML(url) {
     </div>`;
 }
 
+// ── Material/attachment preview cards ──────────────────────
+const MATERIAL_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'];
+const MATERIAL_TYPE_META = {
+  pdf:  { icon: '📕', label: 'PDF' },
+  doc:  { icon: '📘', label: 'DOC' },  docx: { icon: '📘', label: 'DOC' },
+  ppt:  { icon: '📙', label: 'PPT' },  pptx: { icon: '📙', label: 'PPT' },
+  xls:  { icon: '📗', label: 'XLS' },  xlsx: { icon: '📗', label: 'XLS' },  csv: { icon: '📗', label: 'CSV' },
+  zip:  { icon: '🗜️', label: 'ZIP' },  rar:  { icon: '🗜️', label: 'RAR' },
+  mp4:  { icon: '🎬', label: 'MP4' },  mov:  { icon: '🎬', label: 'MOV' },  webm: { icon: '🎬', label: 'WEBM' },
+  mp3:  { icon: '🎵', label: 'MP3' },  wav:  { icon: '🎵', label: 'WAV' },
+  txt:  { icon: '📄', label: 'TXT' },
+};
+
+function getFileExt(name) {
+  const m = /\.([a-z0-9]+)$/i.exec((name || '').split('?')[0]);
+  return m ? m[1].toLowerCase() : '';
+}
+
+function materialCardHtml(f) {
+  const ext  = getFileExt(f.name || f.url || '');
+  const url  = escHtml(f.url);
+  const name = escHtml(f.name);
+
+  if (MATERIAL_IMAGE_EXTS.includes(ext)) {
+    return `
+      <a class="material-card" href="${url}" target="_blank" rel="noopener">
+        <div class="material-card-thumb"><img src="${url}" alt="" loading="lazy"></div>
+        <div class="material-card-name">${name}</div>
+      </a>`;
+  }
+  if (ext === 'pdf') {
+    return `
+      <a class="material-card" href="${url}" target="_blank" rel="noopener">
+        <div class="material-card-thumb" data-pdf-url="${url}">
+          <canvas></canvas>
+          <span class="material-card-icon" style="display:none">📕</span>
+          <span class="material-card-ext-badge">PDF</span>
+        </div>
+        <div class="material-card-name">${name}</div>
+      </a>`;
+  }
+  const meta = MATERIAL_TYPE_META[ext] || { icon: '📄', label: ext ? ext.toUpperCase() : 'FILE' };
+  return `
+    <a class="material-card" href="${url}" target="_blank" rel="noopener">
+      <div class="material-card-thumb material-card-generic">
+        <span class="material-card-icon">${meta.icon}</span>
+        <span class="material-card-ext-badge">${meta.label}</span>
+      </div>
+      <div class="material-card-name">${name}</div>
+    </a>`;
+}
+
+// Ensures the pdf.js worker is configured. Safe to call repeatedly.
+function ensurePdfWorker() {
+  if (typeof pdfjsLib === 'undefined') return false;
+  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  }
+  return true;
+}
+
+// Renders a first-page thumbnail into every [data-pdf-url] card inside container.
+// Falls back to the 📕 icon per-card if a given PDF can't be loaded/rendered.
+async function renderPdfThumbnails(container) {
+  const thumbs = container.querySelectorAll('.material-card-thumb[data-pdf-url]');
+  if (!thumbs.length) return;
+  if (!ensurePdfWorker()) {
+    thumbs.forEach(el => showMaterialThumbFallback(el));
+    return;
+  }
+  for (const thumbEl of thumbs) {
+    const url = thumbEl.dataset.pdfUrl;
+    try {
+      const pdf = await pdfjsLib.getDocument(url).promise;
+      const page = await pdf.getPage(1);
+      const dpr = window.devicePixelRatio || 1;
+      const targetWidth = (thumbEl.clientWidth || 160) * dpr;
+      const baseViewport = page.getViewport({ scale: 1 });
+      const viewport = page.getViewport({ scale: targetWidth / baseViewport.width });
+      const canvas = thumbEl.querySelector('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    } catch (e) {
+      console.error('PDF thumbnail render failed for', url, e);
+      showMaterialThumbFallback(thumbEl);
+    }
+  }
+}
+
+function showMaterialThumbFallback(thumbEl) {
+  thumbEl.querySelector('canvas')?.remove();
+  const iconEl = thumbEl.querySelector('.material-card-icon');
+  if (iconEl) iconEl.style.display = '';
+}
+
 // Fetch (or silently refresh) signed file URLs for a training block.
 // showSpinner=true on first load; false on background refresh so links don't flash.
 // Returns a Promise so callers can chain .then() after the DOM is updated.
@@ -1016,16 +1112,14 @@ function loadMaterials(blockId, materialsDiv, showSpinner) {
         ${Object.entries(groups).map(([label, flist]) => `
           <div class="material-group">
             <div class="material-group-label">${escHtml(label)}</div>
-            ${flist.map(f => `
-              <a class="material-link" href="${escHtml(f.url)}" target="_blank" rel="noopener">
-                <span class="material-link-icon">📄</span>
-                <span>${escHtml(f.name)}</span>
-              </a>
-            `).join('')}
+            <div class="material-group-grid">
+              ${flist.map(materialCardHtml).join('')}
+            </div>
           </div>
         `).join('')}
       </div>
     `;
+    renderPdfThumbnails(materialsDiv);
   }).catch(err => {
     if (err.message === 'session_expired') return; // handled globally
     console.error('loadMaterials error for block', blockId, err);
@@ -1092,12 +1186,9 @@ function loadCertificates(blockId, materialsDiv, contractorPageId = null, append
       <div class="materials-section certificates-section">
         <div class="materials-title">📎 Uploaded Certificates</div>
         <div class="material-group">
-          ${certificates.map(f => `
-            <a class="material-link" href="${escHtml(f.url)}" target="_blank" rel="noopener">
-              <span class="material-link-icon">📄</span>
-              <span>${escHtml(f.name)}</span>
-            </a>
-          `).join('')}
+          <div class="material-group-grid">
+            ${certificates.map(materialCardHtml).join('')}
+          </div>
         </div>
       </div>
     `;
@@ -1106,6 +1197,7 @@ function loadCertificates(blockId, materialsDiv, contractorPageId = null, append
     } else {
       materialsDiv.innerHTML = html;
     }
+    renderPdfThumbnails(materialsDiv.querySelector('.certificates-section') || materialsDiv);
   }).catch(err => {
     if (err.message === 'session_expired') return;
     console.error('loadCertificates error:', err);
@@ -1146,10 +1238,7 @@ async function renderSigningPDF(config, block) {
     return;
   }
 
-  // Configure pdf.js worker
-  if (typeof pdfjsLib !== 'undefined') {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
-  } else {
+  if (!ensurePdfWorker()) {
     container.innerHTML = '<p style="color:var(--danger);padding:16px;">PDF viewer library not loaded. Please refresh the page.</p>';
     return;
   }
