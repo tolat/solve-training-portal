@@ -1010,6 +1010,11 @@ function getFileExt(name) {
   return m ? m[1].toLowerCase() : '';
 }
 
+const MATERIAL_HOVER_OVERLAY = `
+  <div class="material-card-hover">
+    <span class="material-card-open-btn">Open ↗</span>
+  </div>`;
+
 function materialCardHtml(f) {
   const ext  = getFileExt(f.name || f.url || '');
   const url  = escHtml(f.url);
@@ -1017,30 +1022,32 @@ function materialCardHtml(f) {
 
   if (MATERIAL_IMAGE_EXTS.includes(ext)) {
     return `
-      <a class="material-card" href="${url}" target="_blank" rel="noopener">
-        <div class="material-card-thumb"><img src="${url}" alt="" loading="lazy"></div>
-        <div class="material-card-name">${name}</div>
+      <a class="material-card" href="${url}" target="_blank" rel="noopener" title="${name}">
+        <div class="material-card-thumb">
+          <img src="${url}" alt="${name}" loading="lazy">
+          ${MATERIAL_HOVER_OVERLAY}
+        </div>
       </a>`;
   }
   if (ext === 'pdf') {
     return `
-      <a class="material-card" href="${url}" target="_blank" rel="noopener">
+      <a class="material-card" href="${url}" target="_blank" rel="noopener" title="${name}">
         <div class="material-card-thumb" data-pdf-url="${url}">
           <canvas></canvas>
           <span class="material-card-icon" style="display:none">📕</span>
           <span class="material-card-ext-badge">PDF</span>
+          ${MATERIAL_HOVER_OVERLAY}
         </div>
-        <div class="material-card-name">${name}</div>
       </a>`;
   }
   const meta = MATERIAL_TYPE_META[ext] || { icon: '📄', label: ext ? ext.toUpperCase() : 'FILE' };
   return `
-    <a class="material-card" href="${url}" target="_blank" rel="noopener">
+    <a class="material-card" href="${url}" target="_blank" rel="noopener" title="${name}">
       <div class="material-card-thumb material-card-generic">
         <span class="material-card-icon">${meta.icon}</span>
         <span class="material-card-ext-badge">${meta.label}</span>
+        ${MATERIAL_HOVER_OVERLAY}
       </div>
-      <div class="material-card-name">${name}</div>
     </a>`;
 }
 
