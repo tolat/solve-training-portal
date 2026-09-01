@@ -663,6 +663,56 @@ function renderCourse(blocksOverride, skipCompleteRedirect = false) {
 // ============================================================
 // TRAINING BLOCK
 // ============================================================
+
+// Renders the contextual blue guidance blurb — tells the user exactly what
+// to do with the resource/link (and, once known, the Training Materials
+// section below it). Called once synchronously in openBlock (hasMaterials
+// not yet known) and again after loadMaterials resolves.
+function renderGuidanceBlurb(block, { isSignature, isDocUpload, isHRDocUpload, hasMaterials }) {
+  const blurbEl = document.getElementById('blockGuidanceBlurb');
+  if (!blurbEl) return;
+
+  if (isSignature) {
+    blurbEl.style.display = 'none';
+    return;
+  }
+
+  const hasLink = !!block.trainingLink;
+  const isVideo = hasLink && isVideoLink(block.trainingLink);
+
+  // Upload blocks: "upload below" already covers the whole lower section,
+  // so the Training Materials section isn't called out separately here.
+  if (isDocUpload || isHRDocUpload) {
+    const uploadAction = isHRDocUpload ? 'upload your HR document below' : 'upload your certificate below';
+    if (isVideo) {
+      blurbEl.innerHTML = `📹 <strong>Watch the video above</strong>, then ${uploadAction} to complete this module.`;
+      blurbEl.style.display = 'block';
+    } else if (hasLink) {
+      blurbEl.innerHTML = `🔗 <strong>Review the resource at the link above</strong>, then ${uploadAction} to complete this module.`;
+      blurbEl.style.display = 'block';
+    } else {
+      blurbEl.style.display = 'none'; // noLinkBox upload message already covers this
+    }
+    return;
+  }
+
+  const materialsPhrase = hasMaterials ? ' and review the training materials below' : '';
+  const noLinkBox = document.getElementById('noLinkBox');
+
+  if (isVideo) {
+    blurbEl.innerHTML = `📹 <strong>Watch the video above${materialsPhrase}</strong>, then click <strong>"I've reviewed this training — start quiz"</strong> when you're ready to take the quiz.`;
+    blurbEl.style.display = 'block';
+  } else if (hasLink) {
+    blurbEl.innerHTML = `🔗 <strong>Complete the training at the link above${materialsPhrase}</strong>, then click <strong>"I've reviewed this training — start quiz"</strong> when you're done.`;
+    blurbEl.style.display = 'block';
+  } else {
+    // No link — guide the user to review embedded materials below
+    blurbEl.innerHTML = '📄 <strong>Read or review the materials below</strong>, then click <strong>"I\'ve reviewed this training — start quiz"</strong> when you\'re ready.';
+    blurbEl.style.display = 'block';
+    if (noLinkBox) noLinkBox.style.display = 'none'; // blurb replaces the generic noLinkBox for regular blocks
+  }
+}
+
 function openBlock(index) {
   currentBlockIndex = index;
   const block   = currentBlocks[index];
@@ -747,36 +797,9 @@ function openBlock(index) {
   }
 
   // Guidance blurb — tells the user exactly what to do with the resource/link.
-  const blurbEl = document.getElementById('blockGuidanceBlurb');
-  if (blurbEl) {
-    if (isSignature) {
-      // Signature blocks: no blurb needed
-      blurbEl.style.display = 'none';
-    } else if (isDocUpload || isHRDocUpload) {
-      // Upload blocks: show blurb only when there's a resource to read/watch first
-      const uploadAction = isHRDocUpload ? 'upload your HR document below' : 'upload your certificate below';
-      if (block.trainingLink && isVideoLink(block.trainingLink)) {
-        blurbEl.innerHTML = `📹 <strong>Watch the video above</strong>, then ${uploadAction} to complete this module.`;
-        blurbEl.style.display = 'block';
-      } else if (block.trainingLink) {
-        blurbEl.innerHTML = `🔗 <strong>Review the resource at the link above</strong>, then ${uploadAction} to complete this module.`;
-        blurbEl.style.display = 'block';
-      } else {
-        blurbEl.style.display = 'none'; // noLinkBox upload message already covers this
-      }
-    } else if (block.trainingLink && isVideoLink(block.trainingLink)) {
-      blurbEl.innerHTML = '📹 <strong>Watch the video above</strong>, then click <strong>"I\'ve reviewed this training — start quiz"</strong> when you\'re ready to take the quiz.';
-      blurbEl.style.display = 'block';
-    } else if (block.trainingLink) {
-      blurbEl.innerHTML = '🔗 <strong>Complete the training at the link above</strong>, then click <strong>"I\'ve reviewed this training — start quiz"</strong> when you\'re done.';
-      blurbEl.style.display = 'block';
-    } else {
-      // No link — guide the user to review embedded materials below
-      blurbEl.innerHTML = '📄 <strong>Read or review the materials below</strong>, then click <strong>"I\'ve reviewed this training — start quiz"</strong> when you\'re ready.';
-      blurbEl.style.display = 'block';
-      noLinkBox.style.display = 'none'; // blurb replaces the generic noLinkBox for regular blocks
-    }
-  }
+  // hasMaterials isn't known yet (Training Materials load asynchronously below),
+  // so render once now and again once loadMaterials resolves.
+  renderGuidanceBlurb(block, { isSignature, isDocUpload, isHRDocUpload, hasMaterials: false });
 
   // For signature blocks: hide quiz and upload sections via inline style.
   // For normal/upload blocks: clear inline style so CSS classes (.quiz-section, .show) work normally.
@@ -907,7 +930,9 @@ function openBlock(index) {
         55 * 60 * 1000
       );
     } else {
-      loadMaterials(block.id, materialsDiv, true);
+      loadMaterials(block.id, materialsDiv, true).then(count => {
+        if (count > 0) renderGuidanceBlurb(block, { isSignature, isDocUpload, isHRDocUpload, hasMaterials: true });
+      });
       if (materialsTimer) clearInterval(materialsTimer);
       materialsTimer = setInterval(() => loadMaterials(block.id, materialsDiv, false), 55 * 60 * 1000);
     }
@@ -1189,7 +1214,7 @@ function loadMaterials(blockId, materialsDiv, showSpinner) {
       ...(files.guidance        || []).map(f => ({ ...f, group: 'Guidance' })),
       ...(files.media           || []).map(f => ({ ...f, group: 'Files & Media' })),
     ];
-    if (!allFiles.length) { materialsDiv.innerHTML = ''; return; }
+    if (!allFiles.length) { materialsDiv.innerHTML = ''; return 0; }
     const groups = {};
     allFiles.forEach(f => {
       if (!groups[f.group]) groups[f.group] = [];
@@ -1210,10 +1235,12 @@ function loadMaterials(blockId, materialsDiv, showSpinner) {
       </div>
     `;
     renderPdfThumbnails(materialsDiv);
+    return allFiles.length;
   }).catch(err => {
-    if (err.message === 'session_expired') return; // handled globally
+    if (err.message === 'session_expired') return 0; // handled globally
     console.error('loadMaterials error for block', blockId, err);
     if (showSpinner) materialsDiv.innerHTML = `<p class="materials-loading" style="color:var(--danger)">⚠ Could not load materials (${escHtml(err.message)})</p>`;
+    return 0;
   });
 }
 
