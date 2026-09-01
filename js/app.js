@@ -551,13 +551,15 @@ function renderCourse(blocksOverride, skipCompleteRedirect = false) {
   }
 
   // Helper — module item row
-  function addModuleItem(block, globalIndex, cls, statusText, clickable) {
+  // displayNumber: the block's real Notion "Ordering" value when set, otherwise
+  // its position in the visible list (see listPosition below).
+  function addModuleItem(block, globalIndex, cls, statusText, clickable, displayNumber) {
     const item = document.createElement('div');
     const typeStr = (block.types || []).join(', ') || 'General';
     item.className = 'module-item ' + cls;
     const numLabel = cls.includes('completed') ? '✓'
                    : cls.includes('overdue')   ? '!'
-                   : globalIndex + 1;
+                   : displayNumber;
     item.innerHTML = `
       <div class="module-num">${numLabel}</div>
       <div class="module-info">
@@ -606,6 +608,7 @@ function renderCourse(blocksOverride, skipCompleteRedirect = false) {
   }
 
   // ── Render one section per stage ──────────────────────────────
+  let listPosition = 0; // fallback display number for blocks with no Ordering value
   stageGroups.forEach((group, idx) => {
     addStageHeader(group.stageName, idx, group.blocks);
 
@@ -620,21 +623,23 @@ function renderCourse(blocksOverride, skipCompleteRedirect = false) {
     unordered.sort((a, b) => statusPri(a) - statusPri(b));
 
     for (const block of [...unordered, ...ordered]) {
+      listPosition++;
       const gi        = blocks.indexOf(block);
       const completed = isBlockCompleted(block.id);
       const overdue   = isBlockOverdue(block.id);
       const locked    = isBlockLocked(block, ordered);
+      const dispNum   = block.blockOrdering != null ? block.blockOrdering : listPosition;
 
       if (completed) {
         const dateStr    = completedMap[block.id]?.date || '';
         const statusText = `✓ Done${dateStr ? ' (' + dateStr + ')' : ''}`;
-        addModuleItem(block, gi, 'completed', statusText, true);
+        addModuleItem(block, gi, 'completed', statusText, true, dispNum);
       } else if (locked) {
-        addModuleItem(block, gi, 'locked', '🔒 Complete previous trainings first', false);
+        addModuleItem(block, gi, 'locked', '🔒 Complete previous trainings first', false, dispNum);
       } else if (overdue) {
-        addModuleItem(block, gi, 'overdue current', '⚠️ Overdue — Open', true);
+        addModuleItem(block, gi, 'overdue current', '⚠️ Overdue — Open', true, dispNum);
       } else {
-        addModuleItem(block, gi, 'current', '▶ Start', true);
+        addModuleItem(block, gi, 'current', '▶ Start', true, dispNum);
       }
     }
   });
