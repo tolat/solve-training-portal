@@ -1717,6 +1717,102 @@ app.get('/api/block/:blockId/files', requireAuth, async (req, res) => {
   }
 });
 
+// ─── GET /api/block/:blockId/link-preview ────────────────────
+// Returns Open Graph metadata (title/description/image) for a block's
+// Training Link, so the UI can show a rich preview card instead of a plain
+// URL. Only ever fetches the URL already configured on that block in
+// Notion — never an arbitrary client-supplied URL — to avoid SSRF.
+const linkPreviewCache = new Map(); // trainingLink url → { data, ts }
+const LINK_PREVIEW_TTL_MS = 24 * 60 * 60 * 1000;
+const LINK_PREVIEW_MAX_BYTES = 2 * 1024 * 1024;
+
+function isBlockedPreviewHost(hostname) {
+  const h = (hostname || '').toLowerCase();
+  if (h === 'localhost' || h === '::1') return true;
+  if (/^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h) || /^169\.254\./.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  return false;
+}
+
+function extractMetaTags(html) {
+  const meta = {};
+  const re = /<meta\s+([^>]+?)\/?>/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    const propMatch    = m[1].match(/(?:property|name)\s*=\s*["']([^"']+)["']/i);
+    const contentMatch = m[1].match(/content\s*=\s*["']([^"']*)["']/i);
+    if (propMatch && contentMatch) meta[propMatch[1].toLowerCase()] = contentMatch[1];
+  }
+  return meta;
+}
+
+function resolveMaybeUrl(maybeUrl, baseUrl) {
+  if (!maybeUrl) return null;
+  try { return new URL(maybeUrl, baseUrl).href; } catch { return null; }
+}
+
+app.get('/api/block/:blockId/link-preview', requireAuth, async (req, res) => {
+  const url = cache.blocks[req.params.blockId]?.trainingLink;
+  if (!url) return res.json({});
+
+  const cached = linkPreviewCache.get(url);
+  if (cached && Date.now() - cached.ts < LINK_PREVIEW_TTL_MS) return res.json(cached.data);
+
+  let parsed;
+  try { parsed = new URL(url); } catch { return res.json({}); }
+  if (!/^https?:$/.test(parsed.protocol) || isBlockedPreviewHost(parsed.hostname)) {
+    return res.json({});
+  }
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    const resp = await fetch(url, {
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SolveTrainingBot/1.0)' },
+    });
+    clearTimeout(timer);
+
+    const contentType = resp.headers.get('content-type') || '';
+    if (!contentType.includes('text/html')) {
+      const data = {};
+      linkPreviewCache.set(url, { data, ts: Date.now() });
+      return res.json(data);
+    }
+
+    // Meta tags always live in <head>, so cap how much of the body we read.
+    const reader = resp.body.getReader();
+    const chunks = [];
+    let received = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.length;
+      if (received > LINK_PREVIEW_MAX_BYTES) { reader.cancel(); break; }
+    }
+    const html = Buffer.concat(chunks).toString('utf-8');
+
+    const meta = extractMetaTags(html);
+    const titleTagMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+
+    const data = {
+      title:       meta['og:title'] || meta['twitter:title'] || (titleTagMatch ? titleTagMatch[1].trim() : null),
+      description: meta['og:description'] || meta['twitter:description'] || null,
+      image:       resolveMaybeUrl(meta['og:image'] || meta['twitter:image'], url),
+      siteName:    meta['og:site_name'] || parsed.hostname,
+    };
+    linkPreviewCache.set(url, { data, ts: Date.now() });
+    res.json(data);
+  } catch (err) {
+    console.error(`⚠️  link-preview fetch failed for ${url}:`, err.message);
+    const data = {};
+    linkPreviewCache.set(url, { data, ts: Date.now() });
+    res.json(data);
+  }
+});
+
 // ─── GET /api/block/:blockId/certificates ────────────────────
 // Returns uploaded certificate files for a Document Upload block.
 // Looks up the training record (by contractor first, then employee)

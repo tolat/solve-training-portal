@@ -716,6 +716,7 @@ function openBlock(index) {
   if (block.trainingLink) {
     noLinkBox.style.display = 'none';
     resourceArea.innerHTML  = buildTrainingResourceHTML(block.trainingLink);
+    if (!isVideoLink(block.trainingLink)) loadLinkPreview(block.id, resourceArea);
   } else {
     resourceArea.innerHTML  = '';
     noLinkBox.style.display = 'block';
@@ -929,54 +930,15 @@ function openBlock(index) {
 function buildTrainingResourceHTML(url) {
   if (!url) return '';
 
-  // ── YouTube ──────────────────────────────────────────────
-  const ytMatch = url.match(
-    /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/
-  );
-  if (ytMatch) {
-    const vid = ytMatch[1];
-    const embedUrl = `https://www.youtube-nocookie.com/embed/${vid}?rel=0`;
-    return `
-      <div class="video-embed-wrapper">
-        <iframe class="video-embed"
-          src="${escHtml(embedUrl)}"
-          title="YouTube video"
-          frameborder="0"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowfullscreen></iframe>
-      </div>
-      <div class="video-fallback-link">
-        <a href="${escHtml(url)}" target="_blank" rel="noopener">▶ Open on YouTube ↗</a>
-      </div>`;
-  }
-
-  // ── Vimeo ─────────────────────────────────────────────────
-  const vimeoMatch = url.match(/vimeo\.com\/(?:video\/)?(\d+)/);
-  if (vimeoMatch) {
-    const vid = vimeoMatch[1];
-    const embedUrl = `https://player.vimeo.com/video/${vid}?title=0&byline=0&portrait=0`;
-    return `
-      <div class="video-embed-wrapper">
-        <iframe class="video-embed"
-          src="${escHtml(embedUrl)}"
-          title="Vimeo video"
-          frameborder="0"
-          allow="autoplay; fullscreen; picture-in-picture"
-          allowfullscreen></iframe>
-      </div>
-      <div class="video-fallback-link">
-        <a href="${escHtml(url)}" target="_blank" rel="noopener">▶ Open on Vimeo ↗</a>
-      </div>`;
-  }
-
-  // ── Direct video file ─────────────────────────────────────
-  if (/\.(mp4|webm|ogg|mov)(\?|$)/i.test(url)) {
-    return `
-      <video class="video-direct" controls preload="metadata">
-        <source src="${escHtml(url)}">
-        <p>Your browser doesn't support HTML5 video.
-           <a href="${escHtml(url)}" target="_blank" rel="noopener">Download the video</a>.</p>
-      </video>`;
+  const embed = videoEmbedHtml(url);
+  if (embed) {
+    let fallbackLabel = null;
+    if (/youtube\.com|youtu\.be/.test(url)) fallbackLabel = 'YouTube';
+    else if (/vimeo\.com/.test(url)) fallbackLabel = 'Vimeo';
+    const fallback = fallbackLabel
+      ? `<div class="video-fallback-link"><a href="${escHtml(url)}" target="_blank" rel="noopener">▶ Open on ${fallbackLabel} ↗</a></div>`
+      : '';
+    return embed + fallback;
   }
 
   // ── Plain link (default) ──────────────────────────────────
@@ -992,8 +954,115 @@ function buildTrainingResourceHTML(url) {
     </div>`;
 }
 
+// Fetches Open Graph metadata for a block's Training Link and, if a
+// title+image were found, upgrades the plain link-box into a rich preview
+// card. Silently leaves the plain link box in place otherwise.
+function loadLinkPreview(blockId, resourceArea) {
+  const linkBox = resourceArea.querySelector('.link-box');
+  if (!linkBox) return;
+  const url = linkBox.querySelector('.link-box-url a')?.href;
+  if (!url) return;
+
+  apiFetch(`/api/block/${blockId}/link-preview`).then(data => {
+    if (!data?.image || !data?.title) return;
+    linkBox.outerHTML = `
+      <a class="link-preview-card" href="${escHtml(url)}" target="_blank" rel="noopener">
+        <div class="link-preview-thumb"><img src="${escHtml(data.image)}" alt="" loading="lazy"></div>
+        <div class="link-preview-text">
+          <div class="link-preview-title">${escHtml(data.title)}</div>
+          <div class="link-preview-site">${escHtml(data.siteName || '')}</div>
+        </div>
+      </a>`;
+  }).catch(err => {
+    if (err.message === 'session_expired') return;
+    console.error('loadLinkPreview error for block', blockId, err);
+  });
+}
+
+/**
+ * Returns embed player HTML for a video URL (YouTube/Vimeo/direct file),
+ * or null if the URL isn't a recognized video. Shared by the inline
+ * training-resource area and the video popup modal.
+ */
+function videoEmbedHtml(url, { autoplay = false } = {}) {
+  if (!isVideoLink(url)) return null;
+
+  const ytMatch = url.match(
+    /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/
+  );
+  if (ytMatch) {
+    const embedUrl = `https://www.youtube-nocookie.com/embed/${ytMatch[1]}?rel=0${autoplay ? '&autoplay=1' : ''}`;
+    return `
+      <div class="video-embed-wrapper">
+        <iframe class="video-embed"
+          src="${escHtml(embedUrl)}"
+          title="YouTube video"
+          frameborder="0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowfullscreen></iframe>
+      </div>`;
+  }
+
+  const vimeoMatch = url.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+  if (vimeoMatch) {
+    const embedUrl = `https://player.vimeo.com/video/${vimeoMatch[1]}?title=0&byline=0&portrait=0${autoplay ? '&autoplay=1' : ''}`;
+    return `
+      <div class="video-embed-wrapper">
+        <iframe class="video-embed"
+          src="${escHtml(embedUrl)}"
+          title="Vimeo video"
+          frameborder="0"
+          allow="autoplay; fullscreen; picture-in-picture"
+          allowfullscreen></iframe>
+      </div>`;
+  }
+
+  // Direct video file
+  return `
+    <video class="video-direct" controls ${autoplay ? 'autoplay' : ''} preload="metadata">
+      <source src="${escHtml(url)}">
+      <p>Your browser doesn't support HTML5 video.
+         <a href="${escHtml(url)}" target="_blank" rel="noopener">Download the video</a>.</p>
+    </video>`;
+}
+
+// Opens a video (from a material attachment card) in a popup instead of a new tab.
+function openVideoModal(url) {
+  const embed = videoEmbedHtml(url, { autoplay: true });
+  if (!embed) { window.open(url, '_blank', 'noopener'); return; }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'video-modal-overlay';
+  overlay.innerHTML = `
+    <div class="video-modal">
+      <button type="button" class="video-modal-close" aria-label="Close video">✕</button>
+      <div class="video-modal-body">${embed}</div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('.video-modal-close').addEventListener('click', close);
+  document.addEventListener('keydown', onKey);
+}
+
+// Event delegation for material-card video triggers (materialsDiv content is
+// re-rendered on every load, so a single body-level listener is used instead
+// of binding per-card).
+document.addEventListener('click', e => {
+  const trigger = e.target.closest('[data-video-url]');
+  if (trigger) openVideoModal(trigger.dataset.videoUrl);
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const trigger = e.target.closest('[data-video-url]');
+  if (trigger) { e.preventDefault(); openVideoModal(trigger.dataset.videoUrl); }
+});
+
 // ── Material/attachment preview cards ──────────────────────
 const MATERIAL_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'];
+const MATERIAL_VIDEO_EXTS = ['mp4', 'mov', 'webm', 'ogg'];
 const MATERIAL_TYPE_META = {
   pdf:  { icon: '📕', label: 'PDF' },
   doc:  { icon: '📘', label: 'DOC' },  docx: { icon: '📘', label: 'DOC' },
@@ -1010,10 +1079,12 @@ function getFileExt(name) {
   return m ? m[1].toLowerCase() : '';
 }
 
-const MATERIAL_HOVER_OVERLAY = `
-  <div class="material-card-hover">
-    <span class="material-card-open-btn">Open ↗</span>
-  </div>`;
+function materialHoverOverlay(label) {
+  return `
+    <div class="material-card-hover">
+      <span class="material-card-open-btn">${label}</span>
+    </div>`;
+}
 
 function materialCardHtml(f) {
   const ext  = getFileExt(f.name || f.url || '');
@@ -1025,7 +1096,7 @@ function materialCardHtml(f) {
       <a class="material-card" href="${url}" target="_blank" rel="noopener" title="${name}">
         <div class="material-card-thumb">
           <img src="${url}" alt="${name}" loading="lazy">
-          ${MATERIAL_HOVER_OVERLAY}
+          ${materialHoverOverlay('Open ↗')}
         </div>
       </a>`;
   }
@@ -1036,9 +1107,21 @@ function materialCardHtml(f) {
           <canvas></canvas>
           <span class="material-card-icon" style="display:none">📕</span>
           <span class="material-card-ext-badge">PDF</span>
-          ${MATERIAL_HOVER_OVERLAY}
+          ${materialHoverOverlay('Open ↗')}
         </div>
       </a>`;
+  }
+  if (MATERIAL_VIDEO_EXTS.includes(ext)) {
+    const meta = MATERIAL_TYPE_META[ext] || { icon: '🎬', label: ext.toUpperCase() };
+    return `
+      <div class="material-card material-card-clickable" data-video-url="${url}"
+           role="button" tabindex="0" title="${name}">
+        <div class="material-card-thumb material-card-generic">
+          <span class="material-card-icon">${meta.icon}</span>
+          <span class="material-card-ext-badge">${meta.label}</span>
+          ${materialHoverOverlay('▶ Play')}
+        </div>
+      </div>`;
   }
   const meta = MATERIAL_TYPE_META[ext] || { icon: '📄', label: ext ? ext.toUpperCase() : 'FILE' };
   return `
@@ -1046,7 +1129,7 @@ function materialCardHtml(f) {
       <div class="material-card-thumb material-card-generic">
         <span class="material-card-icon">${meta.icon}</span>
         <span class="material-card-ext-badge">${meta.label}</span>
-        ${MATERIAL_HOVER_OVERLAY}
+        ${materialHoverOverlay('Open ↗')}
       </div>
     </a>`;
 }
