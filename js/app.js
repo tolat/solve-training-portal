@@ -346,7 +346,7 @@ function renderRoles() {
   if (!trainingData) return;
   const { roles, completedMap, blocks } = trainingData;
 
-  document.getElementById('rolesTitle').textContent = currentUser.name + "'s Training";
+  document.getElementById('rolesTitle').textContent = currentUser.name + "'s Courses";
 
   // Show inline profile button when header-main is hidden
   if (window._hideHeader) {
@@ -523,7 +523,7 @@ function renderCourse(blocksOverride, skipCompleteRedirect = false) {
   const currentRoleObj = currentRoleId ? trainingData.roles.find(r => r.id === currentRoleId) : null;
   const roleLabel = currentRoleObj
     ? currentRoleObj.name + (currentRoleObj.contractorName ? ` — ${currentRoleObj.contractorName}` : '')
-    : currentUser.name + "'s Training";
+    : currentUser.name + "'s Courses";
   document.getElementById('courseRoleName').textContent       = roleLabel;
   document.getElementById('courseTotalCount').textContent     = blocks.length;
   document.getElementById('courseCompletedCount').textContent = done;

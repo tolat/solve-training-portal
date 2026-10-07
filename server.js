@@ -1052,7 +1052,7 @@ app.post('/api/forgot-password', async (req, res) => {
         '',
         `    ${password}`,
         '',
-        'You can sign in at: http://localhost:${PORT}',
+        `You can sign in at: ${process.env.APP_URL || `http://localhost:${PORT}`}`,
         '',
         'If you did not request this email, please ignore it.',
         '',
@@ -1062,7 +1062,7 @@ app.post('/api/forgot-password', async (req, res) => {
         <p>Hi ${name},</p>
         <p>Here is your Solve University password:</p>
         <p style="font-size:18px;font-weight:bold;letter-spacing:1px;padding:12px 20px;background:#f4f7f4;border-radius:6px;display:inline-block">${password}</p>
-        <p>You can sign in at your Solve University link.</p>
+        <p>You can sign in at: <a href="${process.env.APP_URL || `http://localhost:${PORT}`}">${process.env.APP_URL || `http://localhost:${PORT}`}</a></p>
         <p style="color:#888;font-size:12px">If you did not request this email, please ignore it.</p>
         <p>— Solve Energy</p>
       `,
