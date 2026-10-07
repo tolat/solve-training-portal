@@ -1044,11 +1044,11 @@ app.post('/api/forgot-password', async (req, res) => {
     await mailer.sendMail({
       from,
       to:      email.toLowerCase().trim(),
-      subject: 'Solve Energy Training Portal — Your Password',
+      subject: 'Solve University — Your Password',
       text: [
         `Hi ${name},`,
         '',
-        'Here is your Solve Energy Training Portal password:',
+        'Here is your Solve University password:',
         '',
         `    ${password}`,
         '',
@@ -1060,9 +1060,9 @@ app.post('/api/forgot-password', async (req, res) => {
       ].join('\n'),
       html: `
         <p>Hi ${name},</p>
-        <p>Here is your Solve Energy Training Portal password:</p>
+        <p>Here is your Solve University password:</p>
         <p style="font-size:18px;font-weight:bold;letter-spacing:1px;padding:12px 20px;background:#f4f7f4;border-radius:6px;display:inline-block">${password}</p>
-        <p>You can sign in at your training portal link.</p>
+        <p>You can sign in at your Solve University link.</p>
         <p style="color:#888;font-size:12px">If you did not request this email, please ignore it.</p>
         <p>— Solve Energy</p>
       `,

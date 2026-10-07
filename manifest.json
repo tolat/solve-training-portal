@@ -1,7 +1,7 @@
 {
-  "name": "Solve Energy Training Portal",
-  "short_name": "Solve Training",
-  "description": "Solve Energy employee training and onboarding portal",
+  "name": "Solve University",
+  "short_name": "Solve University",
+  "description": "Solve Energy employee training and onboarding",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
