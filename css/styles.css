@@ -143,7 +143,6 @@
   }
   .header-logo { display: flex; align-items: center; gap: 10px; }
   .header-logo img { height: 28px; width: auto; display: block; }
-  .header-logo span { opacity: 0.6; font-weight: 400; font-size: 14px; color: #fff; }
   /* Controls bar — right of main bar on desktop, second thin row on mobile */
   .header-controls {
     display: flex;
@@ -686,8 +685,6 @@
       height: 56px;
       padding: 10px 20px;
     }
-    /* Hide "Training Portal" label — logo alone is enough on narrow screens */
-    .header-logo span { display: none; }
     .header-controls {
       height: auto;
       padding: 10px 20px;
