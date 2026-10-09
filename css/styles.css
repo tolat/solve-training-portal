@@ -142,7 +142,7 @@
     padding: 0 24px;
   }
   .header-logo { display: flex; align-items: center; gap: 10px; }
-  .header-logo img { height: 39px; width: auto; display: block; }
+  .header-logo img { height: 28px; width: auto; display: block; }
   /* Controls bar — right of main bar on desktop, second thin row on mobile */
   .header-controls {
     display: flex;
@@ -219,7 +219,7 @@
     -webkit-backdrop-filter: blur(8px);
   }
   .login-logo { margin-bottom: 12px; text-align: center; }
-  .login-logo img { height: 62px; width: auto; display: inline-block; }
+  .login-logo img { height: 44px; width: auto; display: inline-block; }
   .login-sub { font-size: 14px; color: var(--gray); margin-bottom: 28px; text-align: center; }
   .login-platform {
     margin-top: 28px; padding-top: 18px;
