@@ -2201,11 +2201,11 @@ function showToast(msg) {
   const urlParams  = new URLSearchParams(window.location.search);
   const employeeId = urlParams.get('employee_id');
 
-  // Hide the header-main bar if hideHeader=true is in the URL,
-  // and show the inline profile button on the roles page instead.
+  // If hideHeader=true is in the URL, drop the profile button from the header
+  // (the logo stays) and show the inline profile button on the roles page instead.
   if (urlParams.get('hideHeader') === 'true') {
-    const hm = document.querySelector('.header-main');
-    if (hm) hm.style.display = 'none';
+    const pb = document.getElementById('headerProfileBtn');
+    if (pb) pb.style.display = 'none';
     window._hideHeader = true;
   }
 
