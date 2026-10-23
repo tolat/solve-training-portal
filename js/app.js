@@ -720,6 +720,34 @@ function renderGuidanceBlurb(block, { isSignature, isDocUpload, isHRDocUpload, n
   }
 }
 
+// Signature blocks whose "Associated forms" has no PDF — there is nothing to sign.
+const blocksMissingSigningForm = new Set();
+
+// hasPdfForm: true / false from the block's files, or null when unknown (leave UI alone).
+function applySigningFormAvailability(block, hasPdfForm) {
+  if (!isSignatureBlock(block) || hasPdfForm === null) return;
+  if (currentBlocks[currentBlockIndex]?.id !== block.id) return; // user already moved on
+  const missing = hasPdfForm === false;
+  if (missing) blocksMissingSigningForm.add(block.id); else blocksMissingSigningForm.delete(block.id);
+
+  let note = document.getElementById('signUnavailableNote');
+  if (missing) {
+    const signBtn = document.getElementById('btnSignDoc');
+    if (signBtn) signBtn.style.display = 'none';
+    if (!note) {
+      note = document.createElement('div');
+      note.id        = 'signUnavailableNote';
+      note.className = 'no-link-box';
+      const actions = document.getElementById('blockActions');
+      actions.parentNode.insertBefore(note, actions);
+    }
+    note.textContent   = '✍️ This document isn\'t ready to sign yet — please contact your manager.';
+    note.style.display = 'block';
+  } else if (note) {
+    note.style.display = 'none';
+  }
+}
+
 function openBlock(index) {
   currentBlockIndex = index;
   const block   = currentBlocks[index];
@@ -789,6 +817,8 @@ function openBlock(index) {
   const isHRDocUpload = isHRDocumentUploadBlock(block);
   const isSignature   = isSignatureBlock(block);
   const needsQuiz     = blockNeedsQuizAndSignature(block); // signature + quiz-type tag(s)
+  const staleSignNote = document.getElementById('signUnavailableNote');
+  if (staleSignNote) staleSignNote.style.display = 'none'; // belongs to the previous block
 
   // Update the no-link notice text to match the block type.
   // Signature blocks: suppress the notice entirely — the sign button is self-explanatory.
@@ -860,6 +890,8 @@ function openBlock(index) {
       signBtn.textContent = '✍️ Sign Document';
       signBtn.style.display = (passed || quizPassedAwaitingSignature.has(block.id)) ? '' : 'none';
     }
+    // Reuse what we already learned about this block's form; the files fetch below refreshes it
+    applySigningFormAvailability(block, blocksMissingSigningForm.has(block.id) ? false : null);
   } else {
     // Hide the sign button when not a signature block
     const signBtn = document.getElementById('btnSignDoc');
@@ -940,14 +972,18 @@ function openBlock(index) {
       if (materialsTimer) clearInterval(materialsTimer);
       // Load guidance/forms/media first, then append uploaded certificates beneath them
       loadMaterials(block.id, materialsDiv, true)
-        .then(() => loadCertificates(block.id, materialsDiv, contractorPageId, true));
+        .then(({ hasPdfForm }) => {
+          applySigningFormAvailability(block, hasPdfForm);
+          return loadCertificates(block.id, materialsDiv, contractorPageId, true);
+        });
       materialsTimer = setInterval(
         () => loadMaterials(block.id, materialsDiv, false)
                 .then(() => loadCertificates(block.id, materialsDiv, contractorPageId, true)),
         55 * 60 * 1000
       );
     } else {
-      loadMaterials(block.id, materialsDiv, true).then(count => {
+      loadMaterials(block.id, materialsDiv, true).then(({ count, hasPdfForm }) => {
+        applySigningFormAvailability(block, hasPdfForm);
         if (count > 0) renderGuidanceBlurb(block, { isSignature, isDocUpload, isHRDocUpload, needsQuiz, hasMaterials: true });
       });
       if (materialsTimer) clearInterval(materialsTimer);
@@ -1231,7 +1267,8 @@ function loadMaterials(blockId, materialsDiv, showSpinner) {
       ...(files.guidance        || []).map(f => ({ ...f, group: 'Guidance' })),
       ...(files.media           || []).map(f => ({ ...f, group: 'Files & Media' })),
     ];
-    if (!allFiles.length) { materialsDiv.innerHTML = ''; return 0; }
+    const hasPdfForm = (files.associatedForms || []).some(f => (f.name || '').toLowerCase().endsWith('.pdf'));
+    if (!allFiles.length) { materialsDiv.innerHTML = ''; return { count: 0, hasPdfForm }; }
     const groups = {};
     allFiles.forEach(f => {
       if (!groups[f.group]) groups[f.group] = [];
@@ -1252,12 +1289,12 @@ function loadMaterials(blockId, materialsDiv, showSpinner) {
       </div>
     `;
     renderPdfThumbnails(materialsDiv);
-    return allFiles.length;
+    return { count: allFiles.length, hasPdfForm };
   }).catch(err => {
-    if (err.message === 'session_expired') return 0; // handled globally
+    if (err.message === 'session_expired') return { count: 0, hasPdfForm: null }; // handled globally
     console.error('loadMaterials error for block', blockId, err);
     if (showSpinner) materialsDiv.innerHTML = `<p class="materials-loading" style="color:var(--danger)">⚠ Could not load materials (${escHtml(err.message)})</p>`;
-    return 0;
+    return { count: 0, hasPdfForm: null }; // unknown — don't block signing on a transient error
   });
 }
 
@@ -1967,14 +2004,16 @@ async function submitQuiz() {
     quizPassedAwaitingSignature.add(block.id);
     resultDiv.innerHTML = `
       <div class="quiz-result-title">🎉 Passed! ${correct}/${questions.length} correct</div>
-      <div class="quiz-result-msg">One more step — sign the document to complete this module.</div>
+      ${blocksMissingSigningForm.has(block.id)
+        ? `<div class="quiz-result-msg">The document to sign isn't ready yet — please contact your manager to finish this module.</div>`
+        : `<div class="quiz-result-msg">One more step — sign the document to complete this module.</div>`}
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
-        <button class="btn btn-primary" onclick="openSigningView(currentBlocks[currentBlockIndex])">✍️ Sign Document</button>
+        ${blocksMissingSigningForm.has(block.id) ? '' : `<button class="btn btn-primary" onclick="openSigningView(currentBlocks[currentBlockIndex])">✍️ Sign Document</button>`}
         <button class="btn btn-outline" onclick="goBack()">← Back to Overview</button>
       </div>
     `;
     const signBtn = document.getElementById('btnSignDoc');
-    if (signBtn) signBtn.style.display = '';
+    if (signBtn) signBtn.style.display = blocksMissingSigningForm.has(block.id) ? 'none' : '';
 
   } else if (passed) {
     document.getElementById('btnSubmitQuiz').style.display = 'none';
