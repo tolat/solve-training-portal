@@ -673,11 +673,11 @@ function renderCourse(blocksOverride, skipCompleteRedirect = false) {
 // to do with the resource/link (and, once known, the Training Materials
 // section below it). Called once synchronously in openBlock (hasMaterials
 // not yet known) and again after loadMaterials resolves.
-function renderGuidanceBlurb(block, { isSignature, isDocUpload, isHRDocUpload, hasMaterials }) {
+function renderGuidanceBlurb(block, { isSignature, isDocUpload, isHRDocUpload, needsQuiz, hasMaterials }) {
   const blurbEl = document.getElementById('blockGuidanceBlurb');
   if (!blurbEl) return;
 
-  if (isSignature) {
+  if (isSignature && !needsQuiz) {
     blurbEl.style.display = 'none';
     return;
   }
@@ -702,17 +702,19 @@ function renderGuidanceBlurb(block, { isSignature, isDocUpload, isHRDocUpload, h
   }
 
   const materialsPhrase = hasMaterials ? ' and review the training materials below' : '';
+  // Signature + quiz blocks: the signature is a follow-up step after the quiz
+  const signatureSuffix = needsQuiz ? ' After you pass the quiz, you\'ll sign the document to complete this module.' : '';
   const noLinkBox = document.getElementById('noLinkBox');
 
   if (isVideo) {
-    blurbEl.innerHTML = `📹 <strong>Watch the video above${materialsPhrase}</strong>, then click <strong>"I've reviewed this training — start quiz"</strong> when you're ready to take the quiz.`;
+    blurbEl.innerHTML = `📹 <strong>Watch the video above${materialsPhrase}</strong>, then click <strong>"I've reviewed this training — start quiz"</strong> when you're ready to take the quiz.${signatureSuffix}`;
     blurbEl.style.display = 'block';
   } else if (hasLink) {
-    blurbEl.innerHTML = `🔗 <strong>Complete the training at the link above${materialsPhrase}</strong>, then click <strong>"I've reviewed this training — start quiz"</strong> when you're done.`;
+    blurbEl.innerHTML = `🔗 <strong>Complete the training at the link above${materialsPhrase}</strong>, then click <strong>"I've reviewed this training — start quiz"</strong> when you're done.${signatureSuffix}`;
     blurbEl.style.display = 'block';
   } else {
     // No link — guide the user to review embedded materials below
-    blurbEl.innerHTML = '📄 <strong>Read or review the materials below</strong>, then click <strong>"I\'ve reviewed this training — start quiz"</strong> when you\'re ready.';
+    blurbEl.innerHTML = '📄 <strong>Read or review the materials below</strong>, then click <strong>"I\'ve reviewed this training — start quiz"</strong> when you\'re ready.' + signatureSuffix;
     blurbEl.style.display = 'block';
     if (noLinkBox) noLinkBox.style.display = 'none'; // blurb replaces the generic noLinkBox for regular blocks
   }
@@ -724,7 +726,7 @@ function openBlock(index) {
   const passed  = isBlockCompleted(block.id);
 
   // Lazily fetch this block's AI quiz in the background so it's ready if the user taps "Start Quiz"
-  if (!isSignatureBlock(block) && !isDocumentUploadBlock(block) && !isHRDocumentUploadBlock(block)) {
+  if ((!isSignatureBlock(block) || blockNeedsQuizAndSignature(block)) && !isDocumentUploadBlock(block) && !isHRDocumentUploadBlock(block)) {
     prefetchQuizForBlock(block.id);
   }
 
@@ -786,11 +788,12 @@ function openBlock(index) {
   const isDocUpload   = isDocumentUploadBlock(block);
   const isHRDocUpload = isHRDocumentUploadBlock(block);
   const isSignature   = isSignatureBlock(block);
+  const needsQuiz     = blockNeedsQuizAndSignature(block); // signature + quiz-type tag(s)
 
   // Update the no-link notice text to match the block type.
   // Signature blocks: suppress the notice entirely — the sign button is self-explanatory.
   if (noLinkBox.style.display !== 'none') {
-    if (isSignature) {
+    if (isSignature && !needsQuiz) {
       noLinkBox.style.display = 'none';
     } else {
       noLinkBox.textContent = isHRDocUpload
@@ -804,11 +807,11 @@ function openBlock(index) {
   // Guidance blurb — tells the user exactly what to do with the resource/link.
   // hasMaterials isn't known yet (Training Materials load asynchronously below),
   // so render once now and again once loadMaterials resolves.
-  renderGuidanceBlurb(block, { isSignature, isDocUpload, isHRDocUpload, hasMaterials: false });
+  renderGuidanceBlurb(block, { isSignature, isDocUpload, isHRDocUpload, needsQuiz, hasMaterials: false });
 
   // For signature blocks: hide quiz and upload sections via inline style.
   // For normal/upload blocks: clear inline style so CSS classes (.quiz-section, .show) work normally.
-  if (isSignature) {
+  if (isSignature && !needsQuiz) {
     quizSection.style.display   = 'none';
     uploadSection.style.display = 'none';
     blockActions.style.display  = '';
@@ -838,7 +841,7 @@ function openBlock(index) {
   if (isSignature) {
     // Show blockActions area for the sign button, but hide the "I've reviewed" button
     blockActions.style.display  = '';
-    btnViewed.style.display     = 'none';
+    btnViewed.style.display     = 'none'; // for signature+quiz blocks it is re-shown below
     // Insert or reuse the sign button
     let signBtn = document.getElementById('btnSignDoc');
     if (!signBtn) {
@@ -852,6 +855,11 @@ function openBlock(index) {
       signBtn.style.display = '';
       signBtn.onclick       = () => openSigningView(block);
     }
+    // Signature + quiz blocks: the sign button only appears once the quiz is passed
+    if (needsQuiz) {
+      signBtn.textContent = '✍️ Sign Document';
+      signBtn.style.display = (passed || quizPassedAwaitingSignature.has(block.id)) ? '' : 'none';
+    }
   } else {
     // Hide the sign button when not a signature block
     const signBtn = document.getElementById('btnSignDoc');
@@ -862,9 +870,9 @@ function openBlock(index) {
   if (isDocUpload || isHRDocUpload) {
     btnViewed.style.display = 'none';
     viewedConfirm.classList.remove('show');
-  } else if (!isSignature) {
+  } else if (!isSignature || needsQuiz) {
     btnViewed.textContent   = '✓ I\'ve reviewed this training — start quiz';
-    btnViewed.style.display = passed ? 'none' : 'inline-flex';
+    btnViewed.style.display = (passed || quizPassedAwaitingSignature.has(block.id)) ? 'none' : 'inline-flex';
   }
 
   if (passed) {
@@ -899,16 +907,20 @@ function openBlock(index) {
       quizResult.innerHTML = completedHTML;
     }
   } else {
-    if (!isDocUpload && !isSignature) viewedConfirm.classList.remove('show');
+    viewedConfirm.classList.remove('show'); // clear any notice left over from the previous block
     quizSection.classList.remove('show');
     quizResult.className    = 'quiz-result';
     quizResult.style.display = 'none';
     resetQuiz();
+    if (needsQuiz && quizPassedAwaitingSignature.has(block.id)) {
+      viewedConfirm.classList.add('show');
+      viewedConfirm.innerHTML = '✅ <strong>Quiz passed.</strong> Sign the document below to complete this module.';
+    }
     if (isDocUpload) {
       // Show upload panel immediately — no acknowledge step needed
       resetUpload();
       uploadSection.classList.add('show');
-    } else if (isSignature) {
+    } else if (isSignature && !needsQuiz) {
       // Signature block: just show the sign button (already set up above)
       uploadSection.classList.remove('show');
     } else {
@@ -936,7 +948,7 @@ function openBlock(index) {
       );
     } else {
       loadMaterials(block.id, materialsDiv, true).then(count => {
-        if (count > 0) renderGuidanceBlurb(block, { isSignature, isDocUpload, isHRDocUpload, hasMaterials: true });
+        if (count > 0) renderGuidanceBlurb(block, { isSignature, isDocUpload, isHRDocUpload, needsQuiz, hasMaterials: true });
       });
       if (materialsTimer) clearInterval(materialsTimer);
       materialsTimer = setInterval(() => loadMaterials(block.id, materialsDiv, false), 55 * 60 * 1000);
@@ -1260,6 +1272,20 @@ function isHRDocumentUploadBlock(block) {
 function isSignatureBlock(block) {
   return (block?.types || []).includes('Signature Required');
 }
+
+// A Signature Required block that also carries any other (non-upload) tag still gets
+// that tag's normal quiz — the signature is an extra step on top, not a replacement.
+// Plain "Signature Required"-only blocks stay signature-only.
+function blockNeedsQuizAndSignature(block) {
+  if (!isSignatureBlock(block)) return false;
+  if (isDocumentUploadBlock(block) || isHRDocumentUploadBlock(block)) return false;
+  const special = new Set(['signaturerequired', 'documentupload', 'hrdocumentupload']);
+  return (block.types || []).some(t => !special.has(String(t).toLowerCase().replace(/[\s_-]/g, '')));
+}
+
+// Blocks whose quiz was passed this session but still await the signature.
+// (Completion is only recorded in Notion once the signature is done.)
+const quizPassedAwaitingSignature = new Set();
 
 /** Returns true if the URL is a video (YouTube, Vimeo, or direct video file). */
 function isVideoLink(url) {
@@ -1676,6 +1702,7 @@ async function submitSignedDocument() {
 
     // Mark block complete locally
     markBlockCompleteLocally(block.id, { date: result.date, recordId: result.recordId, status: 'OK' });
+    quizPassedAwaitingSignature.delete(block.id);
 
     resultEl.className = 'quiz-result pass show';
     resultEl.innerHTML = `
@@ -1933,7 +1960,23 @@ async function submitQuiz() {
   resultDiv.style.display = 'block';
   resultDiv.className     = 'quiz-result show ' + (passed ? 'pass' : 'fail');
 
-  if (passed) {
+  if (passed && blockNeedsQuizAndSignature(block)) {
+    // Signature + quiz block: passing the quiz is only half the job. Don't record
+    // completion yet — that happens when the document is signed.
+    document.getElementById('btnSubmitQuiz').style.display = 'none';
+    quizPassedAwaitingSignature.add(block.id);
+    resultDiv.innerHTML = `
+      <div class="quiz-result-title">🎉 Passed! ${correct}/${questions.length} correct</div>
+      <div class="quiz-result-msg">One more step — sign the document to complete this module.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="openSigningView(currentBlocks[currentBlockIndex])">✍️ Sign Document</button>
+        <button class="btn btn-outline" onclick="goBack()">← Back to Overview</button>
+      </div>
+    `;
+    const signBtn = document.getElementById('btnSignDoc');
+    if (signBtn) signBtn.style.display = '';
+
+  } else if (passed) {
     document.getElementById('btnSubmitQuiz').style.display = 'none';
 
     // Record completion in Notion
