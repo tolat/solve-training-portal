@@ -1404,6 +1404,7 @@ async function openSigningView(block) {
     const signResultEl = document.getElementById('signResult');
     if (signResultEl) { signResultEl.className = 'quiz-result'; signResultEl.innerHTML = ''; }
     await renderSigningPDF(config, block);
+    setupSignatureNav(config);
     showScreen('screenSign');
     document.getElementById('headerBack').style.display = 'inline-flex';
   } catch (err) {
@@ -1503,6 +1504,7 @@ async function renderSigningPDF(config, block) {
       const wrapper = document.createElement('div');
       wrapper.style.cssText = `position:absolute;left:${fieldX}px;top:${fieldY}px;width:${fieldW}px;height:${fieldH}px;`;
       wrapper.className = 'sign-field-overlay';
+      wrapper.dataset.fieldId = field.id; // used by the signature navigation bar
 
       // Label
       const labelEl = document.createElement('div');
@@ -1542,6 +1544,70 @@ async function renderSigningPDF(config, block) {
     container.appendChild(pageDiv);
   }
 }
+
+// ── Signature navigation ("Take Me To Signatures" / "Next Signature") ──
+let signatureNavEls = [];   // signature/initials overlays in document order
+let signatureNavIdx = -1;   // -1 = not started, otherwise the field last scrolled to
+
+function setupSignatureNav(config) {
+  const nav = document.getElementById('signNav');
+  const sigIds = new Set((config.fields || [])
+    .filter(f => f.type === 'signature' || f.type === 'initials')
+    .map(f => f.id));
+  // DOM order = page order, then top-to-bottom within a page
+  signatureNavEls = [...document.querySelectorAll('#signPdfContainer .sign-field-overlay')]
+    .filter(el => sigIds.has(el.dataset.fieldId));
+  signatureNavIdx = -1;
+  if (!signatureNavEls.length) { nav.style.display = 'none'; return; }
+  nav.style.display = 'flex';
+  updateSignatureNav();
+}
+
+function updateSignatureNav() {
+  const n = signatureNavEls.length;
+  const status = document.getElementById('signNavStatus');
+  const btn = document.getElementById('btnSignNext');
+  if (n === 1) {
+    status.textContent = '1 signature to complete';
+    btn.textContent = '✍️ Take Me To Signature';
+  } else if (signatureNavIdx < 0) {
+    status.textContent = `${n} signatures to complete`;
+    btn.textContent = '✍️ Take Me To Signatures';
+  } else {
+    status.textContent = `Signature ${signatureNavIdx + 1} of ${n}`;
+    btn.textContent = signatureNavIdx >= n - 1 ? '↑ Back To First Signature' : 'Next Signature ↓';
+  }
+}
+
+function goToNextSignature() {
+  const n = signatureNavEls.length;
+  if (!n) return;
+  signatureNavIdx = (signatureNavIdx + 1) % n;
+  const el = signatureNavEls[signatureNavIdx];
+
+  // Offsets of the sticky app header and this bar so the field lands in clear view
+  const header = document.getElementById('appHeader');
+  const headerH = header && getComputedStyle(header).display !== 'none' ? header.offsetHeight : 0;
+  const nav = document.getElementById('signNav');
+  nav.style.top = headerH + 'px';
+  const clear = headerH + nav.offsetHeight;
+  const r = el.getBoundingClientRect();
+  const spare = Math.max(32, (window.innerHeight - clear - r.height) / 2);
+  window.scrollTo({ top: Math.max(0, window.scrollY + r.top - clear - spare), behavior: 'smooth' });
+
+  el.classList.remove('sign-field-flash');
+  void el.offsetWidth; // restart the animation
+  el.classList.add('sign-field-flash');
+  setTimeout(() => el.classList.remove('sign-field-flash'), 1500);
+  updateSignatureNav();
+}
+
+// Keep the sticky bar flush under the header when it changes height (mobile rotation etc.)
+window.addEventListener('resize', () => {
+  const nav = document.getElementById('signNav');
+  const header = document.getElementById('appHeader');
+  if (nav && header) nav.style.top = (getComputedStyle(header).display !== 'none' ? header.offsetHeight : 0) + 'px';
+});
 
 function addFieldOverlay(field, pageDiv, pageW, pageH) {
   const xPct    = (field.x      * 100).toFixed(3);

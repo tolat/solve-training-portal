@@ -879,6 +879,12 @@
   .sign-field-input { width: 100%; height: 100%; border: 1.5px dashed var(--green); border-radius: 3px; background: rgba(42,150,64,0.04); font-size: 13px; padding: 2px 6px; box-sizing: border-box; font-family: inherit; color: var(--text); }
   .sign-field-input:focus { outline: none; border-color: var(--green); background: rgba(42,150,64,0.08); }
   .sign-field-label { position: absolute; top: -18px; left: 0; font-size: 10px; color: var(--gray); font-weight: 500; white-space: nowrap; }
+  /* "Take me to signatures" / "Next signature" bar — sticks just under the app header */
+  .sign-nav { position: sticky; top: 60px; z-index: 50; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 16px; padding: 10px 14px; background: var(--white); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); }
+  .sign-nav-status { font-size: 13px; font-weight: 600; color: var(--text); }
+  .sign-nav .btn { white-space: nowrap; }
+  .sign-field-flash { animation: signFieldFlash 1.4s ease; }
+  @keyframes signFieldFlash { 0%, 100% { box-shadow: 0 0 0 0 rgba(42,150,64,0); } 30% { box-shadow: 0 0 0 7px rgba(42,150,64,0.38); } }
   .sign-actions { display: flex; gap: 12px; justify-content: flex-end; margin-bottom: 16px; flex-wrap: wrap; }
   .sign-synthetic-page { background: #fff; width: 612px; max-width: 100%; padding: 40px 50px; box-sizing: border-box; font-family: inherit; box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
   .sign-synthetic-page h2 { font-size: 20px; font-weight: 700; margin-bottom: 8px; color: var(--text); }

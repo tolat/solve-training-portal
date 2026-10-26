@@ -273,6 +273,10 @@
     <div class="sign-title" id="signTitle"></div>
     <div class="sign-sub">Review the document and complete all required fields below, then click Sign &amp; Submit.</div>
   </div>
+  <div class="sign-nav" id="signNav" style="display:none;">
+    <span class="sign-nav-status" id="signNavStatus"></span>
+    <button class="btn btn-primary" id="btnSignNext" onclick="goToNextSignature()"></button>
+  </div>
   <div id="signPdfContainer"></div>
   <div class="sign-actions">
     <button class="btn btn-outline" id="btnClearSignatures" onclick="clearAllSignatures()">Clear Signatures</button>
