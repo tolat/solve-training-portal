@@ -49,6 +49,7 @@ async function apiFetch(path, method = 'GET', body = null) {
   const data = await res.json();
   if (res.status === 401) {
     // Session expired or server restarted — clear state and return to login
+    if (window.SolveTour) SolveTour.abort();
     authToken    = null;
     currentUser  = null;
     trainingData = null;
@@ -259,6 +260,9 @@ async function initApp() {
     renderRoles();
     showScreen('screenRoles');
     updateSyncBar();
+
+    // First-ever visit on this browser: welcome screen + walkthrough (js/tour.js)
+    if (window.SolveTour) setTimeout(() => SolveTour.maybeStart(), 500);
 
     // Auto-sync every 15 minutes while the app is open
     if (autoSyncTimer) clearInterval(autoSyncTimer);
@@ -2407,6 +2411,12 @@ async function doChangePassword() {
     okEl.textContent = '✅ Password updated successfully.';
     okEl.className   = 'forgot-success show';
     ['pwNew', 'pwConfirm'].forEach(id => document.getElementById(id).value = '');
+    // A first login forces a password change; the welcome tour waits until it is done
+    if (currentUser?.mustChangePassword) {
+      currentUser.mustChangePassword = false;
+      document.getElementById('headerBack').style.display = 'inline-flex';
+      if (window.SolveTour) setTimeout(() => SolveTour.maybeStart(), 700);
+    }
   } catch (e) {
     errEl.textContent = e.message || 'Failed to update password.';
     errEl.className   = 'login-error show';
@@ -2420,6 +2430,7 @@ async function doChangePassword() {
 // LOGOUT
 // ============================================================
 async function logout() {
+  if (window.SolveTour) SolveTour.abort();
   try { await apiFetch('/api/logout', 'POST'); } catch {}
   if (materialsTimer) { clearInterval(materialsTimer); materialsTimer = null; }
   if (autoSyncTimer)  { clearInterval(autoSyncTimer);  autoSyncTimer  = null; }

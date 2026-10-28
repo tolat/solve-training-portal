@@ -24,7 +24,8 @@ solve-training-app/
 ├── server.js          # Express backend — all API endpoints, Notion integration
 ├── index.html         # Single-page frontend shell
 ├── js/
-│   └── app.js         # All frontend logic
+│   ├── app.js         # All frontend logic
+│   └── tour.js        # First-login welcome screen + guided tour (window.SolveTour)
 ├── css/
 │   └── styles.css     # Dark theme (default) + light theme (body.logged-in)
 ├── uploads/           # Temp multer upload dir (ephemeral on Railway)
@@ -72,6 +73,12 @@ Within each stage group:
 - Employee's `Ordered Onboarding Stage` has a numeric prefix (e.g. "04 - Technical Training" → ordering 4)
 - Blocks whose stage ordering > employee's current stage are hidden
 - **Exception**: if a training record already exists for a block, always show it regardless of stage
+
+## First-login welcome + guided tour (js/tour.js)
+- `SolveTour.maybeStart()` runs at the end of `initApp()`: animated "Welcome to Solve University, <first name>", then a description with **Take me to the walkthrough** / **Skip for now**. The walkthrough spotlights UI elements (profile, stage badge, sync bar, role cards, Go to courses, Documents), steps into the first course (progress, phases, a module row, status colours) and returns to the main page.
+- "Seen" is remembered per person **in the browser** (`localStorage` key `solveu_tour_seen_v1:<email>`), set when the welcome is dismissed or the tour starts/ends. If storage is blocked it never auto-starts. It waits while `currentUser.mustChangePassword` is true and starts after the forced password change (`doChangePassword`).
+- Replay: "Take the tour" card on the profile screen (`SolveTour.replay()`). `SolveTour.abort()` is called on sign-out and on a 401.
+- Steps live in the `STEPS` array: each has a `target()` returning the element(s) to spotlight; a step whose target is not visible (e.g. header hidden in embedded mode) is skipped. Styles are the `tour-*` / `tw-*` rules at the end of `styles.css` (CSS is cache-first: bump `CACHE_NAME` in `sw.js` when they change).
 
 ## Guidance Blurb (app.js — openBlock)
 When a training block is opened, a contextual blue info banner appears:
