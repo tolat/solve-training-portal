@@ -414,7 +414,10 @@ function renderRoles() {
     const card = document.createElement('div');
     card.className = 'role-card' + (total ? '' : ' role-card-resources-only');
     card.innerHTML = `
-      <div class="role-card-name">${escHtml(role.name)}${role.contractorName ? `<span style="font-size:12px;font-weight:400;color:var(--gray);margin-left:8px;">${escHtml(role.contractorName)}</span>` : ''}</div>
+      <div class="role-card-head">
+        <div class="role-card-name">${escHtml(role.name)}${role.contractorName ? `<span style="font-size:12px;font-weight:400;color:var(--gray);margin-left:8px;">${escHtml(role.contractorName)}</span>` : ''}</div>
+        ${total ? '<button type="button" class="btn btn-primary role-card-go">Go to courses <span aria-hidden="true">→</span></button>' : ''}
+      </div>
       ${total ? `
       <div class="role-card-stats">
         <span>${done} of ${total} completed</span>
@@ -453,7 +456,7 @@ const RESOURCE_FILES_TTL_MS = 15 * 60 * 1000;
 const RESOURCE_TILES_COLLAPSED = 6;
 
 function resourceLabel(name) {
-  return String(name || '').replace(/^.*Handbook:\s*/i, '').trim() || String(name || '');
+  return String(name || '').replace(/^.*Handbook:\s*/i, '').replace(/\s*\(complete\)\s*$/i, '').trim() || String(name || '');
 }
 
 // One tile per file (Guidance, Associated forms, Files & media) plus one for the Training link.
