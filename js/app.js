@@ -756,7 +756,9 @@ function renderCourse(blocksOverride, skipCompleteRedirect = false) {
       } else if (overdue) {
         addModuleItem(block, gi, 'overdue current', '⚠️ Overdue — Open', true, dispNum);
       } else {
-        addModuleItem(block, gi, 'current', '▶ Start', true, dispNum);
+        // No training record yet. The block is still outstanding, so it shows red like an
+        // overdue one; the record is created when they complete it (/api/complete and friends).
+        addModuleItem(block, gi, 'overdue current', '⚠️ Incomplete — Open', true, dispNum);
       }
     }
   });
