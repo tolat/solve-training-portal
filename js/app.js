@@ -404,24 +404,27 @@ function renderRoles() {
     }
     const roleBlocks    = role.blockIds.map(id => blocks.find(b => b.id === id)).filter(Boolean);
     const visibleBlocks = roleBlocks.filter(b => isVisibleForRole(b, role));
-    if (!visibleBlocks.length) return; // skip roles with nothing visible at this stage
+    const resources = role.resources || [];
+    if (!visibleBlocks.length && !resources.length) return; // skip roles with nothing visible at this stage
     const done    = visibleBlocks.filter(b => roleMap[b.id]?.status === 'OK').length;
     const overdue = visibleBlocks.filter(b => roleMap[b.id]?.status === 'Overdue').length;
     const total   = visibleBlocks.length;
     const pct = total ? Math.round(done / total * 100) : 0;
 
     const card = document.createElement('div');
-    card.className = 'role-card';
+    card.className = 'role-card' + (total ? '' : ' role-card-resources-only');
     card.innerHTML = `
       <div class="role-card-name">${escHtml(role.name)}${role.contractorName ? `<span style="font-size:12px;font-weight:400;color:var(--gray);margin-left:8px;">${escHtml(role.contractorName)}</span>` : ''}</div>
+      ${total ? `
       <div class="role-card-stats">
         <span>${done} of ${total} completed</span>
         <span>${pct}%</span>
       </div>
       <div class="role-card-bar"><div class="role-card-fill" style="width:${pct}%"></div></div>
-      ${overdue ? `<div class="role-card-overdue">⚠️ ${overdue} overdue</div>` : ''}
+      ${overdue ? `<div class="role-card-overdue">⚠️ ${overdue} overdue</div>` : ''}` : ''}
+      ${resources.length ? `<div class="role-card-resources" data-role-id="${escHtml(role.id)}"></div>` : ''}
     `;
-    card.onclick = () => openRole(role.id, role.name);
+    if (total) card.onclick = () => openRole(role.id, role.name);
     grid.appendChild(card);
   });
 
@@ -435,6 +438,96 @@ function renderRoles() {
   }
 
   showScreen('screenRoles');
+  loadRoleResources(roles || []);
+}
+
+// ============================================================
+// GENERAL RESOURCES — document grid inside each role card
+// ============================================================
+// Blocks tagged "General Resource" (Path documents, handbook parts...) list
+// their Guidance files here. One batched request covers every role card;
+// results are kept for 15 minutes because Notion's signed URLs expire.
+let resourceFilesByBlock = {};
+let resourceFilesTs      = 0;
+const RESOURCE_FILES_TTL_MS = 15 * 60 * 1000;
+const RESOURCE_TILES_COLLAPSED = 6;
+
+function resourceLabel(name) {
+  return String(name || '').replace(/^.*Handbook:\s*/i, '').trim() || String(name || '');
+}
+
+function resourceTilesFor(role) {
+  const tiles = [];
+  (role.resources || []).forEach(r => {
+    const files = resourceFilesByBlock[r.id] || [];
+    files.forEach(f => {
+      const fileLabel = String(f.name || '').replace(/\.[a-z0-9]{2,5}$/i, '').replace(/_/g, ' ');
+      tiles.push({ file: f, label: files.length === 1 ? resourceLabel(r.name) : fileLabel });
+    });
+  });
+  return tiles;
+}
+
+function resourceCardHtml(tile) {
+  const label = `<div class="resource-tile-label">${escHtml(tile.label)}</div>`;
+  // materialCardHtml ends with its own closing tag; the label goes inside the card
+  return materialCardHtml({ name: tile.file.name, url: tile.file.url, group: 'Resource' })
+    .replace(/<\/(a|div)>\s*$/, label + '</$1>')
+    .replace('class="material-card"', 'class="material-card resource-tile"')
+    .replace('class="material-card material-card-clickable"', 'class="material-card material-card-clickable resource-tile"');
+}
+
+function renderRoleResources(box, role, expanded) {
+  const tiles = resourceTilesFor(role);
+  if (!tiles.length) {
+    const card = box.closest('.role-card');
+    box.remove();
+    // A card that only existed for its documents has nothing left to show
+    if (card?.classList.contains('role-card-resources-only')) card.remove();
+    return;
+  }
+  const shown = expanded ? tiles : tiles.slice(0, RESOURCE_TILES_COLLAPSED);
+  const more  = tiles.length - shown.length;
+  box.innerHTML = `
+    <div class="materials-title">📚 Documents</div>
+    <div class="resource-grid">${shown.map(resourceCardHtml).join('')}</div>
+    ${more > 0 ? `<button type="button" class="resource-more-btn">Show all ${tiles.length} documents</button>` : ''}
+    ${expanded && tiles.length > RESOURCE_TILES_COLLAPSED ? `<button type="button" class="resource-more-btn">Show fewer</button>` : ''}
+  `;
+  box.querySelector('.resource-more-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    renderRoleResources(box, role, !expanded);
+  });
+  renderPdfThumbnails(box);
+}
+
+async function loadRoleResources(roles) {
+  const withDocs = roles.filter(r => (r.resources || []).length);
+  if (!withDocs.length) return;
+
+  const boxFor = (role) => document.querySelector(`.role-card-resources[data-role-id="${CSS.escape(role.id)}"]`);
+  withDocs.forEach(role => {
+    const box = boxFor(role);
+    if (!box) return;
+    // The grid area must never trigger the card's own click (open the role)
+    box.onclick = (e) => e.stopPropagation();
+    if (!box.innerHTML) box.innerHTML = '<div class="materials-title">📚 Documents</div><p class="materials-loading">Loading documents…</p>';
+  });
+
+  const ids   = [...new Set(withDocs.flatMap(r => r.resources.map(x => x.id)))];
+  const fresh = Date.now() - resourceFilesTs < RESOURCE_FILES_TTL_MS && ids.every(id => id in resourceFilesByBlock);
+  try {
+    if (!fresh) {
+      const data = await apiFetch('/api/resource-files', 'POST', { blockIds: ids });
+      resourceFilesByBlock = data.files || {};
+      resourceFilesTs = Date.now();
+    }
+  } catch (err) {
+    if (err.message !== 'session_expired') console.error('loadRoleResources error:', err);
+    withDocs.forEach(role => boxFor(role)?.remove());
+    return;
+  }
+  withDocs.forEach(role => { const box = boxFor(role); if (box) renderRoleResources(box, role, false); });
 }
 
 function openRole(roleId, roleName) {

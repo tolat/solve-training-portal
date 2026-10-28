@@ -185,6 +185,15 @@ const richText = (p) => (p?.rich_text || []).map(t => t.plain_text).join('');
 const titleTxt = (p) => (p?.title     || []).map(t => t.plain_text).join('');
 const emailVal = (p) => p?.email || null;
 
+// ─── "General Resource" blocks ────────────────────────────────
+// A block tagged General Resource is a reference document (a handbook part, a
+// Path document...) shown in a grid on its role's card on the main page.
+// A block whose ONLY tag is General Resource is not a training at all: it has
+// no record, no quiz and no entry in the course list, just a spot on that grid.
+const normType = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const hasGeneralResourceTag = (types = []) => types.some(t => normType(t) === 'general resource');
+const isResourceOnlyBlock   = (b) => !!b && (b.types || []).length > 0 && (b.types || []).every(t => normType(t) === 'general resource');
+
 // ─── Training data cache ──────────────────────────────────────
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -876,6 +885,11 @@ async function regenerateQuizForBlock(blockId) {
     return;
   }
 
+  if (isResourceOnlyBlock(block)) {
+    console.log(`⏭️   Skipping quiz for "${block.name}" — General Resource only, not a training`);
+    return;
+  }
+
   console.log(`🤖  Generating quiz for: ${block.name}`);
   try {
     const questions = await generateQuizForBlock(block);
@@ -1239,6 +1253,12 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
       return a.name.localeCompare(b.name);
     });
 
+    // General Resource-only blocks are reference documents, not trainings: keep
+    // them out of the course list, the counts and "Other Assigned Trainings".
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      if (isResourceOnlyBlock(blocks[i])) blocks.splice(i, 1);
+    }
+
     // Build roles array with their deduplicated block IDs
     const roles = [];
     const allRoleBlockIds = new Set(); // track every block already in a real role
@@ -1246,20 +1266,29 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
       const role = cache.roles[roleId];
       if (!role) continue;
       const blockIds = new Set();
+      const resourceMap = new Map();
       for (const profileId of role.profileIds) {
         const profile = cache.profiles[profileId];
         if (!profile) continue;
         for (const blockId of profile.blockIds) {
-          if (cache.blocks[blockId]) {
-            blockIds.add(blockId);
-            allRoleBlockIds.add(blockId);
+          const cb = cache.blocks[blockId];
+          if (!cb) continue;
+          if (hasGeneralResourceTag(cb.types)) {
+            resourceMap.set(cb.id, { id: cb.id, name: cb.name, resourceOnly: isResourceOnlyBlock(cb) });
           }
+          if (isResourceOnlyBlock(cb)) continue; // reference document, not a training
+          blockIds.add(blockId);
+          allRoleBlockIds.add(blockId);
         }
       }
+      // Documents for the grid on this role's card: Path documents first, then the rest by name
+      const resources = Array.from(resourceMap.values()).sort((a, b) =>
+        (b.resourceOnly - a.resourceOnly) || a.name.localeCompare(b.name, undefined, { numeric: true }));
       roles.push({
         id:                       role.id,
         name:                     role.name,
         blockIds:                 Array.from(blockIds),
+        resources,
         importContractorTrainings: role.importContractorTrainings || false,
       });
     }
@@ -1278,6 +1307,14 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
       );
 
       if (contractorTemplateIds.size) {
+        // The template role's documents (e.g. the Closer handbook and Path) carry over to every contractor card
+        const templateResources = [];
+        for (const r of roles) {
+          if (!contractorTemplateIds.has(r.id)) continue;
+          for (const res of r.resources || []) {
+            if (!templateResources.some(x => x.id === res.id)) templateResources.push(res);
+          }
+        }
         // Remove the template roles — they'll be replaced by per-contractor virtuals
         for (let i = roles.length - 1; i >= 0; i--) {
           if (contractorTemplateIds.has(roles[i].id)) roles.splice(i, 1);
@@ -1346,6 +1383,7 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
                 id:                        `__contractor__${cpId}`,
                 name:                      cpName,
                 blockIds:                  Array.from(contractorBlockIds),
+                resources:                 templateResources,
                 importContractorTrainings: true,
                 contractorName:            cpName,
                 // Per-contractor completedMap so this role's status is isolated
@@ -1713,6 +1751,60 @@ app.get('/api/block/:blockId/files', requireAuth, async (req, res) => {
     res.json({ associatedForms, guidance, media });
   } catch (err) {
     console.error(`❌ /api/block/${req.params.blockId}/files error:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/resource-files ────────────────────────────────
+// Batched file lookup for the General Resource grids on the main page.
+// Body: { blockIds: [...] }  →  { files: { <blockId>: [{ name, url }] } }
+// Only blocks tagged General Resource can be asked for. Notion's signed file
+// URLs last about an hour, so results are kept for 20 minutes.
+const resourceFilesCache = new Map(); // dashed blockId → { ts, files }
+const RESOURCE_FILES_TTL = 20 * 60 * 1000;
+const toDashedId = (id) => {
+  const k = String(id || '').replace(/-/g, '');
+  return k.length === 32 ? `${k.slice(0,8)}-${k.slice(8,12)}-${k.slice(12,16)}-${k.slice(16,20)}-${k.slice(20)}` : null;
+};
+app.post('/api/resource-files', requireAuth, async (req, res) => {
+  try {
+    if (Date.now() - cache.ts > CACHE_TTL) await refreshCache();
+    const wanted = [...new Set((Array.isArray(req.body?.blockIds) ? req.body.blockIds : []).map(toDashedId).filter(Boolean))]
+      .filter(id => cache.blocks[id] && hasGeneralResourceTag(cache.blocks[id].types))
+      .slice(0, 80);
+
+    const files = {};
+    const todo = [];
+    for (const id of wanted) {
+      const hit = resourceFilesCache.get(id);
+      if (hit && Date.now() - hit.ts < RESOURCE_FILES_TTL) files[id] = hit.files;
+      else todo.push(id);
+    }
+
+    // Small worker pool so a long list doesn't hammer Notion
+    let next = 0;
+    const worker = async () => {
+      while (next < todo.length) {
+        const id = todo[next++];
+        try {
+          const page = await notionFetch(`/pages/${id}`);
+          const list = (prop(page, 'Guidance')?.files || []).map(f => ({
+            name: f.name || 'File',
+            url:  f.type === 'file' ? f.file?.url : (f.type === 'external' ? f.external?.url : null),
+          })).filter(f => f.url);
+          resourceFilesCache.set(id, { ts: Date.now(), files: list });
+          files[id] = list;
+        } catch (e) {
+          console.warn(`⚠️  resource-files: could not read block ${id}:`, e.message);
+          files[id] = [];
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, todo.length) }, worker));
+
+    res.json({ files });
+  } catch (err) {
+    console.error('❌ /api/resource-files error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
