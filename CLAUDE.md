@@ -56,7 +56,7 @@ Detected via normalised string matching in `app.js`:
 - `"HR Document Upload"` → `isHRDocumentUploadBlock()` — uploads to HR Documents DB
 - `"Signature Required"` → `isSignatureBlock()` — PDF e-signature flow
 - All others → quiz-based training (AI-generated quizzes stored in trainingBlockQuizzes DB)
-- `"General Resource"` → `hasGeneralResourceTag()` / `isResourceOnlyBlock()` in `server.js`. The block's **Guidance** files are listed in a "Documents" grid on its role's card on the main page (loaded through `POST /api/resource-files`, rendered by `loadRoleResources()` in `app.js`). Combine it with other tags and the block is still a training AND appears in the grid. In practice each role has two **General Resource-only** blocks: `<Role> Path` and `<Handbook name> (complete)` (the whole handbook as one PDF), both linked to the role's Training Profile(s). A block whose **only** tag is General Resource is not a training: it is removed from `blocks`, the role's `blockIds`, the completion counts and "Other Assigned Trainings", and `regenerateQuizForBlock` skips it, so it just gets a tile on the main page.
+- `"General Resource"` → `hasGeneralResourceTag()` / `isResourceOnlyBlock()` in `server.js`. The block's **Guidance**, **Associated forms** and **Files & media** files, plus its **Training link**, are listed in a "Documents" grid on its role's card on the main page (loaded through `POST /api/resource-files`, rendered by `loadRoleResources()` in `app.js`). Combine it with other tags and the block is still a training AND appears in the grid. In practice each role has two **General Resource-only** blocks: `<Role> Path` and `<Handbook name> (complete)` (the whole handbook as one PDF), both linked to the role's Training Profile(s). A block whose **only** tag is General Resource is not a training: it is removed from `blocks`, the role's `blockIds`, the completion counts and "Other Assigned Trainings", and `regenerateQuizForBlock` skips it, so it just gets a tile on the main page.
 
 **Note**: The `Type` multi-select is what drives behaviour. The separate `Role Type` field is NOT used.
 
@@ -117,7 +117,7 @@ HR document uploads use Notion's File Upload API (NOT external URLs):
 | POST | `/api/upload-hr-document` | Upload to HR Documents DB via Notion file upload API |
 | POST | `/api/sign-document` | PDF e-signature → stamps PDF, marks record complete |
 | POST | `/api/sync` | Refresh employee data + training cache |
-| POST | `/api/resource-files` | `{ blockIds }` → Guidance files for General Resource blocks (cached 20 min server-side) |
+| POST | `/api/resource-files` | `{ blockIds }` → files (Guidance / Associated forms / Files & media) and Training link for General Resource blocks (cached 20 min server-side) |
 
 ## CSS Theming
 - Default (pre-login): dark theme, CSS vars set in `:root`

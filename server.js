@@ -1756,12 +1756,19 @@ app.get('/api/block/:blockId/files', requireAuth, async (req, res) => {
 });
 
 // ─── POST /api/resource-files ────────────────────────────────
-// Batched file lookup for the General Resource grids on the main page.
-// Body: { blockIds: [...] }  →  { files: { <blockId>: [{ name, url }] } }
-// Only blocks tagged General Resource can be asked for. Notion's signed file
-// URLs last about an hour, so results are kept for 20 minutes.
-const resourceFilesCache = new Map(); // dashed blockId → { ts, files }
+// Batched lookup for the General Resource grids on the main page.
+// Body: { blockIds: [...] }
+//   →  { resources: { <blockId>: { files: [{ name, url, group }], link } } }
+// "group" is Guidance, Associated forms or Files & media; "link" is the block's
+// Training link (or null). Only blocks tagged General Resource can be asked for.
+// Notion's signed file URLs last about an hour, so results are kept 20 minutes.
+const resourceFilesCache = new Map(); // dashed blockId → { ts, data }
 const RESOURCE_FILES_TTL = 20 * 60 * 1000;
+const RESOURCE_FILE_PROPS = [
+  ['Guidance',           'Guidance'],
+  ['Associated forms ',  'Associated forms'],
+  ['Files & media',      'Files & media'],
+];
 const toDashedId = (id) => {
   const k = String(id || '').replace(/-/g, '');
   return k.length === 32 ? `${k.slice(0,8)}-${k.slice(8,12)}-${k.slice(12,16)}-${k.slice(16,20)}-${k.slice(20)}` : null;
@@ -1773,11 +1780,11 @@ app.post('/api/resource-files', requireAuth, async (req, res) => {
       .filter(id => cache.blocks[id] && hasGeneralResourceTag(cache.blocks[id].types))
       .slice(0, 80);
 
-    const files = {};
+    const resources = {};
     const todo = [];
     for (const id of wanted) {
       const hit = resourceFilesCache.get(id);
-      if (hit && Date.now() - hit.ts < RESOURCE_FILES_TTL) files[id] = hit.files;
+      if (hit && Date.now() - hit.ts < RESOURCE_FILES_TTL) resources[id] = hit.data;
       else todo.push(id);
     }
 
@@ -1788,21 +1795,31 @@ app.post('/api/resource-files', requireAuth, async (req, res) => {
         const id = todo[next++];
         try {
           const page = await notionFetch(`/pages/${id}`);
-          const list = (prop(page, 'Guidance')?.files || []).map(f => ({
-            name: f.name || 'File',
-            url:  f.type === 'file' ? f.file?.url : (f.type === 'external' ? f.external?.url : null),
-          })).filter(f => f.url);
-          resourceFilesCache.set(id, { ts: Date.now(), files: list });
-          files[id] = list;
+          const files = [];
+          const seen  = new Set();
+          for (const [propName, group] of RESOURCE_FILE_PROPS) {
+            for (const f of (prop(page, propName)?.files || [])) {
+              const url = f.type === 'file' ? f.file?.url : (f.type === 'external' ? f.external?.url : null);
+              if (!url) continue;
+              // Signed URLs differ per property; de-duplicate on the file name within a block
+              const key = `${f.name || ''}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              files.push({ name: f.name || 'File', url, group });
+            }
+          }
+          const data = { files, link: prop(page, 'Training link')?.url || null };
+          resourceFilesCache.set(id, { ts: Date.now(), data });
+          resources[id] = data;
         } catch (e) {
           console.warn(`⚠️  resource-files: could not read block ${id}:`, e.message);
-          files[id] = [];
+          resources[id] = { files: [], link: null };
         }
       }
     };
     await Promise.all(Array.from({ length: Math.min(4, todo.length) }, worker));
 
-    res.json({ files });
+    res.json({ resources });
   } catch (err) {
     console.error('❌ /api/resource-files error:', err.message);
     res.status(500).json({ error: err.message });

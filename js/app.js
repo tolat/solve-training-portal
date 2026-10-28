@@ -447,8 +447,8 @@ function renderRoles() {
 // Blocks tagged "General Resource" (Path documents, handbook parts...) list
 // their Guidance files here. One batched request covers every role card;
 // results are kept for 15 minutes because Notion's signed URLs expire.
-let resourceFilesByBlock = {};
-let resourceFilesTs      = 0;
+let resourceDataByBlock = {};   // blockId → { files: [{ name, url, group }], link }
+let resourceFilesTs     = 0;
 const RESOURCE_FILES_TTL_MS = 15 * 60 * 1000;
 const RESOURCE_TILES_COLLAPSED = 6;
 
@@ -456,19 +456,40 @@ function resourceLabel(name) {
   return String(name || '').replace(/^.*Handbook:\s*/i, '').trim() || String(name || '');
 }
 
+// One tile per file (Guidance, Associated forms, Files & media) plus one for the Training link.
+// A block with a single item is labelled with the block's name; with several, each file
+// carries its own file name.
 function resourceTilesFor(role) {
   const tiles = [];
   (role.resources || []).forEach(r => {
-    const files = resourceFilesByBlock[r.id] || [];
-    files.forEach(f => {
+    const data  = resourceDataByBlock[r.id] || { files: [], link: null };
+    const count = data.files.length + (data.link ? 1 : 0);
+    data.files.forEach(f => {
       const fileLabel = String(f.name || '').replace(/\.[a-z0-9]{2,5}$/i, '').replace(/_/g, ' ');
-      tiles.push({ file: f, label: files.length === 1 ? resourceLabel(r.name) : fileLabel });
+      tiles.push({ file: f, label: count === 1 ? resourceLabel(r.name) : fileLabel });
     });
+    if (data.link) {
+      tiles.push({ link: data.link, label: count === 1 ? resourceLabel(r.name) : `${resourceLabel(r.name)} (link)` });
+    }
   });
   return tiles;
 }
 
+function resourceLinkCardHtml(tile) {
+  const video = isVideoLink(tile.link);
+  return `
+    <a class="material-card resource-tile" href="${escHtml(tile.link)}" target="_blank" rel="noopener" title="${escHtml(tile.label)}">
+      <div class="material-card-thumb material-card-generic">
+        <span class="material-card-icon">${video ? '📹' : '🔗'}</span>
+        <span class="material-card-ext-badge">${video ? 'VIDEO' : 'LINK'}</span>
+        ${materialHoverOverlay('Open ↗')}
+      </div>
+      <div class="resource-tile-label">${escHtml(tile.label)}</div>
+    </a>`;
+}
+
 function resourceCardHtml(tile) {
+  if (tile.link) return resourceLinkCardHtml(tile);
   const label = `<div class="resource-tile-label">${escHtml(tile.label)}</div>`;
   // materialCardHtml ends with its own closing tag; the label goes inside the card
   return materialCardHtml({ name: tile.file.name, url: tile.file.url, group: 'Resource' })
@@ -515,11 +536,11 @@ async function loadRoleResources(roles) {
   });
 
   const ids   = [...new Set(withDocs.flatMap(r => r.resources.map(x => x.id)))];
-  const fresh = Date.now() - resourceFilesTs < RESOURCE_FILES_TTL_MS && ids.every(id => id in resourceFilesByBlock);
+  const fresh = Date.now() - resourceFilesTs < RESOURCE_FILES_TTL_MS && ids.every(id => id in resourceDataByBlock);
   try {
     if (!fresh) {
       const data = await apiFetch('/api/resource-files', 'POST', { blockIds: ids });
-      resourceFilesByBlock = data.files || {};
+      resourceDataByBlock = data.resources || {};
       resourceFilesTs = Date.now();
     }
   } catch (err) {
