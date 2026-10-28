@@ -78,7 +78,7 @@ Within each stage group:
 - `SolveTour.maybeStart()` runs at the end of `initApp()`: animated "Welcome to Solve University, <first name>", then a description with **Take me to the walkthrough** / **Skip for now**. The walkthrough spotlights UI elements (profile, stage badge, sync bar, role cards, Go to courses, Documents), steps into the first course (progress, phases, a module row, status colours) and returns to the main page.
 - "Seen" is remembered per person **in the browser** (`localStorage` key `solveu_tour_seen_v1:<email>`), set when the welcome is dismissed or the tour starts/ends. If storage is blocked it never auto-starts. It waits while `currentUser.mustChangePassword` is true and starts after the forced password change (`doChangePassword`).
 - Replay: "Take the tour" card on the profile screen (`SolveTour.replay()`). `SolveTour.abort()` is called on sign-out and on a 401.
-- Steps live in the `STEPS` array: each has a `target()` returning the element(s) to spotlight; a step whose target is not visible (e.g. header hidden in embedded mode) is skipped. Styles are the `tour-*` / `tw-*` rules at the end of `styles.css` (CSS is cache-first: bump `CACHE_NAME` in `sw.js` when they change).
+- Steps live in the `STEPS` array: each has a `target()` returning the element(s) to spotlight; a step whose target is not visible (e.g. header hidden in embedded mode) is skipped. Its styles (`tour-*` / `tw-*`) are injected by `tour.js` itself, deliberately not in `styles.css`: the service worker serves CSS cache-first, so on the first load after a deploy new JS would otherwise run against stale CSS.
 
 ## Guidance Blurb (app.js — openBlock)
 When a training block is opened, a contextual blue info banner appears:

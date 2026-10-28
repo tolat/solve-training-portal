@@ -14,6 +14,145 @@
 (function () {
   'use strict';
 
+  // ── Styles ──────────────────────────────────────────────────
+  // Injected from here (not styles.css) because the service worker serves the stylesheet
+  // cache-first: on the first load after a deploy the new JS would otherwise meet old CSS.
+  const TOUR_CSS = `
+  /* ════════════════════════════════════════════════════════════
+     First-login welcome + guided tour (js/tour.js)
+     ════════════════════════════════════════════════════════════ */
+
+  /* ── Welcome screen ── */
+  .tour-welcome {
+    position: fixed; inset: 0; z-index: 10050;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; overflow: hidden; color: #fff;
+    background:
+      radial-gradient(ellipse at 82% 0%,  #1f5a2a 0%, transparent 55%),
+      radial-gradient(ellipse at 8% 100%, #2b4a1a 0%, transparent 50%),
+      #0c170f;
+    opacity: 0; transition: opacity 0.6s ease;
+  }
+  .tour-welcome.in  { opacity: 1; }
+  .tour-welcome.out { opacity: 0; pointer-events: none; transition-duration: 0.45s; }
+  .tw-glow {
+    position: absolute; width: 620px; height: 620px; left: 50%; top: 50%;
+    margin: -310px 0 0 -310px; border-radius: 50%; pointer-events: none;
+    background: radial-gradient(circle, rgba(78,202,90,0.20) 0%, rgba(78,202,90,0) 65%);
+    animation: tw-breathe 6s ease-in-out infinite;
+  }
+  .tw-stage {
+    position: absolute; left: 50%; top: 50%;
+    width: min(560px, calc(100vw - 48px)); transform: translate(-50%, -50%);
+    text-align: center;
+  }
+  .tw-logo { display: block; width: 150px; max-width: 46vw; margin: 0 auto 28px; opacity: 0; transform: translateY(10px); }
+  .tw-hero h1 {
+    margin: 0; font-size: clamp(30px, 7.4vw, 54px); line-height: 1.12;
+    font-weight: 800; letter-spacing: -0.02em;
+  }
+  .tw-word { display: inline-block; opacity: 0; transform: translateY(24px); filter: blur(8px); }
+  .tw-name { color: #4eca5a; }
+  .tw-hero.in .tw-logo { animation: tw-rise 0.7s cubic-bezier(.2,.8,.2,1) 0.1s forwards; }
+  .tw-hero.in .tw-word { animation: tw-word-in 0.85s cubic-bezier(.2,.8,.2,1) forwards; animation-delay: calc(0.35s + var(--i) * 0.14s); }
+  .tw-hero.out .tw-logo,
+  .tw-hero.out .tw-word { opacity: 1; animation: tw-word-out 0.55s ease forwards; animation-delay: calc(var(--i, 0) * 0.04s); }
+
+  .tw-intro { visibility: hidden; }
+  .tw-intro.in { visibility: visible; }
+  .tw-item { opacity: 0; transform: translateY(18px); }
+  .tw-intro.in .tw-item { animation: tw-rise 0.7s cubic-bezier(.2,.8,.2,1) forwards; animation-delay: calc(var(--i) * 0.14s); }
+  .tw-kicker { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #4eca5a; margin-bottom: 14px; }
+  .tw-copy { margin: 0 0 14px; font-size: clamp(15px, 3.9vw, 18px); line-height: 1.6; color: rgba(255,255,255,0.88); }
+  .tw-copy-sub { color: #fff; font-weight: 600; margin-bottom: 26px; }
+  .tw-actions { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .tw-btn {
+    font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer;
+    border-radius: 10px; padding: 14px 24px; width: min(340px, 100%); border: 2px solid transparent;
+    transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+  }
+  .tw-btn-primary { background: #4eca5a; color: #0b1a0e; }
+  .tw-btn-primary:hover { background: #5dd96a; box-shadow: 0 0 24px rgba(78,202,90,0.4); transform: translateY(-1px); }
+  .tw-btn-ghost { background: transparent; color: rgba(255,255,255,0.78); border-color: rgba(255,255,255,0.25); }
+  .tw-btn-ghost:hover { color: #fff; border-color: rgba(255,255,255,0.55); }
+  .tw-btn:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+  @media (min-width: 560px) {
+    .tw-actions { flex-direction: row; justify-content: center; }
+    .tw-btn { width: auto; }
+  }
+  @keyframes tw-word-in  { from { opacity: 0; transform: translateY(24px); filter: blur(8px); } to { opacity: 1; transform: none; filter: blur(0); } }
+  @keyframes tw-word-out { from { opacity: 1; transform: none; filter: blur(0); } to { opacity: 0; transform: translateY(-18px); filter: blur(6px); } }
+  @keyframes tw-rise     { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+  @keyframes tw-breathe  { 0%, 100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.12); opacity: 1; } }
+
+  /* ── Spotlight tour ── */
+  .tour-layer { position: fixed; inset: 0; z-index: 10040; opacity: 0; transition: opacity 0.3s ease; }
+  .tour-layer.show { opacity: 1; }
+  .tour-layer.leaving { opacity: 0; }
+  .tour-block { position: absolute; inset: 0; touch-action: none; }
+  .tour-spot {
+    position: absolute; border-radius: 12px; pointer-events: none;
+    box-shadow: 0 0 0 9999px rgba(7, 16, 9, 0.68);
+    border: 2px solid #4eca5a;
+    transition: left 0.38s cubic-bezier(.3,.7,.2,1), top 0.38s cubic-bezier(.3,.7,.2,1),
+                width 0.38s cubic-bezier(.3,.7,.2,1), height 0.38s cubic-bezier(.3,.7,.2,1), opacity 0.25s;
+  }
+  .tour-spot::after {
+    content: ''; position: absolute; inset: -6px; border-radius: 16px;
+    border: 2px solid rgba(78,202,90,0.55); animation: tour-pulse 1.8s ease-out infinite;
+  }
+  @keyframes tour-pulse { 0% { transform: scale(0.98); opacity: 0.9; } 100% { transform: scale(1.06); opacity: 0; } }
+
+  .tour-tip {
+    position: absolute; background: #fff; color: #152219; border-radius: 14px;
+    padding: 16px 18px 14px; box-shadow: 0 14px 44px rgba(0,0,0,0.38);
+    transition: opacity 0.2s ease, left 0.38s cubic-bezier(.3,.7,.2,1), top 0.38s cubic-bezier(.3,.7,.2,1);
+  }
+  /* Scrolls on very short screens; the arrow sits outside it so it is never clipped */
+  .tour-body { max-height: calc(100vh - 56px); overflow-y: auto; }
+  .tour-tip.swap { opacity: 0; }
+  .tour-arrow { position: absolute; width: 14px; height: 14px; background: #fff; transform: rotate(45deg); border-radius: 3px; }
+  .tour-arrow.up   { top: -7px; }
+  .tour-arrow.down { bottom: -7px; }
+  .tour-progress { display: flex; gap: 5px; margin-bottom: 10px; }
+  .tour-dot { height: 4px; flex: 1; border-radius: 2px; background: rgba(0,0,0,0.12); transition: background 0.25s; }
+  .tour-dot.done { background: rgba(42,150,64,0.45); }
+  .tour-dot.on   { background: #2a9640; }
+  .tour-title { margin: 0 0 6px; font-size: 16px; font-weight: 700; color: #152219; }
+  .tour-text  { margin: 0 0 14px; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,0.8); }
+  .tour-actions { display: flex; align-items: center; gap: 8px; }
+  .tour-spacer { flex: 1; }
+  .tour-btn {
+    font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+    border-radius: 8px; padding: 9px 16px; border: 1px solid transparent;
+  }
+  .tour-btn-primary { background: #2a9640; color: #fff; }
+  .tour-btn-primary:hover { background: #217832; }
+  .tour-btn-ghost { background: transparent; color: #152219; border-color: rgba(0,0,0,0.18); }
+  .tour-btn-ghost:hover { background: rgba(0,0,0,0.04); }
+  .tour-btn-link { background: none; color: rgba(21,34,25,0.55); padding-left: 0; padding-right: 4px; font-weight: 600; }
+  .tour-btn-link:hover { color: #152219; text-decoration: underline; }
+  .tour-btn:focus-visible { outline: 3px solid #2a9640; outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tw-glow, .tour-spot::after { animation: none; }
+    .tw-logo, .tw-word, .tw-item { transform: none !important; filter: none !important; }
+    .tw-hero.in .tw-logo, .tw-hero.in .tw-word, .tw-intro.in .tw-item { animation: tw-fade 0.4s ease forwards; animation-delay: 0s; }
+    .tw-hero.out .tw-logo, .tw-hero.out .tw-word { animation: tw-fade-out 0.2s ease forwards; animation-delay: 0s; }
+    .tour-spot, .tour-tip { transition: opacity 0.2s; }
+  }
+  @keyframes tw-fade     { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes tw-fade-out { from { opacity: 1; } to { opacity: 0; } }
+  `;
+  function injectStyles() {
+    if (document.getElementById('solveTourStyles')) return;
+    const st = document.createElement('style');
+    st.id = 'solveTourStyles';
+    st.textContent = TOUR_CSS;
+    document.head.appendChild(st);
+  }
+  injectStyles();
+
   // ── Settings ────────────────────────────────────────────────
   const SEEN_PREFIX = 'solveu_tour_seen_v1:';
   const HERO_HOLD_MS = 2800;          // how long the "Welcome…" headline stays before it animates out
