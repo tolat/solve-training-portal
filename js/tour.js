@@ -1,7 +1,8 @@
 /**
  * Solve University — first-login welcome + guided tour.
  *
- *   SolveTour.maybeStart()  → shows the welcome screen once per person (per browser)
+ *   SolveTour.maybeStart()  → shows the welcome screen on every visit until the person has
+ *                             deliberately skipped or finished the tour (flag lives in Notion)
  *   SolveTour.replay()      → runs the walkthrough again (profile screen button)
  *   SolveTour.abort()       → tears everything down (sign out / session expiry)
  *
@@ -182,14 +183,40 @@
     return false;
   }
 
-  // "Seen" is remembered per person in this browser. null means storage is unavailable
-  // (private mode, blocked in an embed): then we never auto-start, to avoid nagging on every load.
+  // Whether this person has deliberately finished or skipped the tour.
+  // Source of truth is the "Portal Tour Completed" checkbox on their Company Directory page
+  // (GET /api/tour-status). If that property does not exist yet we fall back to a per-browser
+  // flag. The browser flag is also written, so a failed Notion write cannot make the welcome
+  // reappear for ever.
   function seenKey() { return SEEN_PREFIX + String(currentUser?.email || '').trim().toLowerCase(); }
-  function hasSeen() {
+  function hasSeen() {            // true / false, or null when browser storage is unavailable
     try { return !!localStorage.getItem(seenKey()); } catch (_) { return null; }
   }
-  function markSeen() {
+  function markSeenLocal() {
     try { localStorage.setItem(seenKey(), String(Date.now())); } catch (_) { /* ignore */ }
+  }
+  // Called ONLY for a deliberate act: "Skip for now", "Skip tour"/Escape, or finishing the last step.
+  function markDone() {
+    markSeenLocal();
+    if (!currentUser || currentUser.tourCompleted === true) return;
+    currentUser.tourCompleted = true;
+    try {
+      Promise.resolve(apiFetch('/api/tour-complete', 'POST')).catch(() => { /* flag stays local */ });
+    } catch (_) { /* ignore */ }
+  }
+  // true = done, false = not yet, null = cannot tell
+  async function tourIsDone() {
+    if (!currentUser) return null;
+    if (typeof currentUser.tourCompleted === 'boolean') return currentUser.tourCompleted;
+    try {
+      const r = await apiFetch('/api/tour-status');
+      if (r && typeof r.tourCompleted === 'boolean') {
+        currentUser.tourCompleted = r.tourCompleted;
+        return r.tourCompleted;
+      }
+    } catch (_) { /* fall through to the browser flag */ }
+    const local = hasSeen();
+    return local === null ? null : local;
   }
 
   function firstName() {
@@ -372,16 +399,17 @@
     welcomeEl._advance = advance;
     welcomeEl._timer = setTimeout(advance, HERO_HOLD_MS + (prefersReducedMotion() ? 0 : 800));
 
-    $('#tourTakeBtn', welcomeEl).addEventListener('click', (e) => { e.stopPropagation(); closeWelcome().then(() => startTour(true)); });
+    // Taking the walkthrough does not count as done: it is only done once they finish or skip it
+    $('#tourTakeBtn', welcomeEl).addEventListener('click', (e) => { e.stopPropagation(); closeWelcome(false).then(() => startTour(true)); });
     $('#tourSkipBtn', welcomeEl).addEventListener('click', (e) => {
       e.stopPropagation();
-      closeWelcome().then(() => toast('No problem. You can take the tour any time from your profile.'));
+      closeWelcome(true).then(() => toast('No problem. You can take the tour any time from your profile.'));
     });
   }
 
-  async function closeWelcome() {
+  async function closeWelcome(deliberateSkip) {
     if (!welcomeEl) return;
-    markSeen();
+    if (deliberateSkip) markDone();
     clearTimeout(welcomeEl._timer);
     welcomeEl.classList.remove('in');
     welcomeEl.classList.add('out');
@@ -446,12 +474,12 @@
     const act = btn.dataset.act;
     if (act === 'next') go(1);
     else if (act === 'back') go(-1);
-    else if (act === 'skip') finish(false);
+    else if (act === 'skip') finish('skipped');
   }
 
   function onKey(e) {
     if (!active) return;
-    if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    if (e.key === 'Escape') { e.preventDefault(); finish('skipped'); }
     else if (e.key === 'ArrowRight' || e.key === 'Enter') { if (document.activeElement?.dataset?.act !== 'skip' && document.activeElement?.dataset?.act !== 'back') { e.preventDefault(); if (!busy) go(1); } }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); if (!busy) go(-1); }
   }
@@ -514,7 +542,7 @@
     // Walk past steps whose target is missing (in the direction we are travelling)
     for (;;) {
       if (idx < 0) { idx = 0; dir = 1; }
-      if (idx >= list.length) { busy = false; return finish(true); }
+      if (idx >= list.length) { busy = false; return finish('completed'); }
       const step = list[idx];
       await ensureScreen(step);
       if (step.center || resolveTargets(step).length) break;
@@ -546,7 +574,7 @@
   function go(dir) {
     if (busy) return;
     const step = list[idx];
-    if (dir > 0 && step.last) return finish(true);
+    if (dir > 0 && step.last) return finish('completed');
     show(idx + dir, dir);
   }
 
@@ -609,7 +637,6 @@
     if (active) return;
     startedFromWelcome = !!fromWelcome;
     active = true;
-    markSeen();
     buildLayer();
 
     // The tour always begins on the main page
@@ -623,15 +650,16 @@
     await sleep(200);
 
     list = STEPS.filter(stepAvailable);
-    if (!list.length) return finish(false);
+    if (!list.length) return finish('empty');
     show(0, 1);
   }
 
-  async function finish(completed) {
+  // reason: 'completed' | 'skipped' (both deliberate, so the tour is recorded as done) | 'empty'
+  async function finish(reason) {
     if (!active) return;
     active = false;
     busy = true;
-    markSeen();
+    if (reason === 'completed' || reason === 'skipped') markDone();
     if (layer) { layer.classList.remove('show'); layer.classList.add('leaving'); }
     // Put the user back on the main page
     if (activeScreen() === 'screenCourse' && typeof goBack === 'function') goBack();
@@ -639,7 +667,7 @@
     destroyLayer();
     busy = false;
     window.scrollTo({ top: 0, behavior: 'auto' });
-    if (!completed) toast('You can take the tour again any time from your profile.');
+    if (reason === 'skipped') toast('You can take the tour again any time from your profile.');
   }
 
   function abort() {
@@ -649,13 +677,21 @@
   }
 
   // ── Public API ──────────────────────────────────────────────
-  function maybeStart() {
-    if (active || welcomeEl) return;
+  let checking = false;
+  async function maybeStart() {
+    if (active || welcomeEl || checking) return;
     if (!currentUser || !trainingData || !(trainingData.roles || []).length) return;
     if (currentUser.mustChangePassword) return;          // after the forced password change instead
-    if (hasSeen() !== false) return;                     // seen already, or storage unavailable
-    if (activeScreen() !== 'screenRoles' && activeScreen() !== 'screenProfile') return;
-    showWelcome();
+    checking = true;
+    try {
+      const done = await tourIsDone();
+      if (done !== false) return;                        // already done, or we cannot tell
+      if (!currentUser || active || welcomeEl) return;   // state changed while we were asking
+      if (activeScreen() !== 'screenRoles' && activeScreen() !== 'screenProfile') return;
+      showWelcome();
+    } finally {
+      checking = false;
+    }
   }
 
   function replay() {

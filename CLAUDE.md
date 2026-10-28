@@ -76,7 +76,8 @@ Within each stage group:
 
 ## First-login welcome + guided tour (js/tour.js)
 - `SolveTour.maybeStart()` runs at the end of `initApp()`: animated "Welcome to Solve University, <first name>", then a description with **Take me to the walkthrough** / **Skip for now**. The walkthrough spotlights UI elements (profile, stage badge, sync bar, role cards, Go to courses, Documents), steps into the first course (progress, phases, a module row, status colours) and returns to the main page.
-- "Seen" is remembered per person **in the browser** (`localStorage` key `solveu_tour_seen_v1:<email>`), set when the welcome is dismissed or the tour starts/ends. If storage is blocked it never auto-starts. It waits while `currentUser.mustChangePassword` is true and starts after the forced password change (`doChangePassword`).
+- The welcome shows on **every visit** (fresh login, auto-login and resumed sessions) until the person has **deliberately** skipped or finished it. Deliberate = "Skip for now", "Skip tour" / Escape mid-tour, or finishing the last step. Merely starting the walkthrough, or closing the app part-way, does not count.
+- Source of truth is the **`Portal Tour Completed`** checkbox on the employee's Company Directory page: `GET /api/tour-status` reads it, `POST /api/tour-complete` sets it (untick it in Notion to show someone the tour again). If the property is missing or the request fails, `tour.js` falls back to a per-browser flag (`localStorage` key `solveu_tour_seen_v1:<email>`, also written on completion); if storage is blocked too it never auto-starts. It waits while `currentUser.mustChangePassword` is true and starts after the forced password change (`doChangePassword`).
 - Replay: "Take the tour" card on the profile screen (`SolveTour.replay()`). `SolveTour.abort()` is called on sign-out and on a 401.
 - Steps live in the `STEPS` array: each has a `target()` returning the element(s) to spotlight; a step whose target is not visible (e.g. header hidden in embedded mode) is skipped. Its styles (`tour-*` / `tw-*`) are injected by `tour.js` itself, deliberately not in `styles.css`: the service worker serves CSS cache-first, so on the first load after a deploy new JS would otherwise run against stale CSS.
 
@@ -124,6 +125,8 @@ HR document uploads use Notion's File Upload API (NOT external URLs):
 | POST | `/api/upload-hr-document` | Upload to HR Documents DB via Notion file upload API |
 | POST | `/api/sign-document` | PDF e-signature → stamps PDF, marks record complete |
 | POST | `/api/sync` | Refresh employee data + training cache |
+| GET | `/api/tour-status` | `{ tourCompleted }` from the Company Directory checkbox (null if the property is missing) |
+| POST | `/api/tour-complete` | Sets `Portal Tour Completed` on the logged-in employee |
 | POST | `/api/resource-files` | `{ blockIds }` → files (Guidance / Associated forms / Files & media) and Training link for General Resource blocks (cached 20 min server-side) |
 
 ## CSS Theming

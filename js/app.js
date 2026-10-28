@@ -2575,6 +2575,9 @@ function showToast(msg) {
     renderRoles();
     showScreen('screenRoles');
     updateSyncBar();
+    // Resumed session (e.g. reopening the installed app): the welcome is still due until
+    // they have skipped or finished the tour
+    if (window.SolveTour) setTimeout(() => SolveTour.maybeStart(), 500);
   } catch (err) {
     // Token expired or invalid — go back to login
     authToken = null;

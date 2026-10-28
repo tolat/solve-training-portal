@@ -1755,6 +1755,38 @@ app.get('/api/block/:blockId/files', requireAuth, async (req, res) => {
   }
 });
 
+// ─── Portal tour flag ─────────────────────────────────────────
+// "Portal Tour Completed" is a checkbox on the employee's Company Directory page.
+// It is set only when the person deliberately finishes the walkthrough or clicks skip,
+// so the welcome keeps coming up on every visit until then (see js/tour.js).
+// GET returns { tourCompleted: true|false } or null when the property does not exist
+// (the client then falls back to a per-browser flag).
+const TOUR_PROP = 'Portal Tour Completed';
+
+app.get('/api/tour-status', requireAuth, async (req, res) => {
+  try {
+    const page = await notionFetch(`/pages/${req.session.pageId}`);
+    const p = prop(page, TOUR_PROP);
+    res.json({ tourCompleted: p && p.type === 'checkbox' ? !!p.checkbox : null });
+  } catch (err) {
+    console.warn('⚠️  /api/tour-status:', err.message);
+    res.json({ tourCompleted: null });
+  }
+});
+
+app.post('/api/tour-complete', requireAuth, async (req, res) => {
+  try {
+    await notionFetch(`/pages/${req.session.pageId}`, 'PATCH', {
+      properties: { [TOUR_PROP]: { checkbox: true } },
+    });
+    console.log(`✔  Portal tour marked complete: ${req.session.name}`);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('❌ /api/tour-complete:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── POST /api/resource-files ────────────────────────────────
 // Batched lookup for the General Resource grids on the main page.
 // Body: { blockIds: [...] }
