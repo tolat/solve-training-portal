@@ -1435,7 +1435,8 @@ function isSignatureBlock(block) {
 function blockNeedsQuizAndSignature(block) {
   if (!isSignatureBlock(block)) return false;
   if (isDocumentUploadBlock(block) || isHRDocumentUploadBlock(block)) return false;
-  const special = new Set(['signaturerequired', 'documentupload', 'hrdocumentupload']);
+  // General Resource only controls where a block is listed (the Documents grid), not how it is completed
+  const special = new Set(['signaturerequired', 'documentupload', 'hrdocumentupload', 'generalresource']);
   return (block.types || []).some(t => !special.has(String(t).toLowerCase().replace(/[\s_-]/g, '')));
 }
 
