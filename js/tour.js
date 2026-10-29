@@ -111,7 +111,8 @@
     transition: opacity 0.2s ease, left 0.38s cubic-bezier(.3,.7,.2,1), top 0.38s cubic-bezier(.3,.7,.2,1);
   }
   /* Scrolls on very short screens; the arrow sits outside it so it is never clipped */
-  .tour-body { max-height: calc(100vh - 56px); overflow-y: auto; }
+  /* The padding/negative margin give focus rings room: overflow clipping would otherwise cut them off */
+  .tour-body { max-height: calc(100vh - 56px); overflow-y: auto; margin: -8px; padding: 8px; }
   .tour-tip.swap { opacity: 0; }
   .tour-arrow { position: absolute; width: 14px; height: 14px; background: #fff; transform: rotate(45deg); border-radius: 3px; }
   .tour-arrow.up   { top: -7px; }
