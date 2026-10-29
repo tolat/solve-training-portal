@@ -350,7 +350,8 @@ function renderRoles() {
   if (!trainingData) return;
   const { roles, completedMap, blocks } = trainingData;
 
-  document.getElementById('rolesTitle').textContent = currentUser.name + "'s Courses";
+  const firstName = String(currentUser.name || '').trim().split(/\s+/)[0];
+  document.getElementById('rolesTitle').textContent = firstName ? `Welcome Back, ${firstName}` : 'Welcome Back';
 
   // Show inline profile button when header-main is hidden
   if (window._hideHeader) {

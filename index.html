@@ -17,6 +17,23 @@
 <link rel="icon" href="solve_icon.png" type="image/png">
 <link rel="stylesheet" href="css/styles.css">
 <style>
+  /* Main-page heading block (inline so it is never out of step with a cached stylesheet) */
+  .roles-page-header { padding-left: 0; padding-right: 0; }
+  .roles-title { font-size: 24px; letter-spacing: -0.01em; }
+  .tour-link {
+    display: inline-flex; align-items: center; gap: 5px;
+    margin-top: 10px; padding: 2px 0;
+    background: none; border: none; cursor: pointer;
+    font-family: inherit; font-size: 13px; font-weight: 600;
+    color: var(--green); text-decoration: underline; text-underline-offset: 3px;
+  }
+  .tour-link:hover { color: var(--green-mid); }
+  .tour-link:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; border-radius: 3px; }
+  .tour-link span { text-decoration: none; display: inline-block; transition: transform 0.15s; }
+  .tour-link:hover span { transform: translateX(3px); }
+  .roles-section-title {
+    margin: 4px 0 0; font-size: 17px; font-weight: 700; color: var(--text);
+  }
   #uploadDropZone {
     border: 2px dashed var(--border, rgba(0,0,0,0.15));
     border-radius: 10px;
@@ -172,7 +189,9 @@
   <div class="roles-page-header">
     <div id="rolesTitle" class="roles-title"></div>
     <div id="rolesSubtitle" class="roles-subtitle"></div>
+    <button type="button" class="tour-link" id="tourLink" onclick="window.SolveTour && SolveTour.replay()">Watch the Solve-U Walkthrough <span aria-hidden="true">→</span></button>
   </div>
+  <h2 class="roles-section-title">My Courses</h2>
   <div class="roles-grid" id="rolesGrid"></div>
 </div>
 

@@ -3,7 +3,8 @@
  *
  *   SolveTour.maybeStart()  → shows the welcome screen on every visit until the person has
  *                             deliberately skipped or finished the tour (flag lives in Notion)
- *   SolveTour.replay()      → runs the walkthrough again (profile screen button)
+ *   SolveTour.replay()      → runs the walkthrough again ("Watch the Solve-U Walkthrough" link on the
+ *                             main page, and the profile screen button)
  *   SolveTour.abort()       → tears everything down (sign out / session expiry)
  *
  * Works on phones and desktops: the spotlight and tooltip are measured against the
@@ -241,7 +242,7 @@
       id: 'profile', screen: 'roles',
       target: () => [isVisible($('#headerProfileBtn')) ? $('#headerProfileBtn') : $('#inlineProfileBar')],
       title: 'Your profile',
-      text: 'Tap your name to see your account: your roles, your onboarding stage, and where to change your password. You can also take this tour again from there.',
+      text: 'Tap your name to see your account: your roles, your onboarding stage, and where to change your password.',
     },
     {
       id: 'stage', screen: 'roles',
@@ -315,7 +316,7 @@
       id: 'done', screen: 'roles', center: true,
       target: () => [],
       title: 'You’re all set',
-      text: 'That is everything you need to get started. Open any role to begin, and you can replay this tour from your profile whenever you like.',
+      text: 'That is everything you need to get started. Open any role to begin. You can watch this walkthrough again any time using the link at the top of the page.',
       last: true,
     },
   ];
@@ -403,7 +404,7 @@
     $('#tourTakeBtn', welcomeEl).addEventListener('click', (e) => { e.stopPropagation(); closeWelcome(false).then(() => startTour(true)); });
     $('#tourSkipBtn', welcomeEl).addEventListener('click', (e) => {
       e.stopPropagation();
-      closeWelcome(true).then(() => toast('No problem. You can take the tour any time from your profile.'));
+      closeWelcome(true).then(() => toast('No problem. You can watch the walkthrough any time from the link at the top of the page.'));
     });
   }
 
@@ -667,7 +668,7 @@
     destroyLayer();
     busy = false;
     window.scrollTo({ top: 0, behavior: 'auto' });
-    if (reason === 'skipped') toast('You can take the tour again any time from your profile.');
+    if (reason === 'skipped') toast('You can watch the walkthrough again any time from the link at the top of the page.');
   }
 
   function abort() {
