@@ -105,7 +105,7 @@ HR document uploads use Notion's File Upload API (NOT external URLs):
 4. Uses Notion-Version: `2026-03-11`
 - Do NOT set `Content-Type` header manually on the send step — fetch sets it with boundary automatically
 
-**⚠️ Certificate uploads (`/api/upload-certificate`) still use external Railway URLs — this is a known issue and should be migrated to the same Notion native upload flow.**
+**Certificate uploads (`/api/upload-certificate`) and signed documents (`/api/sign-document`) use the same flow** (`uploadFileToNotion` / `uploadBytesToNotion` + `notionFileRef`): the file is stored by Notion and the training record's `Certificates` property references it as a `file_upload`. Nothing is kept on the server's disk (multer's temp copy is deleted after upload) and there is no `/uploads` route. Do not go back to linking files by the portal's own URL: Railway's disk is wiped on every deploy and those links die (5 records already lost their files this way in Oct 2026). Re-uploading replaces the record's `Certificates` list.
 
 ## Session Data (req.session)
 ```js
@@ -175,6 +175,5 @@ async function notionFetch(endpoint, method = 'GET', body = null)
 ```
 
 ## Known Issues / Pending Work
-1. **Certificate uploads still use external URLs** — `POST /api/upload-certificate` stores files as `http://APP_URL/uploads/...`. Should be migrated to `uploadFileToNotion()` like HR docs.
-2. **Signed PDF URLs** — `POST /api/sign-document` also stores signed PDFs as external Railway URLs. Same migration needed.
-3. Railway's filesystem is ephemeral — uploaded files in `/uploads/` are lost on redeploy.
+1. Old training records may still hold dead links from before this fix: `https://solve-training-portal-production.up.railway.app/uploads/...` (5 records) and `http://localhost:...` (3 records). The files are gone; they need to be re-uploaded by hand.
+2. Webhook and quiz-regeneration endpoints (`/api/webhook/notion*`, `/api/regenerate-quiz/:id`, `/api/regenerate-missing-quizzes`, `/api/webhook/signature-fields`) are unauthenticated, and `express.static(__dirname)` publishes the app's own source files. Both are known and not yet fixed.

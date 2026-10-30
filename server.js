@@ -25,7 +25,7 @@ let PDFLib;
 try { PDFLib = require('pdf-lib'); } catch { console.warn('⚠️   pdf-lib not installed — document signing disabled. Run: npm install pdf-lib'); }
 
 // ─── File upload storage ──────────────────────────────────────
-// Files are stored in /uploads and served statically.
+// multer's temporary landing spot only: every upload is copied into Notion (File Upload API) and the temp copy deleted.
 // For production, swap this for cloud storage (S3, Cloudinary, etc.)
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -84,10 +84,21 @@ const DB = {
 };
 
 // ─── Notion API helpers ───────────────────────────────────────
+const NOTION_ID_RE = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
+
 // Timeouts, dropped connections, 429s and 5xx are retried with backoff (see resilience.js);
 // after that the failure is e-mailed to ALERT_EMAIL. A database query is a POST but safe to repeat;
 // a page-creating POST is only re-sent when Notion definitely did not process it (429/503).
 async function notionFetch(endpoint, method = 'GET', body = null) {
+  // An id that is not a Notion id (a Softr preview sends the literal text "{user_field}", a mistyped link
+  // sends anything) is the caller's mistake, not an integration failure: never send it to Notion, where it
+  // would come back as a 400 and trigger a failure alert e-mail.
+  const idPart = /^\/(?:pages|blocks|databases)\/([^/?]+)/.exec(endpoint);
+  if (idPart && !NOTION_ID_RE.test(decodeURIComponent(idPart[1]))) {
+    const e = new Error(`Notion API 404 on ${method} ${endpoint.replace(idPart[1], '<invalid id>')}: not a valid Notion id`);
+    e.invalidId = true;
+    throw e;
+  }
   const idempotent = method !== 'POST' || /\/(query|search)$/.test(endpoint);
   const res = await resilience.fetchWithRetry(`https://api.notion.com/v1${endpoint}`, {
     method,
@@ -116,6 +127,15 @@ const ANTHROPIC_QUIZ         = { service: 'Anthropic', idempotent: true, attempt
  * Returns the file_upload ID to reference in Notion property values.
  */
 async function uploadFileToNotion(filePath, originalName, mimeType) {
+  return uploadBytesToNotion(await fs.promises.readFile(filePath), originalName, mimeType);
+}
+
+/**
+ * Same, from bytes already in memory (e.g. a freshly signed PDF). The file is stored by Notion itself,
+ * so it survives redeploys — the portal's own disk is wiped on every deploy and must never be the
+ * place a signed document or certificate lives.
+ */
+async function uploadBytesToNotion(fileBuffer, originalName, mimeType) {
   const NOTION_FILE_VERSION = '2026-03-11';
   const authHeader = { Authorization: `Bearer ${NOTION_TOKEN}` };
 
@@ -140,7 +160,6 @@ async function uploadFileToNotion(filePath, originalName, mimeType) {
   const { id: fileUploadId } = await createRes.json();
 
   // Step 2: Send file contents as multipart/form-data (do NOT set Content-Type — fetch adds boundary)
-  const fileBuffer = await fs.promises.readFile(filePath);
   const form = new FormData();
   form.append('file', new Blob([fileBuffer], { type: mimeType || 'application/octet-stream' }), originalName);
 
@@ -160,6 +179,9 @@ async function uploadFileToNotion(filePath, originalName, mimeType) {
 
   return fileUploadId;
 }
+
+/** A Files-property entry pointing at a file previously uploaded with uploadFileToNotion/uploadBytesToNotion */
+const notionFileRef = (fileUploadId, name) => ({ name, type: 'file_upload', file_upload: { id: fileUploadId } });
 
 /**
  * Get ALL ids from a relation property, following Notion's 25-item pagination.
@@ -976,7 +998,7 @@ app.get('/manifest.json', (req, res) => {
 app.use(express.static(__dirname));
 
 // Serve uploaded certificate files
-app.use('/uploads', express.static(UPLOAD_DIR));
+// (No /uploads route: files are stored in Notion, and multer's temp copies are deleted after upload.)
 
 // Auth middleware
 function requireAuth(req, res, next) {
@@ -2222,13 +2244,14 @@ app.post('/api/upload-certificate', requireAuth, upload.array('files', 10), asyn
     const { pageId: userPageId, contractorPageIds = [], dealerOrgPageIds = [] } = req.session;
     const today = new Date().toISOString().split('T')[0];
 
-    // Build external file references using the server's own URL
-    const baseUrl  = process.env.APP_URL || `http://localhost:${PORT}`;
-    const fileRefs = req.files.map(f => ({
-      name:     f.originalname,
-      type:     'external',
-      external: { url: `${baseUrl}/uploads/${f.filename}` },
-    }));
+    // Store each file in Notion itself (not on this server's disk, which is wiped on every deploy) and
+    // reference it from the record. The temp copy multer wrote is deleted as soon as it is uploaded.
+    const fileRefs = [];
+    for (const f of req.files) {
+      const fileUploadId = await uploadFileToNotion(f.path, f.originalname, f.mimetype);
+      fileRefs.push(notionFileRef(fileUploadId, f.originalname));
+      try { fs.unlinkSync(f.path); } catch {}
+    }
 
     // ── Find the correct training record ──────────────────────────
     let existing = [];
@@ -2305,7 +2328,7 @@ app.post('/api/upload-certificate', requireAuth, upload.array('files', 10), asyn
 
   } catch (err) {
     console.error('Upload certificate error:', err.message);
-    // Clean up uploaded files on error
+    // Clean up any temp files that were not already removed after upload
     req.files?.forEach(f => { try { fs.unlinkSync(f.path); } catch {} });
     res.status(500).json({ error: 'Failed to save certificate: ' + err.message });
   }
@@ -2494,24 +2517,15 @@ app.post('/api/sign-document', requireAuth, async (req, res) => {
 
     const { pageId: userPageId, contractorPageIds = [], dealerOrgPageIds = [] } = req.session;
     const today   = new Date().toISOString().split('T')[0];
-    const baseUrl = process.env.APP_URL || `http://localhost:${PORT}`;
 
     // Stamp the PDF
     const signedBytes = await stampSignedPDF(config, fieldValues);
 
-    // Save to /uploads
-    const timestamp = Date.now();
-    const filename  = `signed-${blockId.replace(/-/g, '')}-${timestamp}.pdf`;
-    const filePath  = path.join(UPLOAD_DIR, filename);
-    fs.writeFileSync(filePath, signedBytes);
-    console.log(`✍️   Signed PDF saved: ${filename}`);
-
-    // Build file reference
-    const fileRef = {
-      name:     'Signed Document.pdf',
-      type:     'external',
-      external: { url: `${baseUrl}/uploads/${filename}` },
-    };
+    // Store the signed PDF in Notion itself. (It used to be written to this server's /uploads folder and
+    // linked from the record; that disk is wiped on every deploy, so every signed document went dead.)
+    const signedUploadId = await uploadBytesToNotion(Buffer.from(signedBytes), 'Signed Document.pdf', 'application/pdf');
+    console.log(`✍️   Signed PDF stored in Notion (upload ${signedUploadId})`);
+    const fileRef = notionFileRef(signedUploadId, 'Signed Document.pdf');
 
     // ── Find the correct training record (same as upload-certificate) ──
     let existing = [];
