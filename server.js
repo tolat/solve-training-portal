@@ -16,6 +16,7 @@ const crypto     = require('crypto');
 const path       = require('path');
 const fs         = require('fs');
 const nodemailer = require('nodemailer');
+const resilience = require('./resilience');
 const multer     = require('multer');
 require('dotenv').config();
 
@@ -58,11 +59,17 @@ if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
+    // nodemailer's defaults wait minutes on a dead mail server; fail fast instead
+    connectionTimeout: 10000,
+    greetingTimeout:   10000,
+    socketTimeout:     20000,
   });
   console.log(`📧  SMTP configured via ${process.env.SMTP_HOST}`);
 } else {
-  console.warn('⚠️   SMTP_HOST / SMTP_USER / SMTP_PASS not set — password-recovery emails disabled.');
+  console.warn('⚠️   SMTP_HOST / SMTP_USER / SMTP_PASS not set — password-recovery emails AND failure alerts disabled.');
 }
+// Failure alerts (integration errors after retries) go to ALERT_EMAIL, default torin@solveenergy.ca
+resilience.init({ mailer, from: process.env.SMTP_FROM || process.env.SMTP_USER });
 
 // ─── Notion Database IDs ──────────────────────────────────────
 const DB = {
@@ -77,8 +84,12 @@ const DB = {
 };
 
 // ─── Notion API helpers ───────────────────────────────────────
+// Timeouts, dropped connections, 429s and 5xx are retried with backoff (see resilience.js);
+// after that the failure is e-mailed to ALERT_EMAIL. A database query is a POST but safe to repeat;
+// a page-creating POST is only re-sent when Notion definitely did not process it (429/503).
 async function notionFetch(endpoint, method = 'GET', body = null) {
-  const res = await fetch(`https://api.notion.com/v1${endpoint}`, {
+  const idempotent = method !== 'POST' || /\/(query|search)$/.test(endpoint);
+  const res = await resilience.fetchWithRetry(`https://api.notion.com/v1${endpoint}`, {
     method,
     headers: {
       'Authorization': `Bearer ${NOTION_TOKEN}`,
@@ -86,13 +97,19 @@ async function notionFetch(endpoint, method = 'GET', body = null) {
       'Content-Type': 'application/json',
     },
     body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await res.json();
+  }, { service: 'Notion', idempotent });
+  // Notion answers errors with JSON, but a gateway error page may not be JSON
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(`Notion API ${res.status} on ${method} ${endpoint}: ${JSON.stringify(data?.message || data)}`);
   }
   return data;
 }
+
+// Retry settings for the other outbound calls (see resilience.js)
+const FILE_DOWNLOAD          = { service: 'Notion file storage', attempts: 4, timeoutMs: 60000, deadlineMs: 90000 };
+const ANTHROPIC_FIELD_DETECT = { service: 'Anthropic', idempotent: true, attempts: 3, baseDelayMs: 3000, maxDelayMs: 20000, timeoutMs: 120000, deadlineMs: 150000 };
+const ANTHROPIC_QUIZ         = { service: 'Anthropic', idempotent: true, attempts: 5, baseDelayMs: 4000, maxDelayMs: 60000, timeoutMs: 240000, deadlineMs: 600000 };
 
 /**
  * Upload a local file to Notion using the File Upload API (single-part).
@@ -103,7 +120,7 @@ async function uploadFileToNotion(filePath, originalName, mimeType) {
   const authHeader = { Authorization: `Bearer ${NOTION_TOKEN}` };
 
   // Step 1: Create file upload object → get ID
-  const createRes = await fetch('https://api.notion.com/v1/file_uploads', {
+  const createRes = await resilience.fetchWithRetry('https://api.notion.com/v1/file_uploads', {
     method: 'POST',
     headers: {
       ...authHeader,
@@ -115,7 +132,7 @@ async function uploadFileToNotion(filePath, originalName, mimeType) {
       filename: originalName,
       content_type: mimeType || 'application/octet-stream',
     }),
-  });
+  }, { service: 'Notion', idempotent: false });
   if (!createRes.ok) {
     const err = await createRes.text();
     throw new Error(`Notion file upload create failed (${createRes.status}): ${err}`);
@@ -127,14 +144,15 @@ async function uploadFileToNotion(filePath, originalName, mimeType) {
   const form = new FormData();
   form.append('file', new Blob([fileBuffer], { type: mimeType || 'application/octet-stream' }), originalName);
 
-  const sendRes = await fetch(`https://api.notion.com/v1/file_uploads/${fileUploadId}/send`, {
+  // Re-sending the same bytes to the same upload id is harmless, so this is retried freely
+  const sendRes = await resilience.fetchWithRetry(`https://api.notion.com/v1/file_uploads/${fileUploadId}/send`, {
     method: 'POST',
     headers: {
       ...authHeader,
       'Notion-Version': NOTION_FILE_VERSION,
     },
     body: form,
-  });
+  }, { service: 'Notion', idempotent: true, timeoutMs: 120000, deadlineMs: 150000 });
   if (!sendRes.ok) {
     const err = await sendRes.text();
     throw new Error(`Notion file upload send failed (${sendRes.status}): ${err}`);
@@ -326,6 +344,29 @@ async function refreshCache() {
   console.log(`✅  Cache ready — ${Object.keys(blocks).length} blocks · ${Object.keys(profiles).length} profiles · ${Object.keys(roles).length} roles · ${stages.length} named pipeline stages`);
 }
 
+// Background refreshes (24h timer, Notion webhooks) must not leave the cache stale because Notion
+// had a bad minute: after notionFetch's own retries fail, wait and try the whole refresh again.
+// The old cache stays in use meanwhile (refreshCache only swaps it in at the very end).
+async function refreshCacheReliably(source) {
+  const waits = [20000, 60000, 180000];
+  for (let i = 0; ; i++) {
+    try {
+      await refreshCache();
+      if (i > 0) console.log(`✅  Cache refresh (${source}) succeeded on retry ${i}`);
+      return;
+    } catch (err) {
+      if (i >= waits.length) {
+        console.error(`❌  Cache refresh (${source}) gave up after ${i + 1} tries: ${err.message}`);
+        resilience.reportError(`Training cache refresh failed (${source})`, err,
+          [['Effect', 'The portal keeps serving the previous cache; changes made in Notion will not show until a refresh succeeds.']]).catch(() => {});
+        throw err;
+      }
+      console.warn(`⚠️   Cache refresh (${source}) failed: ${err.message} — trying again in ${waits[i] / 1000}s`);
+      await new Promise(r => setTimeout(r, waits[i]));
+    }
+  }
+}
+
 // ─── Session store (in-memory) ────────────────────────────────
 const sessions = new Map();
 const SESSION_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -476,7 +517,7 @@ async function detectSigningFields(blockId) {
   if (!pdfUrl) throw new Error('No PDF found in Associated forms property');
 
   // 2. Download PDF
-  const pdfRes = await fetch(pdfUrl);
+  const pdfRes = await resilience.fetchWithRetry(pdfUrl, {}, FILE_DOWNLOAD);
   if (!pdfRes.ok) throw new Error(`Could not download PDF: ${pdfRes.status}`);
   const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
 
@@ -546,7 +587,7 @@ async function detectSigningFields(blockId) {
     if (ANTHROPIC_API_KEY) {
       try {
         const base64 = pdfBuffer.toString('base64');
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
+        const res = await resilience.fetchWithRetry('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: {
             'x-api-key': ANTHROPIC_API_KEY,
@@ -570,7 +611,7 @@ async function detectSigningFields(blockId) {
               ],
             }],
           }),
-        });
+        }, ANTHROPIC_FIELD_DETECT);
         if (res.ok) {
           const data = await res.json();
           const text = (data.content?.[0]?.text || '').trim();
@@ -620,7 +661,7 @@ async function stampSignedPDF(config, fieldValues) {
   }
   if (!pdfUrl) throw new Error('Could not refresh PDF URL from Notion');
 
-  const pdfRes = await fetch(pdfUrl);
+  const pdfRes = await resilience.fetchWithRetry(pdfUrl, {}, FILE_DOWNLOAD);
   if (!pdfRes.ok) throw new Error(`Could not download PDF for signing: ${pdfRes.status}`);
   const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
 
@@ -711,8 +752,10 @@ async function fetchBlockPageText(blockId) {
       })
       .filter(Boolean);
     return texts.join('\n');
-  } catch {
-    return '';
+  } catch (e) {
+    // Do not quietly generate a quiz from less content than the block really has:
+    // let the generation fail (the existing quiz is kept) and be reported.
+    throw new Error(`Could not read the block's page text: ${e.message}`);
   }
 }
 
@@ -729,6 +772,7 @@ async function generateQuizForBlock(block) {
   // Fetch actual file contents from Notion block properties (forms, guidance, media)
   // Supports PDFs and images — skips videos and other unsupported types
   const contentBlocks = [];
+  const sourceProblems = []; // documents that exist but could not be attached
   try {
     const blockPage = await notionFetch(`/pages/${block.id}`);
     const getFilesWithUrls = (p) => (p?.files || []).map(f => ({
@@ -749,8 +793,8 @@ async function generateQuizForBlock(block) {
       if (!isPdf && !isImage) continue;
 
       try {
-        const fileRes = await fetch(file.url);
-        if (!fileRes.ok) continue;
+        const fileRes = await resilience.fetchWithRetry(file.url, {}, FILE_DOWNLOAD);
+        if (!fileRes.ok) throw new Error(`HTTP ${fileRes.status}`);
         const buffer = await fileRes.arrayBuffer();
         const base64 = Buffer.from(buffer).toString('base64');
         const mediaType = isPdf ? 'application/pdf'
@@ -764,10 +808,17 @@ async function generateQuizForBlock(block) {
         console.log(`📄  Attached file to quiz prompt: ${file.name} (${mediaType})`);
       } catch (e) {
         console.warn(`⚠️   Could not fetch file "${file.name}" for quiz generation:`, e.message);
+        sourceProblems.push(`${file.name} (${e.message})`);
       }
     }
   } catch (e) {
     console.warn(`⚠️   Could not fetch block files for quiz generation:`, e.message);
+    sourceProblems.push(`the block's file list (${e.message})`);
+  }
+  // A quiz written from only some of a block's documents would be wrong: stop here and keep
+  // the existing quiz. (The retries inside fetchWithRetry have already run; the failure is e-mailed.)
+  if (sourceProblems.length) {
+    throw new Error(`Quiz not regenerated for "${block.name}" — could not load: ${sourceProblems.join('; ')}`);
   }
 
   const trainingLinkContext = block.trainingLink ? `\nTraining Link: ${block.trainingLink}` : '';
@@ -798,7 +849,7 @@ Rules:
   // Build message content — prepend any file blocks before the text prompt
   contentBlocks.push({ type: 'text', text: prompt });
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await resilience.fetchWithRetry('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'x-api-key': ANTHROPIC_API_KEY,
@@ -810,7 +861,7 @@ Rules:
       max_tokens: 4096,
       messages: [{ role: 'user', content: contentBlocks }],
     }),
-  });
+  }, ANTHROPIC_QUIZ);
 
   if (!res.ok) {
     const err = await res.text();
@@ -900,12 +951,14 @@ async function regenerateQuizForBlock(blockId) {
     }
   } catch (e) {
     console.error(`❌  Quiz generation failed for "${block.name}":`, e.message);
+    resilience.reportError(`Quiz generation failed — ${block.name}`, e, [['Block', `${block.name} (${block.id})`], ['Effect', 'The block keeps its existing quiz.']]).catch(() => {});
   }
 }
 
 // ─── Express app ──────────────────────────────────────────────
 const app = express();
 app.use(express.json());
+app.use(resilience.requestContext); // who/what a failure belongs to; turns transient 500s into retryable 503s
 
 // Service worker and manifest must never be cached by the browser
 // (SW scope + update detection depends on a fresh response each time)
@@ -931,6 +984,7 @@ function requireAuth(req, res, next) {
   const session = getSession(token);
   if (!session) return res.status(401).json({ error: 'Not authenticated' });
   req.session = session;
+  resilience.setContextUser(session);
   next();
 }
 
@@ -1126,7 +1180,7 @@ app.get('/api/token-by-employee-id', async (req, res) => {
 app.get('/api/training-data', requireAuth, async (req, res) => {
   try {
     // Auto-refresh cache if stale
-    if (Date.now() - cache.ts > CACHE_TTL) await refreshCache();
+    if (Date.now() - cache.ts > CACHE_TTL) await refreshCache().catch(e => console.warn('⚠️   Cache refresh failed — serving the previous cache:', e.message));
 
     const { roleIds, pageId: userPageId, onboardingStage, contractorPageIds = [], dealerOrgPageIds = [] } = req.session;
 
@@ -1605,7 +1659,7 @@ app.get('/api/debug/user', async (req, res) => {
     const { email } = req.query;
     if (!email) return res.status(400).json({ error: 'email query param required' });
 
-    if (Date.now() - cache.ts > CACHE_TTL) await refreshCache();
+    if (Date.now() - cache.ts > CACHE_TTL) await refreshCache().catch(e => console.warn('⚠️   Cache refresh failed — serving the previous cache:', e.message));
 
     // Look up the user
     const results = await queryAll(DB.companyDirectory, {
@@ -1807,7 +1861,7 @@ const toDashedId = (id) => {
 };
 app.post('/api/resource-files', requireAuth, async (req, res) => {
   try {
-    if (Date.now() - cache.ts > CACHE_TTL) await refreshCache();
+    if (Date.now() - cache.ts > CACHE_TTL) await refreshCache().catch(e => console.warn('⚠️   Cache refresh failed — serving the previous cache:', e.message));
     const wanted = [...new Set((Array.isArray(req.body?.blockIds) ? req.body.blockIds : []).map(toDashedId).filter(Boolean))]
       .filter(id => cache.blocks[id] && hasGeneralResourceTag(cache.blocks[id].types))
       .slice(0, 80);
@@ -2052,7 +2106,8 @@ app.post('/api/webhook/notion', async (req, res) => {
   console.log(`🔔  Notion webhook received${blockId ? ` — block: ${blockId}` : ' (no blockId)'}`);
 
   try {
-    await refreshCache();
+    // If Notion keeps failing, still try the quiz: regenerateQuizForBlock can read the block directly
+    await refreshCacheReliably('block webhook').catch(() => {});
 
     if (blockId) {
       await regenerateQuizForBlock(blockId);
@@ -2077,7 +2132,7 @@ app.post('/api/regenerate-quiz/:blockId', async (req, res) => {
   const { blockId } = req.params;
 
   // Ensure cache is fresh
-  if (Date.now() - cache.ts > CACHE_TTL) await refreshCache();
+  if (Date.now() - cache.ts > CACHE_TTL) await refreshCache().catch(e => console.warn('⚠️   Cache refresh failed — serving the previous cache:', e.message));
 
   res.json({ ok: true, message: `Regenerating quiz for ${blockId} in background` });
 
@@ -2129,7 +2184,7 @@ app.post('/api/webhook/notion/role', async (req, res) => {
   res.json({ ok: true, message: 'Received — refreshing cache in background' });
   console.log('🔔  Notion webhook: new/updated Role — refreshing cache');
   try {
-    await refreshCache();
+    await refreshCacheReliably('role webhook');
     console.log('✅  Cache refreshed after Role change');
   } catch (err) {
     console.error('❌  Cache refresh failed (role webhook):', err.message);
@@ -2147,7 +2202,7 @@ app.post('/api/webhook/notion/profile', async (req, res) => {
   res.json({ ok: true, message: 'Received — refreshing cache in background' });
   console.log('🔔  Notion webhook: new/updated Training Profile — refreshing cache');
   try {
-    await refreshCache();
+    await refreshCacheReliably('profile webhook');
     console.log('✅  Cache refreshed after Training Profile change');
   } catch (err) {
     console.error('❌  Cache refresh failed (profile webhook):', err.message);
@@ -2528,6 +2583,18 @@ app.post('/api/sign-document', requireAuth, async (req, res) => {
   }
 });
 
+// ─── GET /api/health ──────────────────────────────────────────
+// Cheap liveness check (no Notion call) for an uptime monitor. cacheAgeMin shows how stale the
+// training-data cache is; blocks === 0 means the portal started without data.
+app.get('/api/health', (req, res) => {
+  res.json({
+    ok: true,
+    uptimeMin: Math.round(process.uptime() / 60),
+    blocks: Object.keys(cache.blocks || {}).length,
+    cacheAgeMin: cache.ts ? Math.round((Date.now() - cache.ts) / 60000) : null,
+  });
+});
+
 // ─── Catch-all: serve frontend ────────────────────────────────
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
@@ -2539,11 +2606,30 @@ Promise.all([refreshCache(), loadGeneratedQuizzes(), Promise.resolve(loadSigning
     app.listen(PORT, () => {
       console.log(`\n⚡  Solve Training Portal → http://localhost:${PORT}\n`);
     });
-    // Re-cache every 24 hours automatically
-    setInterval(refreshCache, CACHE_TTL);
+    // Re-cache every 24 hours automatically (retries on failure; an unhandled rejection here used to crash the process)
+    setInterval(() => { refreshCacheReliably('24h timer').catch(() => {}); }, CACHE_TTL);
   })
-  .catch(err => {
+  .catch(async err => {
     console.error('\n❌  Startup failed:', err.message);
     console.error('    Check your NOTION_TOKEN and that the integration has access to the databases.\n');
+    // Exiting is deliberate: Railway keeps the previous deployment live when a new one fails to start.
+    await Promise.race([
+      resilience.reportError('Portal failed to start', err, [['Hint', 'Check NOTION_TOKEN and that the integration still has access to the databases.']]).catch(() => {}),
+      new Promise(r => setTimeout(r, 8000)),
+    ]);
     process.exit(1);
   });
+
+// Anything that slips through: log it and tell Torin instead of failing silently
+process.on('unhandledRejection', (reason) => {
+  console.error('❌  Unhandled promise rejection:', reason);
+  resilience.reportError('Unhandled promise rejection', reason instanceof Error ? reason : new Error(String(reason))).catch(() => {});
+});
+process.on('uncaughtException', async (err) => {
+  console.error('❌  Uncaught exception:', err);
+  await Promise.race([
+    resilience.reportError('Portal crashed (uncaught exception)', err, [['Effect', 'The process is restarting.']]).catch(() => {}),
+    new Promise(r => setTimeout(r, 8000)),
+  ]);
+  process.exit(1);
+});

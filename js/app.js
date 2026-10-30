@@ -36,7 +36,8 @@ const STAGE_PALETTE = [
 let stageOrderingColorMap = {};
 
 // ── API helpers ──────────────────────────────────────────────
-async function apiFetch(path, method = 'GET', body = null) {
+// cfg.quiet = no connection banners (used for background work); retries/waiting live in js/net.js
+async function apiFetch(path, method = 'GET', body = null, cfg = {}) {
   const opts = {
     method,
     headers: {
@@ -45,8 +46,16 @@ async function apiFetch(path, method = 'GET', body = null) {
     },
   };
   if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(path, opts);
-  const data = await res.json();
+  let res;
+  try {
+    res = await SolveNet.fetch(path, opts, cfg);
+  } catch (netErr) {
+    const e = new Error(SolveNet.friendlyError(null, null, netErr));
+    e.network = true;
+    throw e;
+  }
+  // A gateway error page is not JSON — never let that surface as "Unexpected token <"
+  const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
     // Session expired or server restarted — clear state and return to login
     if (window.SolveTour) SolveTour.abort();
@@ -70,7 +79,12 @@ async function apiFetch(path, method = 'GET', body = null) {
     errEl.classList.add('show');
     throw new Error('session_expired');
   }
-  if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+  if (!res.ok) {
+    const e = new Error(SolveNet.friendlyError(res, data));
+    e.status = res.status;
+    e.retryable = !!data.retryable;
+    throw e;
+  }
   return data;
 }
 
@@ -115,11 +129,11 @@ async function doLogin() {
   btnEl.textContent = 'Signing in…';
 
   try {
-    const data = await fetch('/api/login', {
+    const data = await SolveNet.fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
-    }).then(r => r.json().then(d => ({ ok: r.ok, ...d })));
+    }).then(r => r.json().catch(() => ({})).then(d => ({ ok: r.ok, ...d, error: r.ok ? undefined : SolveNet.friendlyError(r, d) })));
 
     if (!data.ok) {
       errEl.textContent = data.error || 'Login failed.';
@@ -136,7 +150,7 @@ async function doLogin() {
     if (data.mustChangePassword) showProfile(true);
 
   } catch (err) {
-    errEl.textContent = 'Could not connect to server. Is the server running?';
+    errEl.textContent = SolveNet.friendlyError(null, null, err);
     errEl.classList.add('show');
     btnEl.disabled = false;
     btnEl.textContent = 'Sign In';
@@ -182,15 +196,15 @@ async function doForgot() {
   btnEl.textContent = 'Sending…';
 
   try {
-    const res  = await fetch('/api/forgot-password', {
+    const res  = await SolveNet.fetch('/api/forgot-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      errEl.textContent = data.error || 'Could not send recovery email.';
+      errEl.textContent = SolveNet.friendlyError(res, data) || 'Could not send recovery email.';
       errEl.classList.add('show');
     } else {
       successEl.textContent = data.message || 'Password sent! Check your inbox.';
@@ -198,7 +212,7 @@ async function doForgot() {
       emailEl.value = '';
     }
   } catch (err) {
-    errEl.textContent = 'Could not connect to server.';
+    errEl.textContent = SolveNet.friendlyError(null, null, err);
     errEl.classList.add('show');
   } finally {
     btnEl.disabled = false;
@@ -248,18 +262,29 @@ async function initApp() {
       }
     } else {
       // Fetch from server
-      const data = await apiFetch('/api/training-data');
-      trainingData = { ...data, userEmail: currentUser.email, name: currentUser.name, roles: data.roles || [] };
-      if (data.onboardingStage) {
-        currentUser.onboardingStage = data.onboardingStage;
-        showStageBadge(currentUser.onboardingStage);
+      try {
+        const data = await apiFetch('/api/training-data');
+        trainingData = { ...data, userEmail: currentUser.email, name: currentUser.name, roles: data.roles || [] };
+        if (data.onboardingStage) {
+          currentUser.onboardingStage = data.onboardingStage;
+          showStageBadge(currentUser.onboardingStage);
+        }
+        saveCache(trainingData);
+      } catch (loadErr) {
+        // Can't reach the back end (after waiting and retrying): fall back to the last copy saved on
+        // this device, however old, rather than leaving a dead screen. The sync bar shows its age.
+        if (loadErr.message === 'session_expired' || !cached || cached.userEmail !== currentUser.email) throw loadErr;
+        trainingData = cached;
+        SolveNet.showBanner('warn', "We couldn't refresh your training data, so you're seeing the copy saved on this device. We'll keep trying.", { autoHideMs: 12000 });
+        scheduleRecoverySync();
       }
-      saveCache(trainingData);
     }
+    overlayPendingCompletions();
 
     renderRoles();
     showScreen('screenRoles');
     updateSyncBar();
+    flushPendingCompletions();
 
     // First-ever visit on this browser: welcome screen + walkthrough (js/tour.js)
     if (window.SolveTour) setTimeout(() => SolveTour.maybeStart(), 500);
@@ -272,9 +297,28 @@ async function initApp() {
     }, 15 * 60 * 1000);
 
   } catch (err) {
-    showScreen('screenLoading');
-    document.getElementById('loadingText').textContent = '⚠️ ' + (err.message || 'Failed to load data. Please try again.');
+    if (err.message === 'session_expired') return;
+    showLoadError(err.message || 'Failed to load data. Please try again.', initApp);
   }
+}
+
+// If we had to fall back to the saved copy, try the server again every minute until it answers.
+let recoveryTimer = null;
+function scheduleRecoverySync() {
+  if (recoveryTimer) return;
+  recoveryTimer = setInterval(async () => {
+    if (!authToken || !trainingData) { clearInterval(recoveryTimer); recoveryTimer = null; return; }
+    try {
+      const data = await apiFetch('/api/training-data', 'GET', null, { quiet: true, waits: [] });
+      trainingData = { ...data, userEmail: currentUser.email, name: currentUser.name, roles: data.roles || [] };
+      saveCache(trainingData);
+      overlayPendingCompletions();
+      clearInterval(recoveryTimer); recoveryTimer = null;
+      if (document.getElementById('screenRoles')?.classList.contains('active')) renderRoles();
+      updateSyncBar();
+      SolveNet.showBanner('ok', 'Back online — your training data is up to date ✓', { autoHideMs: 3000, dismissible: false });
+    } catch { /* still down — try again next minute */ }
+  }, 60000);
 }
 
 // ============================================================
@@ -286,6 +330,8 @@ async function manualSync() {
   if (btn)      { btn.classList.add('syncing');      btn.disabled      = true; }
   if (btnRoles) { btnRoles.classList.add('syncing'); btnRoles.disabled = true; }
   try {
+    // Anything completed while the back end was down goes first, so the refresh below can't hide it
+    await flushPendingCompletions();
     // Sync returns refreshed employee data (name, onboardingStage) as well as
     // triggering a server-side cache refresh of all training content.
     const syncResult = await apiFetch('/api/sync', 'POST');
@@ -296,6 +342,7 @@ async function manualSync() {
 
     const data = await apiFetch('/api/training-data');
     trainingData = { ...data, userEmail: currentUser.email, name: currentUser.name, roles: data.roles || [] };
+    overlayPendingCompletions();
     // training-data may also carry a refreshed onboardingStage (belt-and-suspenders)
     if (data.onboardingStage) {
       currentUser.onboardingStage = data.onboardingStage;
@@ -609,6 +656,85 @@ function markBlockCompleteLocally(blockId, data) {
   }
   saveCache(trainingData);
 }
+
+// ── Completions waiting to be saved ──────────────────────────
+// If recording a passed quiz fails even after waiting and retrying (e.g. Notion is down), the pass is
+// kept on this device and re-sent automatically. (Sync only re-READS Notion, so without this queue
+// a pass that never reached Notion would vanish at the next sync and the quiz would have to be redone.)
+const PENDING_KEY = 'solve_pending_completions_v1';
+let pendingFlushing = false, pendingTimer = null;
+const pendingStoreKey = () => `${PENDING_KEY}:${currentUser?.email || ''}`;
+function loadPending() { try { return JSON.parse(localStorage.getItem(pendingStoreKey()) || '[]'); } catch { return []; } }
+function savePending(list) {
+  try { list.length ? localStorage.setItem(pendingStoreKey(), JSON.stringify(list)) : localStorage.removeItem(pendingStoreKey()); } catch {}
+}
+
+function queueCompletion(block) {
+  const list = loadPending();
+  if (!list.some(p => p.blockId === block.id)) {
+    list.push({ blockId: block.id, blockName: block.name, date: new Date().toISOString().split('T')[0], queuedAt: Date.now() });
+    savePending(list);
+  }
+  schedulePendingFlush();
+}
+
+// Show queued completions as done, whatever a fresh copy of the data from the server says
+function overlayPendingCompletions() {
+  const list = loadPending();
+  if (!list.length || !trainingData) return;
+  for (const p of list) {
+    const entry = { date: p.date, recordId: null, status: 'OK' };
+    if (!trainingData.completedMap) trainingData.completedMap = {};
+    if (trainingData.completedMap[p.blockId]?.status !== 'OK') trainingData.completedMap[p.blockId] = entry;
+    for (const role of (trainingData.roles || [])) {
+      if (role.completedMap && (role.blockIds || []).includes(p.blockId) && role.completedMap[p.blockId]?.status !== 'OK') {
+        role.completedMap[p.blockId] = entry;
+      }
+    }
+  }
+}
+
+function schedulePendingFlush(delay = 60000) {
+  clearTimeout(pendingTimer);
+  pendingTimer = setTimeout(flushPendingCompletions, delay);
+}
+
+async function flushPendingCompletions() {
+  if (pendingFlushing || !authToken || !currentUser) return;
+  if (!loadPending().length) return;
+  pendingFlushing = true;
+  let saved = 0;
+  try {
+    for (const p of loadPending()) {
+      try {
+        const r = await apiFetch('/api/complete', 'POST', { blockId: p.blockId, blockName: p.blockName }, { quiet: true, waits: [3000] });
+        savePending(loadPending().filter(x => x.blockId !== p.blockId));
+        saved++;
+        // The server may already hold this record (it updates rather than duplicates); record its id locally
+        const entry = { date: r.date || p.date, recordId: r.recordId, status: 'OK' };
+        if (trainingData) {
+          if (!trainingData.completedMap) trainingData.completedMap = {};
+          trainingData.completedMap[p.blockId] = entry;
+          for (const role of (trainingData.roles || [])) {
+            if (role.completedMap && (role.blockIds || []).includes(p.blockId)) role.completedMap[p.blockId] = entry;
+          }
+        }
+      } catch (e) {
+        if (e.message === 'session_expired') return;
+        break; // still can't reach it — keep the rest queued and try again later
+      }
+    }
+  } finally {
+    pendingFlushing = false;
+  }
+  if (saved) {
+    if (trainingData) saveCache(trainingData);
+    showToast('✅ Your completed training has been saved');
+    if (document.getElementById('screenRoles')?.classList.contains('active')) renderRoles();
+  }
+  if (loadPending().length) schedulePendingFlush();
+}
+window.addEventListener('online', () => flushPendingCompletions());
 
 function renderCourse(blocksOverride, skipCompleteRedirect = false) {
   if (!trainingData) return;
@@ -2034,13 +2160,13 @@ async function submitUpload() {
     uploadFiles.forEach(f => formData.append('files', f));
 
     const endpoint = isHRDoc ? '/api/upload-hr-document' : '/api/upload-certificate';
-    const res  = await fetch(endpoint, {
+    const res  = await SolveNet.fetch(endpoint, {
       method:  'POST',
       headers: { 'Authorization': `Bearer ${authToken}` },
       body:    formData,
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(SolveNet.friendlyError(res, data));
 
     // Mark locally as complete
     if (!trainingData.completedMap) trainingData.completedMap = {};
@@ -2239,10 +2365,11 @@ async function submitQuiz() {
       // Re-render the course with current blocks to update progress
       renderCourse(currentBlocks);
     } catch (err) {
-      // Local pass saved even if Notion sync fails — user can sync later
+      // Keep the pass on this device and keep trying in the background — no need to redo the quiz
+      queueCompletion(block);
       resultDiv.innerHTML = `
         <div class="quiz-result-title">🎉 Passed! ${correct}/${questions.length} correct ⚠️</div>
-        <div class="quiz-result-msg">Module complete locally, but Notion sync failed: ${escHtml(err.message)}. Use the Sync button to retry.</div>
+        <div class="quiz-result-msg">You passed, and it's saved on this device. We couldn't record it in the training system just now (${escHtml(err.message)}), so we'll keep trying automatically — you don't need to redo the quiz.</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
           ${isLast
             ? `<button class="btn btn-primary" onclick="finishCourse()">🏆 Complete Training</button>`
@@ -2298,7 +2425,30 @@ function renderCompletion() {
 // ============================================================
 // NAVIGATION
 // ============================================================
+// The loading screen doubles as the "couldn't load" screen (message + Try again button)
+function resetLoadingScreen() {
+  const sp = document.querySelector('#screenLoading .spinner');
+  if (sp) sp.style.display = '';
+  const btn = document.getElementById('loadRetryBtn');
+  if (btn) btn.remove();
+}
+function showLoadError(message, retry) {
+  showScreen('screenLoading');
+  const sp = document.querySelector('#screenLoading .spinner');
+  if (sp) sp.style.display = 'none';
+  const txt = document.getElementById('loadingText');
+  txt.textContent = '⚠️ ' + message;
+  const btn = document.createElement('button');
+  btn.id = 'loadRetryBtn';
+  btn.className = 'btn btn-primary';
+  btn.style.marginTop = '16px';
+  btn.textContent = 'Try again';
+  btn.onclick = () => { resetLoadingScreen(); txt.textContent = 'Loading your training data…'; retry(); };
+  txt.parentNode.appendChild(btn);
+}
+
 function showScreen(id) {
+  resetLoadingScreen();
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2497,8 +2647,8 @@ function showToast(msg) {
     document.getElementById('loadingText').textContent = 'Signing you in…';
 
     try {
-      const res  = await fetch(`/api/token-by-employee-id?employee_id=${encodeURIComponent(employeeId)}`);
-      const data = await res.json();
+      const res  = await SolveNet.fetch(`/api/token-by-employee-id?employee_id=${encodeURIComponent(employeeId)}`);
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         // Invalid ID — fall through to login screen with an error hint
@@ -2527,7 +2677,7 @@ function showToast(msg) {
       document.getElementById('loginScreen').style.display = 'flex';
       document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
       const errEl = document.getElementById('loginError');
-      errEl.textContent = 'Could not connect to server. Is the server running?';
+      errEl.textContent = SolveNet.friendlyError(null, null, err);
       errEl.classList.add('show');
       return;
     }
@@ -2573,18 +2723,29 @@ function showToast(msg) {
       }
       saveCache(trainingData);
     }
+    overlayPendingCompletions();
     renderRoles();
     showScreen('screenRoles');
     updateSyncBar();
+    flushPendingCompletions();
     // Resumed session (e.g. reopening the installed app): the welcome is still due until
     // they have skipped or finished the tour
     if (window.SolveTour) setTimeout(() => SolveTour.maybeStart(), 500);
   } catch (err) {
-    // Token expired or invalid — go back to login
-    authToken = null;
-    localStorage.removeItem(SESSION_KEY);
-    document.getElementById('appHeader').style.display   = 'none';
-    document.getElementById('loginScreen').style.display = 'flex';
-    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    // An expired/invalid token is handled inside apiFetch (it returns them to the login screen)
+    if (err.message === 'session_expired') return;
+    // Anything else means the back end couldn't be reached even after waiting and retrying. The
+    // sign-in is still good, so keep it: use the copy saved on this device, or offer a retry.
+    if (cached && cached.userEmail && currentUser) {
+      trainingData = cached;
+      overlayPendingCompletions();
+      renderRoles();
+      showScreen('screenRoles');
+      updateSyncBar();
+      SolveNet.showBanner('warn', "We couldn't refresh your training data, so you're seeing the copy saved on this device. We'll keep trying.", { autoHideMs: 12000 });
+      scheduleRecoverySync();
+      return;
+    }
+    showLoadError(err.message || 'Could not load your training data.', () => location.reload());
   }
 })();

@@ -17,13 +17,18 @@ Node.js/Express training portal for SOLVE Energy, deployed on Railway. Employees
 - `SESSION_SECRET` — express-session secret
 - `APP_URL` — public Railway URL (must be set for file URLs to work correctly)
 - `PORT` — set by Railway automatically
+- `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` — mail server (password-recovery e-mails **and failure alerts**). Gmail needs an app password. If unset, alerts are only logged.
+- `ALERT_EMAIL` — who gets failure alerts (default `torin@solveenergy.ca`); `ALERT_COOLDOWN_MIN` — minutes between repeats of the same alert (default 15)
 
 ## Project Structure
 ```
 solve-training-app/
 ├── server.js          # Express backend — all API endpoints, Notion integration
+├── resilience.js      # Retry/backoff for outbound calls, failure e-mails, request context (see "Reliability")
+├── test/              # `npm test` — resilience.js unit tests (mock HTTP server, no network)
 ├── index.html         # Single-page frontend shell
 ├── js/
+│   ├── net.js         # Resilient fetch (retry/wait), connection banner (window.SolveNet) — loads before app.js
 │   ├── app.js         # All frontend logic
 │   └── tour.js        # First-login welcome screen + guided tour (window.SolveTour)
 ├── css/
@@ -135,6 +140,25 @@ HR document uploads use Notion's File Upload API (NOT external URLs):
 - Post-login: `body.logged-in` class applied — light theme, vars overridden in `body.logged-in { ... }`
 - Higher specificity (`body.logged-in .some-class`) overrides base dark-mode rules
 - **Inline styles in `index.html` `<style>` tag** are used for some components to avoid CSS file caching/deployment issues (e.g. `.block-guidance-blurb`)
+
+## Reliability: retries, feedback and failure e-mails
+Goal: an integration hiccup (Notion/Anthropic timeout, 429, 5xx, dropped connection) should not break the portal; people wait and it retries, they see what is happening, and Torin gets an e-mail if it does not recover.
+
+**Back end (`resilience.js`, used by `server.js`)**
+- `notionFetch`, `uploadFileToNotion`, the PDF downloads and both Anthropic calls go through `resilience.fetchWithRetry`: per-attempt timeout (25 s Notion), up to 5 tries, exponential backoff with jitter, honours `Retry-After`, 60 s overall budget.
+- **A write is never blindly re-sent.** "Safe" failures (429, 503, 409, connection refused/DNS) are retried for every method; "ambiguous" ones (timeouts, resets, 500/502/504) only for idempotent calls (GET, PATCH, database `/query`, same-bytes upload). A page-creating `POST /pages` is not retried after a timeout/500. Record writes are made safe by the handlers themselves (look up the record, update or create), so the browser can safely repeat a whole request.
+- When retries run out the failure is e-mailed to `ALERT_EMAIL` (throttled: one e-mail per distinct failure per 15 min, max 12/hour, repeat counts included; never contains tokens). No SMTP configured → logged as `🚨 ALERT (not e-mailed …)`. Background problems (24 h refresh, webhooks, startup failure, quiz generation, unhandled rejections/crashes) are reported via `resilience.reportError`.
+- `requestContext` middleware: if a handler ends in a 500 after a transient integration failure it is rewritten to **503 `{ error: <friendly>, retryable: true, notified: true }`** + `Retry-After`; unrelated 500s stay 500. New handlers don't need to do anything.
+- `refreshCacheReliably()` (24 h timer, Notion webhooks) retries the whole refresh after 20 s / 60 s / 3 min; the old cache is kept until a refresh succeeds. Foreground "cache older than 24 h" checks fall back to the stale cache instead of failing the request.
+- Quiz generation stops (and keeps the existing quiz) if any of a block's documents or its page text cannot be loaded, instead of generating from partial content.
+- `GET /api/health` — cheap liveness + cache age for an uptime monitor. Startup still exits if Notion is unreachable (Railway keeps the previous deployment live).
+
+**Front end (`js/net.js`, `apiFetch` in `app.js`)**
+- `SolveNet.fetch` retries network errors and 429/502/503/504 (waits 2 s, 5 s, 10 s), waits for the connection when the device is offline, and shows a bottom banner (reconnecting / still working / back online / "couldn't reach the system — team notified"). `apiFetch(path, method, body, { quiet, waits })`: `quiet` = no banner (background work).
+- Login, forgot-password, uploads and employee-id sign-in use `SolveNet.fetch` too. The banner's styles are injected by `net.js` (service worker caches CSS cache-first).
+- **Passed quizzes are never lost:** if `/api/complete` still fails, the block is queued in `localStorage` (`solve_pending_completions_v1:<email>`), shown as complete via `overlayPendingCompletions()`, and re-sent by `flushPendingCompletions()` (every minute, on `online`, on sync/load). Sync only re-reads Notion, so without the queue the pass would vanish.
+- If `/api/training-data` cannot be loaded, `initApp` uses the saved copy on the device (any age) with a banner and retries every minute; with no saved copy it shows the message and a "Try again" button. A transient failure no longer logs a resumed session out.
+- Not covered: if the portal itself is down (Railway 502 / process dead) nothing can e-mail from the app. Point an uptime monitor at `/api/health`.
 
 ## notionFetch Helper
 ```js
