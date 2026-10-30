@@ -141,6 +141,13 @@ HR document uploads use Notion's File Upload API (NOT external URLs):
 - Higher specificity (`body.logged-in .some-class`) overrides base dark-mode rules
 - **Inline styles in `index.html` `<style>` tag** are used for some components to avoid CSS file caching/deployment issues (e.g. `.block-guidance-blurb`)
 
+## Document signing layout (js/app.js — renderSigningPDF)
+- **Pages fit the screen**: each page is `min(<rendered width>, 100vw - 32px)` wide (desktop keeps the full 918px page; a phone shrinks it to fit). The canvas fills its wrapper and field overlays are positioned in **% of the page**, so they stay aligned at any size. The render scale drops on phones (≥1×, ≤1.5×) to save memory on long documents. The synthetic "Electronic Signature" page is also %-based (US letter aspect ratio).
+- **Signature pad canvases are sized to their on-screen size** by `fitSignaturePads()` (ResizeObserver + orientationchange), at devicePixelRatio, rescaling any strokes already drawn. Never hard-code a pad's pixel size: SignaturePad maps pointer coordinates in CSS pixels.
+- **On phones (≤700px wide) signing is tap-to-sign**: signature/initials boxes show "Tap to sign" and open a full-width bottom-sheet pad (`openSignaturePadModal`); **Done** trims the drawing (`trimCanvas`) and fits it into the field's own pad with `applyPhoneSignature` (so `submitSignedDocument` is unchanged). Desktop signs in place. The phone rules and modal styles are injected from JS (`injectSignStyles`) so a stale cached stylesheet can't break them.
+- **"Take Me To Signatures" / "Next Signature" bar** (`setupSignatureNav`): sticky under the app header, steps through signature/initials fields in document order.
+- Testing in the Browser pane: when the pane is hidden `requestAnimationFrame` never fires and pdf.js renders hang; replace it with a `setTimeout` shim in the page before opening a document.
+
 ## Reliability: retries, feedback and failure e-mails
 Goal: an integration hiccup (Notion/Anthropic timeout, 429, 5xx, dropped connection) should not break the portal; people wait and it retries, they see what is happening, and Torin gets an e-mail if it does not recover.
 

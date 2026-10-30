@@ -1646,6 +1646,7 @@ function loadCertificates(blockId, materialsDiv, contractorPageId = null, append
 // ============================================================
 
 async function openSigningView(block) {
+  injectSignStyles();
   showToast('Loading document…');
   try {
     const config = await apiFetch(`/api/block/${block.id}/signing-config`);
@@ -1657,6 +1658,8 @@ async function openSigningView(block) {
     await renderSigningPDF(config, block);
     setupSignatureNav(config);
     showScreen('screenSign');
+    watchSignatureLayout();
+    fitSignaturePads();
     document.getElementById('headerBack').style.display = 'inline-flex';
   } catch (err) {
     if (err.message === 'session_expired') return;
@@ -1688,8 +1691,11 @@ async function renderSigningPDF(config, block) {
     return;
   }
 
-  const scale = 1.5;
-  const numOriginalPages = config.addedSignaturePage ? pdf.numPages : pdf.numPages;
+  // Render at up to 1.5x (sharp on desktop). On a phone there is no point rendering far more pixels than
+  // the screen can show — smaller canvases also keep long documents from exhausting phone memory.
+  const baseW = (await (await pdf.getPage(1)).getViewport({ scale: 1 })).width;
+  const dpr   = Math.min(window.devicePixelRatio || 1, 2);
+  const scale = Math.max(1, Math.min(1.5, ((window.innerWidth - 32) * dpr) / baseW));
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
@@ -1698,16 +1704,18 @@ async function renderSigningPDF(config, block) {
     const canvas = document.createElement('canvas');
     canvas.width  = viewport.width;
     canvas.height = viewport.height;
-    // Pin CSS size to match canvas pixel dimensions exactly — avoids
-    // height:auto scaling that would mis-align absolute-positioned overlays
-    canvas.style.width  = viewport.width  + 'px';
-    canvas.style.height = viewport.height + 'px';
+    // The page is as wide as it was rendered, or as the screen allows if narrower (so desktop is unchanged and
+    // a phone shrinks it to fit rather than overflowing). The canvas fills the
+    // wrapper and the wrapper takes the canvas's height, so the %-positioned field overlays always line
+    // up with the page — on a phone the whole page shrinks to fit instead of overflowing off-screen.
+    canvas.style.width  = '100%';
+    canvas.style.height = 'auto';
     const ctx = canvas.getContext('2d');
     await page.render({ canvasContext: ctx, viewport }).promise;
 
     const pageDiv = document.createElement('div');
     pageDiv.className    = 'sign-page-wrapper';
-    pageDiv.style.cssText = `position:relative; display:inline-block; width:${viewport.width}px; height:${viewport.height}px; overflow:visible;`;
+    pageDiv.style.cssText = `position:relative; display:block; width:min(${viewport.width}px, calc(100vw - 32px)); overflow:visible;`;
     pageDiv.appendChild(canvas);
 
     // Add field overlays for this page (0-indexed page = pageNum - 1)
@@ -1730,14 +1738,12 @@ async function renderSigningPDF(config, block) {
 
   // If addedSignaturePage: append a synthetic signature page div
   if (config.addedSignaturePage) {
-    // Scale: pdf points (612x792) × 1.5 = 918×1188 display pixels
-    const synthW = 612 * scale;
-    const synthH = 792 * scale;
-
+    // A US-letter page (612x792 pt), at most 918px wide and shrinking to fit the screen. Fields are
+    // positioned in % of the page so they stay put at any size.
     const synthDiv = document.createElement('div');
     synthDiv.className = 'sign-synthetic-page';
-    synthDiv.style.width  = synthW + 'px';
-    synthDiv.style.minHeight = synthH + 'px';
+    synthDiv.style.width  = '100%';
+    synthDiv.style.aspectRatio = '612 / 792';
 
     const today = new Date().toISOString().split('T')[0];
     synthDiv.innerHTML = `
@@ -1747,14 +1753,10 @@ async function renderSigningPDF(config, block) {
 
     // Render each field defined in the config on this synthetic page
     for (const field of (config.fields || [])) {
-      const fieldW = Math.round(field.width  * synthW);
-      const fieldH = Math.round(field.height * synthH);
-      const fieldX = Math.round(field.x      * synthW);
-      const fieldY = Math.round(field.y      * synthH);
-
       const wrapper = document.createElement('div');
-      wrapper.style.cssText = `position:absolute;left:${fieldX}px;top:${fieldY}px;width:${fieldW}px;height:${fieldH}px;`;
+      wrapper.style.cssText = `position:absolute;left:${(field.x * 100).toFixed(3)}%;top:${(field.y * 100).toFixed(3)}%;width:${(field.width * 100).toFixed(3)}%;height:${(field.height * 100).toFixed(3)}%;`;
       wrapper.className = 'sign-field-overlay';
+      if (field.type === 'signature' || field.type === 'initials') wrapper.dataset.sig = '1';
       wrapper.dataset.fieldId = field.id; // used by the signature navigation bar
 
       // Label
@@ -1764,9 +1766,10 @@ async function renderSigningPDF(config, block) {
       wrapper.appendChild(labelEl);
 
       if (field.type === 'signature' || field.type === 'initials') {
+        bindSignatureTap(wrapper, field);
         const sigCanvas = document.createElement('canvas');
-        sigCanvas.width  = fieldW;
-        sigCanvas.height = fieldH;
+        sigCanvas.width  = 300;   // placeholder — fitSignaturePads() sizes it to its real on-screen size
+        sigCanvas.height = 100;
         wrapper.appendChild(sigCanvas);
         if (typeof SignaturePad !== 'undefined') {
           const pad = new SignaturePad(sigCanvas, { penColor: '#1a3c6e' });
@@ -1790,7 +1793,7 @@ async function renderSigningPDF(config, block) {
 
     const pageDiv = document.createElement('div');
     pageDiv.className = 'sign-page-wrapper';
-    pageDiv.style.width  = synthW + 'px';
+    pageDiv.style.cssText = 'position:relative; display:block; width:min(918px, calc(100vw - 32px));';
     pageDiv.appendChild(synthDiv);
     container.appendChild(pageDiv);
   }
@@ -1871,6 +1874,7 @@ function addFieldOverlay(field, pageDiv, pageW, pageH) {
   const overlay = document.createElement('div');
   overlay.className = 'sign-field-overlay';
   overlay.dataset.fieldId = field.id;
+  if (isSig) overlay.dataset.sig = '1';
   overlay.style.cssText = [
     `position:absolute`,
     `left:${xPct}%`, `top:${yPct}%`,
@@ -1892,6 +1896,7 @@ function addFieldOverlay(field, pageDiv, pageW, pageH) {
     'font-size:9px', 'color:#fff', 'line-height:1', 'user-select:none',
   ].join(';');
   handle.textContent = '⠿';
+  handle.dataset.dragHandle = '1';
 
   // Tooltip
   const tooltip = document.createElement('div');
@@ -1945,6 +1950,7 @@ function addFieldOverlay(field, pageDiv, pageW, pageH) {
 
   pageDiv.appendChild(overlay);
   makeDraggable(handle, overlay, field, pageDiv, pageW, pageH);
+  if (isSig) bindSignatureTap(overlay, field);
 }
 
 // Drag-to-reposition — pointer events so it works on mouse and touch
@@ -1969,9 +1975,10 @@ function makeDraggable(handle, overlay, field, pageDiv, pageW, pageH) {
   handle.addEventListener('pointermove', e => {
     if (!handle.hasPointerCapture(e.pointerId)) return;
 
-    // Convert pixel delta → % of pageDiv
-    const deltaXPct = (e.clientX - startPx) / pageW * 100;
-    const deltaYPct = (e.clientY - startPy) / pageH * 100;
+    // Convert pixel delta → % of pageDiv (its current on-screen size — pages shrink to fit phones)
+    const box = pageDiv.getBoundingClientRect();
+    const deltaXPct = (e.clientX - startPx) / (box.width  || pageW) * 100;
+    const deltaYPct = (e.clientY - startPy) / (box.height || pageH) * 100;
 
     const newLeft = Math.max(0, Math.min(100 - parseFloat(overlay.style.width),  startLeft + deltaXPct));
     const newTop  = Math.max(0, Math.min(100 - parseFloat(overlay.style.height), startTop  + deltaYPct));
@@ -2001,10 +2008,187 @@ function makeDraggable(handle, overlay, field, pageDiv, pageW, pageH) {
   });
 }
 
+// A signature canvas's drawing buffer must match its on-screen size or strokes land in the wrong place.
+// The size changes with the screen (phones shrink the page to fit), so measure instead of assuming;
+// strokes already drawn are kept and rescaled when the size changes (rotation, window resize).
+function fitSignaturePads() {
+  const ratio = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3);
+  for (const pad of Object.values(signaturePads)) {
+    const canvas = pad.canvas;
+    if (!canvas) continue;
+    const r = canvas.getBoundingClientRect();
+    if (!r.width || !r.height) continue;                 // screen not visible yet
+    const w = Math.round(r.width * ratio), h = Math.round(r.height * ratio);
+    if (canvas.width === w && canvas.height === h && canvas._cssW) continue;
+    const data = pad.toData();
+    const kx = canvas._cssW ? r.width  / canvas._cssW : 1;
+    const ky = canvas._cssH ? r.height / canvas._cssH : 1;
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').scale(ratio, ratio);
+    pad.clear();
+    if (canvas._imgUrl) {
+      pad.fromDataURL(canvas._imgUrl, { ratio, width: r.width, height: r.height });   // signed via the phone pad
+    } else if (data.length && canvas._cssW) {
+      data.forEach(g => g.points.forEach(pt => { pt.x *= kx; pt.y *= ky; }));
+      pad.fromData(data);
+    }
+    canvas._cssW = r.width; canvas._cssH = r.height;
+  }
+}
+let signFitFrame = 0, signResizeObserver = null;
+function scheduleSignaturePadFit() {
+  cancelAnimationFrame(signFitFrame);
+  signFitFrame = requestAnimationFrame(fitSignaturePads);
+}
+function watchSignatureLayout() {
+  if (signResizeObserver || typeof ResizeObserver === 'undefined') return;
+  signResizeObserver = new ResizeObserver(scheduleSignaturePadFit);
+  signResizeObserver.observe(document.getElementById('signPdfContainer'));
+  window.addEventListener('orientationchange', scheduleSignaturePadFit);
+}
+
 function clearAllSignatures() {
   for (const pad of Object.values(signaturePads)) {
     pad.clear();
+    if (pad.canvas) {
+      delete pad.canvas._imgUrl;
+      const ov = pad.canvas.closest('.sign-field-overlay');
+      if (ov) ov.classList.remove('is-signed');
+    }
   }
+}
+
+// ── Phone signing: tap a signature box → roomy full-width pad ──
+// A page shrunk to a phone's width leaves signature boxes only a few millimetres tall, and dense forms
+// put several fields a finger-width apart. So on a phone the box is a tap target ("Tap to sign") that
+// opens a big pad; Done trims the signature and fits it into the box. Desktop signs in place as before.
+const isPhoneLayout = () => window.matchMedia('(max-width: 700px)').matches;
+
+function injectSignStyles() {
+  if (document.getElementById('signPadStyles')) return;
+  const st = document.createElement('style');
+  st.id = 'signPadStyles';
+  st.textContent = `
+    @media (max-width: 700px) {
+      #screenSign { padding: 12px 8px; }
+      .sign-field-overlay[data-sig="1"] { min-height: 44px; z-index: 5; cursor: pointer; }
+      .sign-field-overlay:not([data-sig]) { min-height: 28px; }
+      .sign-field-overlay input { font-size: 16px !important; }   /* 16px stops iOS zooming the page on focus */
+      .sign-field-overlay[data-sig="1"] canvas { pointer-events: none; }
+      .sign-field-overlay[data-sig="1"]:not(.is-signed)::after { content: 'Tap to sign'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 700 12px/1 -apple-system, "Segoe UI", sans-serif; color: #2a9640; pointer-events: none; }
+      .sign-field-overlay.is-signed { background: rgba(42,150,64,0.12) !important; }
+      .sign-nav { top: 100px; }
+      .sign-synthetic-page { padding: 6% 7%; }
+      .sign-synthetic-page h2 { font-size: 16px; }
+    }
+    #signPadModal { position: fixed; inset: 0; z-index: 10070; background: rgba(8,18,10,0.62); display: flex; align-items: flex-end; justify-content: center; }
+    #signPadModal .sp-sheet { background: #fff; color: #152219; width: 100%; max-width: 640px; box-sizing: border-box; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); border-radius: 16px 16px 0 0; box-shadow: 0 -8px 30px rgba(0,0,0,0.3); }
+    #signPadModal .sp-title { font: 700 16px -apple-system, "Segoe UI", sans-serif; margin-bottom: 10px; }
+    #signPadModal .sp-canvas { display: block; width: 100%; height: 220px; box-sizing: border-box; border: 2px dashed #2a9640; border-radius: 10px; background: #fff; touch-action: none; }
+    #signPadModal .sp-hint { font: 500 12px -apple-system, "Segoe UI", sans-serif; color: rgba(0,0,0,0.5); margin: 8px 0 12px; }
+    #signPadModal .sp-actions { display: flex; gap: 10px; }
+    #signPadModal .sp-actions .btn { flex: 1; justify-content: center; }`;
+  document.head.appendChild(st);
+}
+
+function bindSignatureTap(overlayEl, field) {
+  overlayEl.addEventListener('click', (e) => {
+    if (!isPhoneLayout() || e.target.closest('[data-drag-handle]')) return;
+    openSignaturePadModal(field.id, field.label || (field.type === 'initials' ? 'Initials' : 'Signature'));
+  });
+}
+
+let signPadModal = null;
+function closeSignaturePadModal() {
+  if (!signPadModal) return;
+  signPadModal.remove();
+  signPadModal = null;
+  document.body.style.overflow = '';
+}
+
+// Crop a canvas to the pixels that were drawn on (null if blank)
+function trimCanvas(src) {
+  const { width: w, height: h } = src;
+  const d = src.getContext('2d').getImageData(0, 0, w, h).data;
+  let minX = w, minY = h, maxX = -1, maxY = -1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (d[(y * w + x) * 4 + 3] > 8) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
+    }
+  }
+  if (maxX < 0) return null;
+  const pad = 4;
+  minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
+  maxX = Math.min(w - 1, maxX + pad); maxY = Math.min(h - 1, maxY + pad);
+  const out = document.createElement('canvas');
+  out.width = maxX - minX + 1; out.height = maxY - minY + 1;
+  out.getContext('2d').drawImage(src, minX, minY, out.width, out.height, 0, 0, out.width, out.height);
+  return out;
+}
+
+// Fit the trimmed signature into the field's own pad (same aspect ratio as the stamped box → no distortion)
+async function applyPhoneSignature(targetPad, drawn) {
+  const trimmed = trimCanvas(drawn);
+  if (!trimmed) return false;
+  const c = targetPad.canvas;
+  const ratio = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3);
+  const tmp = document.createElement('canvas');
+  tmp.width = c.width; tmp.height = c.height;
+  const margin = 4 * ratio;
+  const k = Math.min((tmp.width - margin * 2) / trimmed.width, (tmp.height - margin * 2) / trimmed.height);
+  const dw = trimmed.width * k, dh = trimmed.height * k;
+  tmp.getContext('2d').drawImage(trimmed, (tmp.width - dw) / 2, (tmp.height - dh) / 2, dw, dh);
+  const url = tmp.toDataURL('image/png');
+  c._imgUrl = url;
+  targetPad.clear();
+  await targetPad.fromDataURL(url, { ratio, width: tmp.width / ratio, height: tmp.height / ratio });
+  const ov = c.closest('.sign-field-overlay');
+  if (ov) ov.classList.add('is-signed');
+  return true;
+}
+
+function openSignaturePadModal(fieldId, label) {
+  const target = signaturePads[fieldId];
+  if (!target || typeof SignaturePad === 'undefined') return;
+  closeSignaturePadModal();
+  injectSignStyles();
+
+  const wrap = document.createElement('div');
+  wrap.id = 'signPadModal';
+  wrap.innerHTML = `
+    <div class="sp-sheet" role="dialog" aria-modal="true">
+      <div class="sp-title"></div>
+      <canvas class="sp-canvas"></canvas>
+      <div class="sp-hint">Sign with your finger inside the box.</div>
+      <div class="sp-actions">
+        <button class="btn btn-outline" data-a="clear">Clear</button>
+        <button class="btn btn-outline" data-a="cancel">Cancel</button>
+        <button class="btn btn-primary" data-a="done">Done</button>
+      </div>
+    </div>`;
+  wrap.querySelector('.sp-title').textContent = label;
+  document.body.appendChild(wrap);
+  document.body.style.overflow = 'hidden';
+  signPadModal = wrap;
+
+  const canvas = wrap.querySelector('canvas');
+  const ratio = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3);
+  const r = canvas.getBoundingClientRect();
+  canvas.width = Math.round(r.width * ratio);
+  canvas.height = Math.round(r.height * ratio);
+  canvas.getContext('2d').scale(ratio, ratio);
+  const pad = new SignaturePad(canvas, { penColor: '#1a3c6e', minWidth: 1.2, maxWidth: 3.2 });
+
+  wrap.addEventListener('click', async (e) => {
+    const a = e.target.dataset && e.target.dataset.a;
+    if (e.target === wrap || a === 'cancel') return closeSignaturePadModal();
+    if (a === 'clear') return pad.clear();
+    if (a === 'done') {
+      if (pad.isEmpty()) { showToast('Please sign in the box first'); return; }
+      await applyPhoneSignature(target, canvas);
+      closeSignaturePadModal();
+    }
+  });
 }
 
 async function submitSignedDocument() {

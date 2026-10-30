@@ -925,7 +925,7 @@
   .sign-field-flash { animation: signFieldFlash 1.4s ease; }
   @keyframes signFieldFlash { 0%, 100% { box-shadow: 0 0 0 0 rgba(42,150,64,0); } 30% { box-shadow: 0 0 0 7px rgba(42,150,64,0.38); } }
   .sign-actions { display: flex; gap: 12px; justify-content: flex-end; margin-bottom: 16px; flex-wrap: wrap; }
-  .sign-synthetic-page { background: #fff; width: 612px; max-width: 100%; padding: 40px 50px; box-sizing: border-box; font-family: inherit; box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
+  .sign-synthetic-page { background: #fff; width: 100%; max-width: 100%; padding: 40px 50px; box-sizing: border-box; font-family: inherit; box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
   .sign-synthetic-page h2 { font-size: 20px; font-weight: 700; margin-bottom: 8px; color: var(--text); }
   .sign-synthetic-page p { font-size: 12px; color: var(--gray); margin-bottom: 32px; }
   .sign-synthetic-field { margin-bottom: 28px; }
