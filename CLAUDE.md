@@ -141,6 +141,10 @@ HR document uploads use Notion's File Upload API (NOT external URLs):
 - Higher specificity (`body.logged-in .some-class`) overrides base dark-mode rules
 - **Inline styles in `index.html` `<style>` tag** are used for some components to avoid CSS file caching/deployment issues (e.g. `.block-guidance-blurb`)
 
+## Service worker (sw.js) and uploads
+- The service worker only handles **GET** requests (`if (request.method !== 'GET') return;`). It must never intercept writes: re-sending a request body from the service worker truncates large multipart uploads on iOS Safari (server log: `Error: Unexpected end of form`, client: "Server error 500"), which broke photo uploads on iPhones (Nov 2026). JSON writes happened to work, multipart did not. Bump `CACHE_NAME` whenever sw.js or cached CSS/images change; phones pick the new worker up on their next load of the app.
+- `server.js` ends with a JSON **error handler** (multer/body-parser errors → a clear message: file too large 413, interrupted upload 400, otherwise "Something went wrong"), and deletes any half-written temp file recorded in `req._tmpUploads`.
+
 ## Document signing layout (js/app.js — renderSigningPDF)
 - **Pages fit the screen**: each page is `min(<rendered width>, 100vw - 32px)` wide (desktop keeps the full 918px page; a phone shrinks it to fit). The canvas fills its wrapper and field overlays are positioned in **% of the page**, so they stay aligned at any size. The render scale drops on phones (≥1×, ≤1.5×) to save memory on long documents. The synthetic "Electronic Signature" page is also %-based (US letter aspect ratio).
 - **Signature pad canvases are sized to their on-screen size** by `fitSignaturePads()` (ResizeObserver + orientationchange), at devicePixelRatio, rescaling any strokes already drawn. Never hard-code a pad's pixel size: SignaturePad maps pointer coordinates in CSS pixels.

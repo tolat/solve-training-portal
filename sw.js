@@ -6,7 +6,7 @@
  *   • API calls       → Network-first (fresh data when online, fallback offline message)
  */
 
-const CACHE_NAME = 'solve-training-v17';
+const CACHE_NAME = 'solve-training-v18';
 
 // Truly static assets that rarely change — served cache-first
 const STATIC_ASSETS = [
@@ -62,6 +62,11 @@ self.addEventListener('fetch', event => {
 
   // Only handle same-origin requests
   if (url.origin !== self.location.origin) return;
+
+  // Never intercept anything but GET. Re-sending a request body from the service worker mangles large
+  // multipart uploads on iOS Safari (the server sees a cut-off form: "Unexpected end of form"), and there
+  // is nothing useful to cache for a write. Uploads, sign-ins and other writes go straight to the network.
+  if (request.method !== 'GET') return;
 
   // API calls → network-first
   if (url.pathname.startsWith('/api/')) {

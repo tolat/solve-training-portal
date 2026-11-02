@@ -35,7 +35,10 @@ const storage = multer.diskStorage({
   filename:    (req, file, cb) => {
     const ext  = path.extname(file.originalname);
     const base = path.basename(file.originalname, ext).replace(/[^a-z0-9_-]/gi, '_');
-    cb(null, `${Date.now()}_${base}${ext}`);
+    const name = `${Date.now()}_${base}${ext}`;
+    // remember every file this request started writing, so the error handler can delete a half-written one
+    (req._tmpUploads = req._tmpUploads || []).push(path.join(UPLOAD_DIR, name));
+    cb(null, name);
   },
 });
 const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } }); // 20 MB limit
@@ -2672,6 +2675,24 @@ app.get('/api/health', (req, res) => {
 // ─── Catch-all: serve frontend ────────────────────────────────
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// ─── Error handler ───────────────────────────────────────────
+// Anything a route (or multer / the body parser) throws becomes a JSON answer the app can show, instead of
+// Express's default HTML 500 page ("Server error 500" with no explanation).
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  let status = err.status || err.statusCode || 500;
+  let message;
+  if (err.code === 'LIMIT_FILE_SIZE')                                  { status = 413; message = 'That file is too large (the limit is 20 MB per file).'; }
+  else if (err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE') { status = 400; message = 'Too many files: please upload up to 10 at a time.'; }
+  else if (err.name === 'MulterError' || /unexpected end of form|multipart|boundary/i.test(String(err.message))) { status = 400; message = 'The upload was interrupted before it finished. Please try again.'; }
+  else if (err.type === 'entity.parse.failed')                         { status = 400; message = 'That request could not be read.'; }
+  else if (status >= 500)                                              { message = 'Something went wrong on our side. Please try again.'; }
+  else                                                                 { message = err.message || 'Request failed.'; }
+  console.error(`❌  ${req.method} ${req.path} → ${status}: ${err.message}`);
+  (req._tmpUploads || []).forEach(f => { try { fs.unlinkSync(f); } catch {} });   // a cut-off upload leaves a partial file
+  res.status(status).json({ error: message });
 });
 
 // ─── Start ────────────────────────────────────────────────────
