@@ -781,6 +781,37 @@ async function fetchBlockPageText(blockId) {
   }
 }
 
+// Anthropic rejects a request over 32 MiB (33,554,432 bytes) and a base64 PDF is a third bigger than the file,
+// so a PDF over roughly 24 MB cannot be attached at all. Leave room for the prompt and other attachments.
+const MAX_ATTACH_BASE64 = 30 * 1000 * 1000;
+
+let pdfjsLib = null;
+/** Plain text of a PDF (no images). Used when a PDF is too big to attach. */
+async function extractPdfText(buffer, maxChars = 150000) {
+  if (!pdfjsLib) {
+    // pdfjs warns that it cannot polyfill canvas APIs; irrelevant for text extraction
+    const warn = console.warn;
+    console.warn = (...a) => { if (!/polyfill/i.test(String(a[0]))) warn(...a); };
+    try { pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js'); } finally { console.warn = warn; }
+  }
+  // pdf.js may take ownership of the bytes it is given, so hand it a copy
+  const data = new Uint8Array(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.length));
+  const doc = await pdfjsLib.getDocument({ data, useSystemFonts: true, disableFontFace: true, isEvalSupported: false, verbosity: 0 }).promise;
+  try {
+    let out = '';
+    for (let p = 1; p <= doc.numPages && out.length < maxChars; p++) {
+      const page = await doc.getPage(p);
+      const tc = await page.getTextContent();
+      let line = '';
+      for (const it of tc.items) line += it.str + (it.hasEOL ? '\n' : ' ');
+      out += `\n--- Page ${p} ---\n${line.trim()}\n`;
+    }
+    return out.slice(0, maxChars).trim();
+  } finally {
+    await doc.destroy();
+  }
+}
+
 async function generateQuizForBlock(block) {
   const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
   if (!ANTHROPIC_API_KEY) {
@@ -793,7 +824,7 @@ async function generateQuizForBlock(block) {
 
   // Fetch actual file contents from Notion block properties (forms, guidance, media)
   // Supports PDFs and images — skips videos and other unsupported types
-  const contentBlocks = [];
+  const sources = [];        // downloaded documents: { name, isPdf, mediaType, buffer }
   const sourceProblems = []; // documents that exist but could not be attached
   try {
     const blockPage = await notionFetch(`/pages/${block.id}`);
@@ -817,17 +848,11 @@ async function generateQuizForBlock(block) {
       try {
         const fileRes = await resilience.fetchWithRetry(file.url, {}, FILE_DOWNLOAD);
         if (!fileRes.ok) throw new Error(`HTTP ${fileRes.status}`);
-        const buffer = await fileRes.arrayBuffer();
-        const base64 = Buffer.from(buffer).toString('base64');
+        const buffer = Buffer.from(await fileRes.arrayBuffer());
         const mediaType = isPdf ? 'application/pdf'
           : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
           : `image/${ext}`;
-
-        contentBlocks.push({
-          type: isPdf ? 'document' : 'image',
-          source: { type: 'base64', media_type: mediaType, data: base64 },
-        });
-        console.log(`📄  Attached file to quiz prompt: ${file.name} (${mediaType})`);
+        sources.push({ name: file.name, isPdf, mediaType, buffer });
       } catch (e) {
         console.warn(`⚠️   Could not fetch file "${file.name}" for quiz generation:`, e.message);
         sourceProblems.push(`${file.name} (${e.message})`);
@@ -868,10 +893,34 @@ Rules:
 - Questions should be challenging but unambiguous
 - Incorrect options should be plausible, not obviously wrong`;
 
-  // Build message content — prepend any file blocks before the text prompt
-  contentBlocks.push({ type: 'text', text: prompt });
-
-  const res = await resilience.fetchWithRetry('https://api.anthropic.com/v1/messages', {
+  // Build message content — file blocks first, then the text prompt. A PDF is attached as-is while the request
+  // stays under Anthropic's size limit; a bigger one is sent as its extracted text instead (images/layout are
+  // lost but the quiz still reflects the whole document). forceText = every PDF as text (used if the API
+  // rejects a PDF for size or page count anyway).
+  const buildContent = async (forceText) => {
+    const blocks = [];
+    let attached = 0;
+    for (const src of sources) {
+      const b64Len = Math.ceil(src.buffer.length / 3) * 4;
+      if (src.isPdf && (forceText || attached + b64Len > MAX_ATTACH_BASE64)) {
+        const text = await extractPdfText(src.buffer);
+        if (text.replace(/\s+/g, '').length < 200) {
+          throw new Error(`"${src.name}" is too large to attach (${(src.buffer.length / 1e6).toFixed(1)} MB) and has no readable text (a scanned/image-only PDF?) — shrink the PDF`);
+        }
+        blocks.push({ type: 'text', text: `Training document "${src.name}" (too large to attach as a PDF, so only its text is provided; images and layout are omitted):\n${text}` });
+        console.log(`📄  "${src.name}" is ${(src.buffer.length / 1e6).toFixed(1)} MB — sent as extracted text (${text.length} chars)`);
+      } else if (attached + b64Len > MAX_ATTACH_BASE64) {
+        throw new Error(`"${src.name}" is too large to attach (${(src.buffer.length / 1e6).toFixed(1)} MB)`);
+      } else {
+        attached += b64Len;
+        blocks.push({ type: src.isPdf ? 'document' : 'image', source: { type: 'base64', media_type: src.mediaType, data: src.buffer.toString('base64') } });
+        console.log(`📄  Attached file to quiz prompt: ${src.name} (${src.mediaType})`);
+      }
+    }
+    blocks.push({ type: 'text', text: prompt });
+    return blocks;
+  };
+  const callAnthropic = (content, report) => resilience.fetchWithRetry('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'x-api-key': ANTHROPIC_API_KEY,
@@ -881,10 +930,21 @@ Rules:
     body: JSON.stringify({
       model: 'claude-opus-4-6',  // upgraded to Opus for better file comprehension
       max_tokens: 4096,
-      messages: [{ role: 'user', content: contentBlocks }],
+      messages: [{ role: 'user', content }],
     }),
-  }, ANTHROPIC_QUIZ);
+  }, { ...ANTHROPIC_QUIZ, report });
 
+  const hasPdf = sources.some(s => s.isPdf);
+  let res = await callAnthropic(await buildContent(false), !hasPdf);
+  if (!res.ok && res.status === 400 && hasPdf) {
+    const err = await res.text();
+    if (/pdf|document|pages?\b|32 ?mb|too large|exceed/i.test(err)) {
+      console.warn(`⚠️   Anthropic rejected a PDF for "${block.name}" (${err.slice(0, 160)}) — retrying with the PDFs as extracted text`);
+      res = await callAnthropic(await buildContent(true), true);
+    } else {
+      throw new Error(`Anthropic API ${res.status}: ${err}`);
+    }
+  }
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Anthropic API ${res.status}: ${err}`);
