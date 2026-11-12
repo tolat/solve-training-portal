@@ -1,12 +1,12 @@
 {
   "name": "solve-training-portal",
   "version": "2.0.0",
-  "description": "Solve Energy Training Portal — Notion-integrated",
+  "description": "Solve Energy Training Portal \u2014 Notion-integrated",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test --test-force-exit test/resilience.test.js"
+    "test": "node --test --test-force-exit test/resilience.test.js test/certificates.test.js"
   },
   "engines": {
     "node": ">=18.0.0"

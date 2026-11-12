@@ -494,6 +494,32 @@ function renderRoles() {
 
   showScreen('screenRoles');
   loadRoleResources(roles || []);
+  // Issued certificates sit under the course cards. Loaded separately so a slow
+  // or failed certificate lookup never delays the courses themselves.
+  if (window.SolveCerts) window.SolveCerts.renderSection();
+}
+
+// ============================================================
+// ISSUED CERTIFICATES
+// ============================================================
+
+/**
+ * Show the "you've earned a certificate" modal, if this completion issued one.
+ *
+ * Every completion path calls this with whatever the server returned; the
+ * server sends `certificate: null` when the block does not issue one, so there
+ * is nothing for callers to check. Refreshes the main-page list too, so the
+ * certificate is already there when they go back.
+ */
+function awardCertificate(certificate) {
+  if (!certificate || !window.SolveCerts) return;
+  try {
+    window.SolveCerts.showAward(certificate);
+    window.SolveCerts.renderSection();
+  } catch (err) {
+    // A failed celebration must never cost someone their completion.
+    console.warn('Could not show the certificate:', err && err.message);
+  }
 }
 
 // ============================================================
@@ -1566,8 +1592,11 @@ function isSignatureBlock(block) {
 function blockNeedsQuizAndSignature(block) {
   if (!isSignatureBlock(block)) return false;
   if (isDocumentUploadBlock(block) || isHRDocumentUploadBlock(block)) return false;
-  // General Resource only controls where a block is listed (the Documents grid), not how it is completed
-  const special = new Set(['signaturerequired', 'documentupload', 'hrdocumentupload', 'generalresource']);
+  // General Resource only controls where a block is listed (the Documents grid), not how it is completed.
+  // Completion Certificate only says a certificate is issued on completion — it does not change how the
+  // block is completed either. Any new display-only tag must be added here, or every block carrying it
+  // starts demanding a quiz and a signature.
+  const special = new Set(['signaturerequired', 'documentupload', 'hrdocumentupload', 'generalresource', 'completioncertificate']);
   return (block.types || []).some(t => !special.has(String(t).toLowerCase().replace(/[\s_-]/g, '')));
 }
 
@@ -2250,6 +2279,7 @@ async function submitSignedDocument() {
     `;
     btnEl.style.display = 'none';
     showToast('Document signed successfully ✅');
+    awardCertificate(result.certificate);
     // Re-render the course to update progress
     renderCourse(currentBlocks);
   } catch (err) {
@@ -2356,6 +2386,7 @@ async function submitUpload() {
     if (!trainingData.completedMap) trainingData.completedMap = {};
     trainingData.completedMap[block.id] = { date: data.date, recordId: data.recordId, status: 'OK' };
     saveCache(trainingData);
+    awardCertificate(data.certificate);
 
     if (isHRDoc) {
       resultEl.className = 'quiz-result pass show';
@@ -2535,6 +2566,7 @@ async function submitQuiz() {
     try {
       const result = await apiFetch('/api/complete', 'POST', { blockId: block.id, blockName: block.name });
       markBlockCompleteLocally(block.id, { date: today, recordId: result.recordId, status: 'OK' });
+      awardCertificate(result.certificate);
 
       resultDiv.innerHTML = `
         <div class="quiz-result-title">🎉 Passed! ${correct}/${questions.length} correct ✅</div>

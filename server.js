@@ -186,6 +186,31 @@ async function uploadBytesToNotion(fileBuffer, originalName, mimeType) {
 /** A Files-property entry pointing at a file previously uploaded with uploadFileToNotion/uploadBytesToNotion */
 const notionFileRef = (fileUploadId, name) => ({ name, type: 'file_upload', file_upload: { id: fileUploadId } });
 
+// ─── Completion certificates ──────────────────────────────────
+// Built here so it shares notionFetch's auth and retry behaviour. See certificates.js.
+const certificates = require('./certificates').createCertificates({
+  PDFLib,
+  notionFetch,
+  uploadBytesToNotion,
+  notionFileRef,
+  fetchFile: url => resilience.fetchWithRetry(url, {}, FILE_DOWNLOAD),
+});
+
+/**
+ * Issue a certificate for a block someone just completed, if that block has a
+ * `Certificate Template`. Never throws and never blocks the response — the
+ * completion is already recorded by the time this runs, and a certificate that
+ * failed to generate can be reissued later.
+ */
+async function issueCertificateFor(recordId, blockId, session, dateISO) {
+  return certificates.issue({
+    blockId,
+    recordId,
+    personName: session?.name || 'Team Member',
+    dateISO,
+  });
+}
+
 /**
  * Get ALL ids from a relation property, following Notion's 25-item pagination.
  * Notion caps relation properties at 25 items per page fetch; extra items need
@@ -324,6 +349,9 @@ async function refreshCache() {
       notes:        richText(prop(p, 'Notes')),
       policyNo:     prop(p, 'Policy No.')?.select?.name || null,
       types:        prop(p, 'Type')?.multi_select?.map(s => s.name) || [],
+      // Whether this block issues a certificate. Only the flag is cached, never
+      // the file URL — Notion's file URLs are presigned and expire within the hour.
+      hasCertificate: (prop(p, 'Certificate Template')?.files || []).length > 0,
       blockOrdering: prop(p, 'Ordering')?.number ?? null,
       stageOrdering,
       stageName,
@@ -1664,7 +1692,8 @@ app.post('/api/complete', requireAuth, async (req, res) => {
         },
       });
       console.log(`✔  Updated Training Record ${existing[0].id} → ${today} (${req.session.name})`);
-      res.json({ status: 'updated', recordId: existing[0].id, date: today });
+      const certificate = await issueCertificateFor(existing[0].id, blockId, req.session, today);
+      res.json({ status: 'updated', recordId: existing[0].id, date: today, certificate });
 
     } else {
       // Create a new Training Record
@@ -1678,7 +1707,8 @@ app.post('/api/complete', requireAuth, async (req, res) => {
         },
       });
       console.log(`✔  Created Training Record ${newPage.id} → ${today} (${req.session.name})`);
-      res.json({ status: 'created', recordId: newPage.id, date: today });
+      const certificate = await issueCertificateFor(newPage.id, blockId, req.session, today);
+      res.json({ status: 'created', recordId: newPage.id, date: today, certificate });
     }
 
   } catch (err) {
@@ -2155,6 +2185,60 @@ app.get('/api/block/:blockId/certificates', requireAuth, async (req, res) => {
   }
 });
 
+// ─── GET /api/my-certificates ────────────────────────────────
+// Every certificate SOLVE has issued to the logged-in person, newest first.
+//
+// Reads `Internal Certificates` only — never `Certificates`, which holds what
+// the trainee uploaded as proof. Those are two different claims and the portal
+// must not present one as the other.
+//
+// Never cached: Notion's file URLs are presigned and expire within the hour, so
+// a cached list hands out dead links.
+app.get('/api/my-certificates', requireAuth, async (req, res) => {
+  try {
+    const { pageId: userPageId, contractorPageIds = [], dealerOrgPageIds = [] } = req.session;
+
+    const queries = [
+      queryAll(DB.trainingRecords, { property: 'Employee', relation: { contains: userPageId } }),
+      ...contractorPageIds.map(id => queryAll(DB.trainingRecords, { property: 'Contractor', relation: { contains: id } })),
+      ...dealerOrgPageIds.map(id  => queryAll(DB.trainingRecords, { property: 'Dealer',     relation: { contains: id } })),
+    ];
+    const pages = (await Promise.all(queries)).flat();
+
+    const seen  = new Set();
+    const items = [];
+    for (const r of pages) {
+      if (seen.has(r.id)) continue;      // a record can match more than one query
+      seen.add(r.id);
+
+      const files = (prop(r, 'Internal Certificates')?.files || [])
+        .map(f => ({
+          name: f.name || 'Certificate.pdf',
+          url:  f.type === 'file' ? f.file?.url : (f.type === 'external' ? f.external?.url : null),
+        }))
+        .filter(f => f.url);
+      if (!files.length) continue;
+
+      const blockId = relIds(prop(r, 'Training Block'))[0] || null;
+      items.push({
+        recordId: r.id,
+        blockId,
+        name:     (blockId && cache.blocks[blockId]?.name) || titleTxt(prop(r, 'Name')) || 'Training',
+        date:     prop(r, 'Date Completed')?.date?.start || null,
+        files,
+      });
+    }
+
+    // Newest first; undated last rather than sorted arbitrarily
+    items.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    res.json({ certificates: items });
+  } catch (err) {
+    console.error('❌ /api/my-certificates error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── GET /api/quizzes ─────────────────────────────────────────
 // Returns all AI-generated quizzes so the frontend can merge them
 // with the static quiz-data.js fallbacks.
@@ -2382,11 +2466,14 @@ app.post('/api/upload-certificate', requireAuth, upload.array('files', 10), asyn
       console.log(`✔  Certificate upload: created record ${recordId} (${req.session.name})`);
     }
 
+    const certificate = await issueCertificateFor(recordId, blockId, req.session, today);
+
     res.json({
       ok:       true,
       recordId,
       date:     today,
       files:    req.files.map(f => f.originalname),
+      certificate,
     });
 
   } catch (err) {
@@ -2457,7 +2544,8 @@ app.post('/api/upload-hr-document', requireAuth, upload.array('files', 10), asyn
     }
 
     console.log(`✔  HR doc upload: filed for ${req.session.name}, block: ${blockName}`);
-    res.json({ ok: true, recordId, date: today, files: req.files.map(f => f.originalname) });
+    const certificate = await issueCertificateFor(recordId, blockId, req.session, today);
+    res.json({ ok: true, recordId, date: today, files: req.files.map(f => f.originalname), certificate });
 
   } catch (err) {
     console.error('Upload HR document error:', err.message);
@@ -2652,7 +2740,8 @@ app.post('/api/sign-document', requireAuth, async (req, res) => {
       console.log(`✅  sign-document: created record ${recordId} (${req.session.name})`);
     }
 
-    res.json({ ok: true, recordId, date: today });
+    const certificate = await issueCertificateFor(recordId, blockId, req.session, today);
+    res.json({ ok: true, recordId, date: today, certificate });
 
   } catch (err) {
     console.error('sign-document error:', err.message);

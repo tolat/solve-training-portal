@@ -24,16 +24,20 @@ Node.js/Express training portal for SOLVE Energy, deployed on Railway. Employees
 ```
 solve-training-app/
 ├── server.js          # Express backend — all API endpoints, Notion integration
+├── certificates.js    # Issued completion certificates — fills a PDF template, stores it on the record
 ├── resilience.js      # Retry/backoff for outbound calls, failure e-mails, request context (see "Reliability")
 ├── test/              # `npm test` — resilience.js unit tests (mock HTTP server, no network)
 ├── index.html         # Single-page frontend shell
 ├── js/
 │   ├── net.js         # Resilient fetch (retry/wait), connection banner (window.SolveNet) — loads before app.js
 │   ├── app.js         # All frontend logic
+│   ├── certificates.js # Award modal + "My Certificates" section (window.SolveCerts)
 │   └── tour.js        # First-login welcome screen + guided tour (window.SolveTour)
 ├── css/
 │   └── styles.css     # Dark theme (default) + light theme (body.logged-in)
 ├── uploads/           # Temp multer upload dir (ephemeral on Railway)
+├── assets/            # certificate-template.pdf (generated), solve-wordmark.png
+├── bin/               # make-certificate-template.mjs — regenerates the template
 ├── signing-fields.json # Cached PDF signing field positions
 └── CLAUDE.md          # This file
 ```
@@ -51,8 +55,8 @@ hrDocuments:          '366b73d8-b43a-80dc-98e1-f7df637d49c7'
 ```
 
 ## Key Notion Data Model
-- **Training Block**: has `Name`, `Type` (multi-select), `Ordering` (number, optional), `Training link` (url), `Pipeline Stages` (relation), `Notes`, `Policy No.`
-- **Training Record**: links Employee + Training Block, has `Date Completed`, `Certificates` (files), `Status`
+- **Training Block**: has `Name`, `Type` (multi-select), `Ordering` (number, optional), `Training link` (url), `Pipeline Stages` (relation), `Notes`, `Policy No.`, `Certificate Template` (files)
+- **Training Record**: links Employee + Training Block, has `Date Completed`, `Certificates` (files — **uploaded by the trainee as proof**), `Internal Certificates` (files — **issued by Solve**), `Status`
 - **Company Directory**: employees with `Roles`, `Ordered Onboarding Stage`, `Contractor Pages`, `Dealer Organizations`
 - **HR Documents**: `Name`, `Person` (relation to directory), `Files & media`, `Type` (select)
 
@@ -61,6 +65,7 @@ Detected via normalised string matching in `app.js`:
 - `"Document Upload"` → `isDocumentUploadBlock()` — uploads to training record Certificates
 - `"HR Document Upload"` → `isHRDocumentUploadBlock()` — uploads to HR Documents DB
 - `"Signature Required"` → `isSignatureBlock()` — PDF e-signature flow
+- `"Completion Certificate"` → the block issues a certificate on completion. Display-only: it does **not** change how the block is completed (see `blockNeedsQuizAndSignature`'s `special` set in `app.js`). What actually triggers issuance is the block having a **`Certificate Template`** file, not the tag.
 - All others → quiz-based training (AI-generated quizzes stored in trainingBlockQuizzes DB)
 - `"General Resource"` → `hasGeneralResourceTag()` / `isResourceOnlyBlock()` in `server.js`. The block's **Guidance**, **Associated forms** and **Files & media** files, plus its **Training link**, are listed in a "Documents" grid on its role's card on the main page (loaded through `POST /api/resource-files`, rendered by `loadRoleResources()` in `app.js`). Combine it with other tags and the block is still a training AND appears in the grid. In practice each role has two **General Resource-only** blocks: `<Role> Path` and `<Handbook name> (complete)` (the whole handbook as one PDF), both linked to the role's Training Profile(s). A block whose **only** tag is General Resource is not a training: it is removed from `blocks`, the role's `blockIds`, the completion counts and "Other Assigned Trainings", and `regenerateQuizForBlock` skips it, so it just gets a tile on the main page.
   - **Never give a General Resource-only block a Pipeline Stage, and do not press Sync Block on it.** Training records are created by Make ("Sync Missing Trainings Universal" 4748085 → the Employee/Contractor/Dealer "Load Missing Trainings" loaders) only for blocks that sit in a person's onboarding-stage chain, which is built from Pipeline Stages. Stage-less resource blocks therefore never get records (verified 2026-10-28: all 26 have no stage and no records). Giving one a stage would start creating Overdue records for everyone in its profiles. The portal also ignores resource-only blocks even if a record existed.
@@ -133,6 +138,7 @@ HR document uploads use Notion's File Upload API (NOT external URLs):
 | POST | `/api/sync` | Refresh employee data + training cache |
 | GET | `/api/tour-status` | `{ tourCompleted }` from the Company Directory checkbox (null if the property is missing) |
 | POST | `/api/tour-complete` | Sets `Portal Tour Completed` on the logged-in employee |
+| GET | `/api/my-certificates` | Every certificate Solve has issued the logged-in person (reads `Internal Certificates`), newest first |
 | POST | `/api/resource-files` | `{ blockIds }` → files (Guidance / Associated forms / Files & media) and Training link for General Resource blocks (cached 20 min server-side) |
 
 ## CSS Theming
@@ -151,6 +157,61 @@ HR document uploads use Notion's File Upload API (NOT external URLs):
 - **On phones (≤700px wide) signing is tap-to-sign**: signature/initials boxes show "Tap to sign" and open a full-width bottom-sheet pad (`openSignaturePadModal`); **Done** trims the drawing (`trimCanvas`) and fits it into the field's own pad with `applyPhoneSignature` (so `submitSignedDocument` is unchanged). Desktop signs in place. The phone rules and modal styles are injected from JS (`injectSignStyles`) so a stale cached stylesheet can't break them.
 - **"Take Me To Signatures" / "Next Signature" bar** (`setupSignatureNav`): sticky under the app header, steps through signature/initials fields in document order.
 - Testing in the Browser pane: when the pane is hidden `requestAnimationFrame` never fires and pdf.js renders hang; replace it with a `setTimeout` shim in the page before opening a document.
+
+## Completion certificates (`certificates.js`, `js/certificates.js`)
+
+When someone completes a block that has a **`Certificate Template`** file, the
+portal fills that template with their name, the training name and the
+completion date, and stores the result on their Training Record under
+**`Internal Certificates`**.
+
+**The two certificate fields are deliberately separate and must stay that way:**
+
+| Field | Holds | Written by |
+|---|---|---|
+| `Certificates` | what the **trainee uploaded** as proof (Asbestos ticket, signed handbook) | `/api/upload-certificate`, `/api/sign-document`, `/api/upload-hr-document` |
+| `Internal Certificates` | what **Solve issued** | `certificates.js` only |
+
+Mixing them would make "did they give us a ticket?" unanswerable.
+
+**Where it runs.** `issueCertificateFor()` in `server.js` is called from every
+path that writes `Date Completed` — `/api/complete`, `/api/upload-certificate`,
+`/api/upload-hr-document`, `/api/sign-document` — and each returns
+`certificate: {...}` or `certificate: null` in its JSON. The client calls
+`awardCertificate(result.certificate)`, which no-ops on null.
+
+Deliberately **not** a Notion automation: a Notion automation does not fire
+another Notion automation, only API writes do, so an automation watching
+`Date Completed` would never run when the portal set it.
+
+**It never throws.** The completion is already recorded by the time issuance
+runs; a certificate that cannot be produced is logged and skipped, and can be
+reissued later with `force: true`. A failed certificate must never turn a
+finished training into an error the person sees.
+
+**Idempotent.** A record that already has an issued certificate is left alone,
+so re-completing a module does not pile up duplicates.
+
+**Template.** `assets/certificate-template.pdf`, generated by
+`node bin/make-certificate-template.mjs` so the wording and layout are
+reviewable in a diff rather than being an opaque binary. It carries AcroForm
+text fields `name`, `training` and `date`; `certificates.js` fills them and then
+**flattens the form** (a certificate someone can retype is not a certificate).
+A template with no form fields still works — the name, training and date are
+centred on page one. A designer can supply any PDF: name the fields `name`,
+`training`, `date` and it is filled precisely; omit them and it still works.
+
+> `solve_logo.png` is the **light-theme** SOLVE-U mark and is invisible on a
+> white certificate. `assets/solve-wordmark.png` is the dark one.
+
+**URLs expire.** Notion's file URLs are presigned for about an hour, so the
+template URL is fetched fresh on every issuance and `/api/my-certificates` is
+never cached. Only a `hasCertificate` boolean is kept in the block cache.
+
+**Adding another display-only Type tag?** Add it to the `special` set in
+`blockNeedsQuizAndSignature()` (`js/app.js`), or every block carrying it starts
+demanding a quiz and a signature. This caught `General Resource` in Oct 2026 and
+`Completion Certificate` was added to that set for the same reason.
 
 ## Reliability: retries, feedback and failure e-mails
 Goal: an integration hiccup (Notion/Anthropic timeout, 429, 5xx, dropped connection) should not break the portal; people wait and it retries, they see what is happening, and Torin gets an e-mail if it does not recover.
