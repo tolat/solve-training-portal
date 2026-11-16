@@ -19,6 +19,8 @@ Node.js/Express training portal for SOLVE Energy, deployed on Railway. Employees
 - `PORT` — set by Railway automatically
 - `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` — mail server (password-recovery e-mails **and failure alerts**). Gmail needs an app password. If unset, alerts are only logged.
 - `ALERT_EMAIL` — who gets failure alerts (default `torin@solveenergy.ca`); `ALERT_COOLDOWN_MIN` — minutes between repeats of the same alert (default 15)
+- `DEBUG_KEY` — password for `GET /api/debug/user`. **Unset = the endpoint is switched off (503).** Send it as the `x-debug-key` header (or `Authorization: Bearer`), never in the URL: `curl -H "x-debug-key: $DEBUG_KEY" "https://solveu.solveenergy.ca/api/debug/user?email=someone@solveenergy.ca"`. 10 wrong keys in a minute locks it for that minute.
+- `NOTION_RPS` (default 2.7), `MAX_CONCURRENT_UPLOADS` (default 4) — optional tuning, see "Capacity" below
 
 ## Project Structure
 ```
@@ -233,6 +235,16 @@ Goal: an integration hiccup (Notion/Anthropic timeout, 429, 5xx, dropped connect
 - If `/api/training-data` cannot be loaded, `initApp` uses the saved copy on the device (any age) with a banner and retries every minute; with no saved copy it shows the message and a "Try again" button. A transient failure no longer logs a resumed session out.
 - Not covered: if the portal itself is down (Railway 502 / process dead) nothing can e-mail from the app. Point an uptime monitor at `/api/health`.
 
+## Capacity (audit 2026-11-16, 50-60 people at once)
+Notion allows ~3 calls/second for the whole integration, shared by every user; that, not the server, is the limit. Before these changes ~20 simultaneous users was the ceiling (auto-sync broke at 30; at 60, 78% of Notion calls were rate-limited). After them, 60 people ran with 0 rate-limit errors and 0 failed actions in the load test (mock Notion with a 3/s limit and measured latencies).
+- **`paceNotion()`** puts every Notion call (incl. file uploads) through one 2.7/s queue, so a burst waits its turn instead of retrying in lockstep and exhausting the 5 attempts. A 60-person login burst therefore queues (login ~12 s) rather than fails.
+- **`/api/sync` no longer re-reads the training library for every user**: `refreshCacheShared()` shares one in-flight refresh and skips it if the cache is under 5 minutes old (the 24 h timer and Notion webhooks still refresh it).
+- **The client's 15-minute auto-sync has 0-5 minutes of random jitter** (`scheduleAutoSync()` in `js/app.js`), so people who logged in together don't sync in the same second.
+- **`filter_properties`**: reads ask Notion for only the properties the portal uses (`PROPS` in `server.js`). The Company Directory page has ~160 properties incl. formulas and Roles took 3.9 s unfiltered vs 0.4 s filtered. **Keep `PROPS` in step with the code that reads each row** — a property that is read but not listed comes back missing. A listed property that was renamed/removed in Notion makes Notion answer 400; `notionFetchFiltered` then reads unfiltered and e-mails a warning (nothing breaks, it just gets slower). Not filtered: the contractor/dealer page and record reads in `/api/training-data`, `/api/complete`, uploads.
+- **Uploads**: at most `MAX_CONCURRENT_UPLOADS` (4) files are in memory / on their way to Notion at once (`withUploadSlot`); 60 people uploading a 5 MB photo together peaked at 1.1 GB before, ~240 MB now. Temp files get a random suffix so two same-named uploads in the same millisecond can't share a path.
+- `issueCertificateFor` returns early (no Notion call) when the cached block has no `Certificate Template`; the tour flag is cached on the session once true.
+- Railway: one replica, limit 24 GB RAM / 24 vCPU. Sessions are in memory, so any restart or deploy logs everyone out: don't deploy during a live training session, and avoid editing Training Blocks in Notion then (the webhook does a full refresh + quiz regeneration).
+
 ## notionFetch Helper
 ```js
 async function notionFetch(endpoint, method = 'GET', body = null)
@@ -242,4 +254,5 @@ async function notionFetch(endpoint, method = 'GET', body = null)
 
 ## Known Issues / Pending Work
 1. Old training records may still hold dead links from before this fix: `https://solve-training-portal-production.up.railway.app/uploads/...` (5 records) and `http://localhost:...` (3 records). The files are gone; they need to be re-uploaded by hand.
-2. Webhook and quiz-regeneration endpoints (`/api/webhook/notion*`, `/api/regenerate-quiz/:id`, `/api/regenerate-missing-quizzes`, `/api/webhook/signature-fields`) are unauthenticated, and `express.static(__dirname)` publishes the app's own source files. Both are known and not yet fixed.
+2. Webhook and quiz-regeneration endpoints (`/api/webhook/notion*`, `/api/regenerate-quiz/:id`, `/api/regenerate-missing-quizzes`, `/api/webhook/signature-fields`) are unauthenticated, and `express.static(__dirname)` publishes the app's own source files (never put reports or notes inside this folder). Both are known and not yet fixed. (`/api/debug/user` is now protected by `DEBUG_KEY`.)
+3. Every employee's default password is the hard-coded string in `/api/login` until they change it; the portal forces a change on first login.

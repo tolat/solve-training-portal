@@ -147,10 +147,9 @@
     if (!host) return;
 
     try {
-      var fetcher = (window.SolveNet && window.SolveNet.fetch) ? window.SolveNet.fetch : window.fetch;
-      var res = await fetcher('/api/my-certificates', { credentials: 'same-origin' });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      var data  = await res.json();
+      // apiFetch (app.js) sends the sign-in token. A bare fetch sends none, the server answers 401 and
+      // the whole section silently never appears. `quiet`: this is background work, no connection banner.
+      var data  = await apiFetch('/api/my-certificates', 'GET', null, { quiet: true });
       var items = (data && data.certificates) || [];
 
       if (!items.length) { host.style.display = 'none'; host.innerHTML = ''; return; }

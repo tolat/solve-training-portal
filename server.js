@@ -35,7 +35,9 @@ const storage = multer.diskStorage({
   filename:    (req, file, cb) => {
     const ext  = path.extname(file.originalname);
     const base = path.basename(file.originalname, ext).replace(/[^a-z0-9_-]/gi, '_');
-    const name = `${Date.now()}_${base}${ext}`;
+    // random suffix: two people uploading a file with the same name (an iPhone calls every photo image.jpg)
+    // in the same millisecond must not share a temp path, or the first to finish deletes the other's file
+    const name = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}_${base}${ext}`;
     // remember every file this request started writing, so the error handler can delete a half-written one
     (req._tmpUploads = req._tmpUploads || []).push(path.join(UPLOAD_DIR, name));
     cb(null, name);
@@ -92,6 +94,15 @@ const NOTION_ID_RE = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a
 // Timeouts, dropped connections, 429s and 5xx are retried with backoff (see resilience.js);
 // after that the failure is e-mailed to ALERT_EMAIL. A database query is a POST but safe to repeat;
 // a page-creating POST is only re-sent when Notion definitely did not process it (429/503).
+// FIX 2: one shared pacer so bursts queue here instead of burning retries against Notion's 429s
+const NOTION_RPS = Number(process.env.NOTION_RPS || 2.7);
+let _nextSlot = 0;
+async function paceNotion() {
+  const now = Date.now();
+  const slot = Math.max(now, _nextSlot);
+  _nextSlot = slot + 1000 / NOTION_RPS;
+  if (slot > now) await new Promise(r => setTimeout(r, slot - now));
+}
 async function notionFetch(endpoint, method = 'GET', body = null) {
   // An id that is not a Notion id (a Softr preview sends the literal text "{user_field}", a mistyped link
   // sends anything) is the caller's mistake, not an integration failure: never send it to Notion, where it
@@ -102,7 +113,8 @@ async function notionFetch(endpoint, method = 'GET', body = null) {
     e.invalidId = true;
     throw e;
   }
-  const idempotent = method !== 'POST' || /\/(query|search)$/.test(endpoint);
+  const idempotent = method !== 'POST' || /\/(query|search)(\?|$)/.test(endpoint);
+  await paceNotion();
   const res = await resilience.fetchWithRetry(`https://api.notion.com/v1${endpoint}`, {
     method,
     headers: {
@@ -120,6 +132,45 @@ async function notionFetch(endpoint, method = 'GET', body = null) {
   return data;
 }
 
+// ─── Reading only the properties we use ───────────────────────
+// Notion computes every property on a row, including formulas and rollups, before it answers. The
+// Company Directory page has ~160 properties, Training Blocks carry signed file URLs: asking for just
+// the ones the portal reads (`filter_properties`) cut Roles 3.9 s -> 0.4 s, Training Blocks 5.9 s -> 2.1 s
+// and the directory lookup / page read by 60-70% (measured 2026-11-16, values identical).
+// KEEP THESE LISTS IN STEP WITH THE CODE THAT READS THE ROWS: a property that is read but not listed
+// here comes back missing. A listed property that was renamed or deleted in Notion makes Notion answer
+// 400; notionFetchFiltered then falls back to the unfiltered read (and e-mails a warning) rather than
+// breaking the portal.
+const PROPS = {
+  directoryUser:  ['Name', 'Email', 'Training Portal Password', 'Roles', 'Ordered Onboarding Stage', 'Contractor Pages', 'Dealer Organizations'],
+  tourFlag:       ['Portal Tour Completed'],
+  trainingRecord: ['Training Block', 'Date Completed', 'Status'],
+  role:           ['Name', 'Training Profiles', 'Department', 'Import Contractor Trainings'],
+  profile:        ['Name'],   // block membership comes from the Training Blocks side (Notion cuts relations at 25)
+  block:          ['Name', 'Training link', 'Notes', 'Policy No.', 'Type', 'Certificate Template', 'Ordering', 'Pipeline Stages', 'Training Profiles'],
+  stage:          ['Stage', 'Ordering', 'Ordered Pipeline Stage', 'Stage Type'],
+};
+const filterQS = (props) => props && props.length
+  ? '?' + props.map(p => 'filter_properties=' + encodeURIComponent(p)).join('&')
+  : '';
+const _filterFallbackSeen = new Set();
+async function notionFetchFiltered(endpoint, method, body, props) {
+  if (!props) return notionFetch(endpoint, method, body);
+  try {
+    return await notionFetch(endpoint + filterQS(props), method, body);
+  } catch (e) {
+    if (!/Notion API 400/.test(e.message)) throw e;
+    const label = endpoint.replace(/[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}/gi, ':id');
+    if (!_filterFallbackSeen.has(label)) {
+      _filterFallbackSeen.add(label);
+      console.warn(`⚠️   Notion rejected filter_properties on ${method} ${label} (a property was renamed or removed?): reading without the filter. ${e.message.slice(0, 220)}`);
+      resilience.reportError('Notion property filter rejected: portal is reading unfiltered', e,
+        [['Effect', 'Nothing breaks, but this call is slower. A property listed in PROPS (server.js) was probably renamed or removed in Notion.']]).catch(() => {});
+    }
+    return notionFetch(endpoint, method, body);
+  }
+}
+
 // Retry settings for the other outbound calls (see resilience.js)
 const FILE_DOWNLOAD          = { service: 'Notion file storage', attempts: 4, timeoutMs: 60000, deadlineMs: 90000 };
 const ANTHROPIC_FIELD_DETECT = { service: 'Anthropic', idempotent: true, attempts: 3, baseDelayMs: 3000, maxDelayMs: 20000, timeoutMs: 120000, deadlineMs: 150000 };
@@ -130,7 +181,27 @@ const ANTHROPIC_QUIZ         = { service: 'Anthropic', idempotent: true, attempt
  * Returns the file_upload ID to reference in Notion property values.
  */
 async function uploadFileToNotion(filePath, originalName, mimeType) {
-  return uploadBytesToNotion(await fs.promises.readFile(filePath), originalName, mimeType);
+  // The file is only read into memory once it has an upload slot, so a crowd of simultaneous
+  // uploads queues on disk (where multer already put them) instead of all being held in RAM.
+  return withUploadSlot(async () => sendBytesToNotion(await fs.promises.readFile(filePath), originalName, mimeType));
+}
+
+// At most MAX_CONCURRENT_UPLOADS files are held in memory and sent to Notion at once. Each upload
+// costs roughly 3x its file size in RAM (read buffer + Blob + FormData); 60 people uploading a 5 MB
+// photo together peaked at 1.1 GB without this. Waiters are served first-in, first-out.
+const MAX_CONCURRENT_UPLOADS = Number(process.env.MAX_CONCURRENT_UPLOADS || 4);
+let _uploadsRunning = 0;
+const _uploadWaiters = [];
+async function withUploadSlot(fn) {
+  if (_uploadsRunning >= MAX_CONCURRENT_UPLOADS) await new Promise(resolve => _uploadWaiters.push(resolve));
+  else _uploadsRunning++;
+  try {
+    return await fn();
+  } finally {
+    const next = _uploadWaiters.shift();
+    if (next) next();            // hand the slot straight to the next waiter
+    else _uploadsRunning--;
+  }
 }
 
 /**
@@ -139,10 +210,15 @@ async function uploadFileToNotion(filePath, originalName, mimeType) {
  * place a signed document or certificate lives.
  */
 async function uploadBytesToNotion(fileBuffer, originalName, mimeType) {
+  return withUploadSlot(() => sendBytesToNotion(fileBuffer, originalName, mimeType));
+}
+
+async function sendBytesToNotion(fileBuffer, originalName, mimeType) {
   const NOTION_FILE_VERSION = '2026-03-11';
   const authHeader = { Authorization: `Bearer ${NOTION_TOKEN}` };
 
   // Step 1: Create file upload object → get ID
+  await paceNotion();
   const createRes = await resilience.fetchWithRetry('https://api.notion.com/v1/file_uploads', {
     method: 'POST',
     headers: {
@@ -162,6 +238,7 @@ async function uploadBytesToNotion(fileBuffer, originalName, mimeType) {
   }
   const { id: fileUploadId } = await createRes.json();
 
+  await paceNotion();
   // Step 2: Send file contents as multipart/form-data (do NOT set Content-Type — fetch adds boundary)
   const form = new FormData();
   form.append('file', new Blob([fileBuffer], { type: mimeType || 'application/octet-stream' }), originalName);
@@ -203,6 +280,7 @@ const certificates = require('./certificates').createCertificates({
  * failed to generate can be reissued later.
  */
 async function issueCertificateFor(recordId, blockId, session, dateISO) {
+  if (cache.blocks[blockId] && !cache.blocks[blockId].hasCertificate) return null; // FIX 3: no template => no Notion call
   return certificates.issue({
     blockId,
     recordId,
@@ -232,14 +310,14 @@ async function getAllRelationIds(pageId, propValue) {
 }
 
 /** Query an entire database, following pagination cursors */
-async function queryAll(dbId, filter = null) {
+async function queryAll(dbId, filter = null, props = null) {
   const pages = [];
   let cursor;
   do {
     const body = { page_size: 100 };
     if (filter)  body.filter       = filter;
     if (cursor)  body.start_cursor = cursor;
-    const res = await notionFetch(`/databases/${dbId}/query`, 'POST', body);
+    const res = await notionFetchFiltered(`/databases/${dbId}/query`, 'POST', body, props);
     pages.push(...(res.results || []));
     cursor = res.has_more ? res.next_cursor : null;
   } while (cursor);
@@ -278,10 +356,10 @@ let cache = {
 async function refreshCache() {
   console.log('🔄  Refreshing training data from Notion...');
   const [rolePages, profilePages, blockPages, stagePages] = await Promise.all([
-    queryAll(DB.roles),
-    queryAll(DB.trainingProfiles),
-    queryAll(DB.trainingBlocks),
-    queryAll(DB.pipelineStages),
+    queryAll(DB.roles, null, PROPS.role),
+    queryAll(DB.trainingProfiles, null, PROPS.profile),
+    queryAll(DB.trainingBlocks, null, PROPS.block),
+    queryAll(DB.pipelineStages, null, PROPS.stage),
   ]);
 
   // Build stage map: stageId → { name, ordering }
@@ -397,6 +475,13 @@ async function refreshCache() {
   console.log(`✅  Cache ready — ${Object.keys(blocks).length} blocks · ${Object.keys(profiles).length} profiles · ${Object.keys(roles).length} roles · ${stages.length} named pipeline stages`);
 }
 
+// FIX 1: user-triggered refreshes share one in-flight refresh and skip it if the cache is recent
+let _refreshInflight = null;
+function refreshCacheShared(maxAgeMs = 5 * 60 * 1000) {
+  if (Date.now() - cache.ts < maxAgeMs) return Promise.resolve();
+  if (!_refreshInflight) _refreshInflight = refreshCache().finally(() => { _refreshInflight = null; });
+  return _refreshInflight;
+}
 // Background refreshes (24h timer, Notion webhooks) must not leave the cache stale because Notion
 // had a bad minute: after notionFetch's own retries fail, wait and try the whole refresh again.
 // The old cache stays in use meanwhile (refreshCache only swaps it in at the very end).
@@ -1113,7 +1198,7 @@ app.post('/api/login', async (req, res) => {
     const results = await queryAll(DB.companyDirectory, {
       property: 'Email',
       email: { equals: email.toLowerCase().trim() },
-    });
+    }, PROPS.directoryUser);
 
     if (!results.length) {
       return res.status(401).json({ error: 'No account found for that email address.' });
@@ -1340,7 +1425,7 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
     const employeeRecordPages = await queryAll(DB.trainingRecords, {
       property: 'Employee',
       relation: { contains: userPageId },
-    });
+    }, PROPS.trainingRecord);
 
     // Contractor training records (Contractor field)
     // Also build a per-contractor completedMap so each contractor role shows
@@ -1351,7 +1436,7 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
       const cpRecords = await queryAll(DB.trainingRecords, {
         property: 'Contractor',
         relation: { contains: cpId },
-      });
+      }, PROPS.trainingRecord);
       contractorRecordPages = contractorRecordPages.concat(cpRecords);
 
       // Build isolated completedMap for this contractor
@@ -1377,7 +1462,7 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
       const orgRecords = await queryAll(DB.trainingRecords, {
         property: 'Dealer',
         relation: { contains: orgId },
-      });
+      }, PROPS.trainingRecord);
       dealerRecordPages = dealerRecordPages.concat(orgRecords);
     }
 
@@ -1724,8 +1809,8 @@ app.post('/api/sync', requireAuth, async (req, res) => {
   try {
     console.log(`🔄  Sync triggered by: ${req.session?.email || 'unknown'}`);
 
-    // 1. Refresh shared training content cache
-    await refreshCache();
+    // 1. Refresh shared training content cache (FIX 1: shared, and skipped when < 5 min old)
+    await refreshCacheShared();
 
     // 2. Re-query the employee's Company Directory entry — same code path as
     //    login so property parsing is guaranteed identical.
@@ -1734,7 +1819,7 @@ app.post('/api/sync', requireAuth, async (req, res) => {
     const results = await queryAll(DB.companyDirectory, {
       property: 'Email',
       email: { equals: email },
-    });
+    }, PROPS.directoryUser);
 
     if (results.length) {
       const user              = results[0];
@@ -1768,8 +1853,27 @@ app.post('/api/sync', requireAuth, async (req, res) => {
 // ─── GET /api/debug/user?email= ──────────────────────────────
 // Diagnostic endpoint — call this to understand why a user's block
 // count differs between Notion and the portal.
-// e.g. GET /api/debug/user?email=steven@solveenergy.ca
-app.get('/api/debug/user', async (req, res) => {
+// Protected by the DEBUG_KEY environment variable (set it in Railway). With no DEBUG_KEY set the
+// endpoint is switched off, so a missing variable can never leave it open. Send the key in a
+// header, never in the URL (URLs end up in logs and browser history):
+//   curl -H "x-debug-key: $DEBUG_KEY" "https://solveu.solveenergy.ca/api/debug/user?email=steven@solveenergy.ca"
+let _debugFails = [];   // timestamps of recent wrong keys: after 10 in a minute, everyone waits
+function requireDebugKey(req, res, next) {
+  const expected = process.env.DEBUG_KEY;
+  if (!expected) return res.status(503).json({ error: 'The debug endpoint is switched off (DEBUG_KEY is not set on the server).' });
+  const now = Date.now();
+  _debugFails = _debugFails.filter(t => now - t < 60 * 1000);
+  if (_debugFails.length >= 10) return res.status(429).json({ error: 'Too many wrong keys. Wait a minute.' });
+  const given = req.headers['x-debug-key'] || (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  const digest = v => crypto.createHash('sha256').update(String(v)).digest();   // equal length, so timingSafeEqual is safe
+  if (!given || !crypto.timingSafeEqual(digest(given), digest(expected))) {
+    _debugFails.push(now);
+    console.warn('⚠️   /api/debug/user: wrong or missing key');
+    return res.status(401).json({ error: 'Not authorised.' });
+  }
+  next();
+}
+app.get('/api/debug/user', requireDebugKey, async (req, res) => {
   try {
     const { email } = req.query;
     if (!email) return res.status(400).json({ error: 'email query param required' });
@@ -1934,8 +2038,10 @@ const TOUR_PROP = 'Portal Tour Completed';
 
 app.get('/api/tour-status', requireAuth, async (req, res) => {
   try {
-    const page = await notionFetch(`/pages/${req.session.pageId}`);
+    if (req.session.tourCompleted === true) return res.json({ tourCompleted: true }); // FIX 4
+    const page = await notionFetchFiltered(`/pages/${req.session.pageId}`, 'GET', null, PROPS.tourFlag);
     const p = prop(page, TOUR_PROP);
+    if (p && p.checkbox === true) req.session.tourCompleted = true;
     res.json({ tourCompleted: p && p.type === 'checkbox' ? !!p.checkbox : null });
   } catch (err) {
     console.warn('⚠️  /api/tour-status:', err.message);

@@ -289,17 +289,27 @@ async function initApp() {
     // First-ever visit on this browser: welcome screen + walkthrough (js/tour.js)
     if (window.SolveTour) setTimeout(() => SolveTour.maybeStart(), 500);
 
-    // Auto-sync every 15 minutes while the app is open
-    if (autoSyncTimer) clearInterval(autoSyncTimer);
-    autoSyncTimer = setInterval(() => {
-      console.log('[AutoSync] Background sync triggered');
-      manualSync();
-    }, 15 * 60 * 1000);
+    // Auto-sync every 15 minutes (plus 0-5 minutes of random jitter) while the app is open.
+    // The jitter matters: a group that logs in together would otherwise sync at the same second,
+    // every time, and hit Notion's rate limit all at once.
+    scheduleAutoSync();
 
   } catch (err) {
     if (err.message === 'session_expired') return;
     showLoadError(err.message || 'Failed to load data. Please try again.', initApp);
   }
+}
+
+const AUTO_SYNC_BASE_MS   = 15 * 60 * 1000;
+const AUTO_SYNC_JITTER_MS = 5 * 60 * 1000;
+function scheduleAutoSync() {
+  if (autoSyncTimer) clearTimeout(autoSyncTimer);   // clearTimeout and clearInterval share one id pool
+  const delay = AUTO_SYNC_BASE_MS + Math.random() * AUTO_SYNC_JITTER_MS;
+  autoSyncTimer = setTimeout(async () => {
+    console.log('[AutoSync] Background sync triggered');
+    try { await manualSync(); } catch { /* manualSync reports its own failures */ }
+    if (authToken) scheduleAutoSync();               // stop rescheduling once signed out
+  }, delay);
 }
 
 // If we had to fall back to the saved copy, try the server again every minute until it answers.
@@ -2800,7 +2810,7 @@ async function logout() {
   if (window.SolveTour) SolveTour.abort();
   try { await apiFetch('/api/logout', 'POST'); } catch {}
   if (materialsTimer) { clearInterval(materialsTimer); materialsTimer = null; }
-  if (autoSyncTimer)  { clearInterval(autoSyncTimer);  autoSyncTimer  = null; }
+  if (autoSyncTimer)  { clearTimeout(autoSyncTimer);   autoSyncTimer  = null; }
   authToken    = null;
   currentUser  = null;
   trainingData = null;
