@@ -265,14 +265,21 @@ const notionFileRef = (fileUploadId, name) => ({ name, type: 'file_upload', file
 
 // ─── Completion certificates ──────────────────────────────────
 // Built here so it shares notionFetch's auth and retry behaviour. See certificates.js.
-// The display face the filled fields render in. Optional: if the file or
+// The faces the filled certificate fields render in, per field role. The name
+// is script; the training and date must not inherit it. Optional: if a file or
 // fontkit is missing the certificate still comes out, just in Helvetica.
-let CERT_FIELD_FONT = null, CERT_FONTKIT = null;
+let CERT_FIELD_FONTS = null, CERT_FONTKIT = null;
 try {
-  CERT_FIELD_FONT = fs.readFileSync(path.join(__dirname, 'assets', 'fonts', 'Inter-SemiBold.ttf'));
-  CERT_FONTKIT    = require('@pdf-lib/fontkit');
+  const font = f => fs.readFileSync(path.join(__dirname, 'assets', 'fonts', f));
+  CERT_FIELD_FONTS = {
+    name:     font('Allura-Regular.ttf'),
+    training: font('Inter-SemiBold.ttf'),
+    date:     font('Inter-Regular.ttf'),
+    default:  font('Inter-SemiBold.ttf'),
+  };
+  CERT_FONTKIT = require('@pdf-lib/fontkit');
 } catch (e) {
-  console.warn(`⚠️   Certificate display font unavailable (${e.message}) — certificates will use Helvetica`);
+  console.warn(`⚠️   Certificate fonts unavailable (${e.message}) — certificates will use Helvetica`);
 }
 
 const certificates = require('./certificates').createCertificates({
@@ -281,7 +288,7 @@ const certificates = require('./certificates').createCertificates({
   uploadBytesToNotion,
   notionFileRef,
   fetchFile: url => resilience.fetchWithRetry(url, {}, FILE_DOWNLOAD),
-  fieldFontBytes: CERT_FIELD_FONT,
+  fieldFonts: CERT_FIELD_FONTS,
   fontkit: CERT_FONTKIT,
 });
 

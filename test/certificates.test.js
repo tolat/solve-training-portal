@@ -288,12 +288,18 @@ test('a missing recordId or blockId is a no-op, not a crash', async () => {
 const FS   = require('node:fs');
 const PATH = require('node:path');
 const TEMPLATE = PATH.join(__dirname, '..', 'assets', 'certificate-template.pdf');
-const FIELD_FONT = PATH.join(__dirname, '..', 'assets', 'fonts', 'Inter-SemiBold.ttf');
+const FIELD_FONT = PATH.join(__dirname, '..', 'assets', 'fonts', 'Allura-Regular.ttf');  // the NAME field's face
 
+// Mirrors how server.js wires the faces: one per field role.
 const withFieldFont = () => createCertificates({
   PDFLib,
   log: silent,
-  fieldFontBytes: FS.readFileSync(FIELD_FONT),
+  fieldFonts: {
+    name:     FS.readFileSync(FIELD_FONT),
+    training: FS.readFileSync(PATH.join(__dirname, '..', 'assets', 'fonts', 'Inter-SemiBold.ttf')),
+    date:     FS.readFileSync(PATH.join(__dirname, '..', 'assets', 'fonts', 'Inter-Regular.ttf')),
+    default:  FS.readFileSync(PATH.join(__dirname, '..', 'assets', 'fonts', 'Inter-SemiBold.ttf')),
+  },
   fontkit: require('@pdf-lib/fontkit'),
 });
 
@@ -305,10 +311,10 @@ test('filled fields render in the display face, not Helvetica', async () => {
   //
   // Asserting "the display face is among the page fonts" does NOT catch it —
   // the title uses that face either way, so the assertion passes while the name
-  // is set in Helvetica. Measure the name instead: at 30pt this string is 322pt
-  // in Inter SemiBold and 293pt in Helvetica, a 10% gap nothing can close.
+  // is set in Helvetica. Measure the name instead: at 42pt this string is 346pt
+  // in Allura and 411pt in Helvetica, a 16% gap nothing can close.
   const NAME = 'Wilhelmina Fitzwilliam';
-  const NAME_PT = 30;                 // must match nameField.setFontSize()
+  const NAME_PT = 42;                 // must match nameField.setFontSize()
 
   const probe   = await PDFLib.PDFDocument.create();
   probe.registerFontkit(require('@pdf-lib/fontkit'));
@@ -334,18 +340,37 @@ test('filled fields render in the display face, not Helvetica', async () => {
 test('a name with accents survives the embedded font', async () => {
   if (!FS.existsSync(TEMPLATE) || !FS.existsSync(FIELD_FONT)) return;
 
-  // A subsetted field font only carries the glyphs seen at build time, so the
+  // Two separate failures live here.
+  //
+  // A subsetted field font carries only the glyphs drawn at build time, so the
   // first Renée or Muñoz would get holes punched through their own name.
-  const name = 'Renée Muñoz-O’Regan';
-  const out  = await withFieldFont().fill(FS.readFileSync(TEMPLATE), {
-    personName: name, dateISO: '2026-11-16', trainingName: 'Asbestos Awareness',
+  //
+  // And a face can carry the glyph but render it with a broken advance: Great
+  // Vibes draws a precomposed é a clear space away from the letter before it,
+  // so "Renée" comes out as "Ren ée". pdf-lib's own metrics do NOT show that —
+  // it measures the string correctly — so the only way to catch it is to
+  // compare what was RENDERED against what the font says it should measure.
+  const NAME = 'Renée Muñoz-O’Regan';
+  const NAME_PT = 42;
+
+  const out = await withFieldFont().fill(FS.readFileSync(TEMPLATE), {
+    personName: NAME, dateISO: '2026-11-16', trainingName: 'Asbestos Awareness',
   });
 
-  const text = await textOf(out.bytes);
-  const flat = text.replace(/\s+/g, ' ');
+  const text = (await textOf(out.bytes)).replace(/\s+/g, ' ');
   for (const ch of ['Renée', 'Muñoz']) {
-    assert.ok(flat.includes(ch), `"${ch}" missing from the rendered certificate — font subsetting?`);
+    assert.ok(text.includes(ch), `"${ch}" missing from the rendered certificate — font subsetting?`);
   }
+
+  const probe = await PDFLib.PDFDocument.create();
+  probe.registerFontkit(require('@pdf-lib/fontkit'));
+  const face  = await probe.embedFont(FS.readFileSync(FIELD_FONT), { subset: false });
+  const want  = face.widthOfTextAtSize(NAME, NAME_PT);
+
+  const item = await textItem(out.bytes, 'Renée');
+  assert.ok(item, 'the accented name was not found in the rendered certificate');
+  assert.ok(Math.abs(item.width - want) / want < 0.03,
+    `accented name rendered ${item.width.toFixed(1)}pt but the face measures it at ${want.toFixed(1)}pt — a glyph is rendering with a broken advance`);
 });
 
 test('the static labels are not missing glyphs', async () => {
@@ -353,7 +378,8 @@ test('the static labels are not missing glyphs', async () => {
   // Subsetting silently dropped most letters from the label face once; these
   // strings are drawn glyph by glyph for letterspacing, which is what broke.
   const text = (await textOf(FS.readFileSync(TEMPLATE))).replace(/\s+/g, '');
-  for (const phrase of ['THISISTOCERTIFYTHAT', 'HASSUCCESSFULLYCOMPLETED', 'DATECOMPLETED', 'ISSUEDBYSOLVEENERGY', 'KaneHammontree,CEO']) {
+  for (const phrase of ['CERTIFICATE', 'OFCOMPLETION', 'THISCERTIFICATEISPRESENTEDTO',
+                        'HASSUCCESSFULLYCOMPLETED', 'DATE', 'SIGNATURE', 'KaneHammontree,CEO']) {
     assert.ok(text.includes(phrase), `label "${phrase}" is incomplete in the template`);
   }
 });

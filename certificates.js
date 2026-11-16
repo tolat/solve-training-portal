@@ -73,12 +73,20 @@ function firstFile(prop) {
 function createCertificates({
   PDFLib, notionFetch, uploadBytesToNotion, notionFileRef, fetchFile,
   log = console,
-  // The face filled fields render in, as TTF bytes, plus the fontkit module
-  // pdf-lib needs to read it. Both optional: without them the certificate still
-  // comes out, in pdf-lib's default Helvetica.
-  fieldFontBytes = null,
+  // The faces filled fields render in, as TTF bytes keyed by field role —
+  // { name, training, date, default } — plus the fontkit module pdf-lib needs
+  // to read them. All optional: without them the certificate still comes out,
+  // in pdf-lib's default Helvetica. A plain Buffer is accepted too and is used
+  // for every field, which is what the single-face templates wanted.
+  fieldFonts = null,
   fontkit = null,
 }) {
+
+  const fontBytesFor = role => {
+    if (!fieldFonts) return null;
+    if (Buffer.isBuffer(fieldFonts) || fieldFonts instanceof Uint8Array) return fieldFonts;
+    return fieldFonts[role] || fieldFonts.default || null;
+  };
 
   /**
    * The certificate template for a block, or null if it does not issue one.
@@ -102,17 +110,29 @@ function createCertificates({
    * default-appearance string asked for. Without this step a template built
    * around a display face still comes out in Helvetica, silently.
    */
-  async function embedFieldFont(pdfDoc) {
-    if (!fieldFontBytes) return null;
-    try {
-      if (fontkit) pdfDoc.registerFontkit(fontkit);
-      // Never subset: this face renders names nobody has typed yet, and a
-      // subset would punch holes through the first Renée or Muñoz.
-      return await pdfDoc.embedFont(fieldFontBytes, { subset: false });
-    } catch (e) {
-      log.warn(`⚠️   Certificate: could not embed the field font, falling back: ${e.message}`);
-      return null;
+  async function embedFieldFonts(pdfDoc, roles) {
+    if (!fieldFonts) return {};
+    try { if (fontkit) pdfDoc.registerFontkit(fontkit); } catch { /* already registered */ }
+
+    const cache = new Map();   // bytes -> embedded font, so a shared face embeds once
+    const outp = {};
+    for (const role of roles) {
+      const bytes = fontBytesFor(role);
+      if (!bytes) continue;
+      if (!cache.has(bytes)) {
+        try {
+          // Never subset: these render text nobody has typed yet, and a subset
+          // would punch holes through the first Renée or Muñoz.
+          cache.set(bytes, await pdfDoc.embedFont(bytes, { subset: false }));
+        } catch (e) {
+          log.warn(`⚠️   Certificate: could not embed the ${role} font, falling back: ${e.message}`);
+          cache.set(bytes, null);
+        }
+      }
+      const font = cache.get(bytes);
+      if (font) outp[role] = font;
     }
+    return outp;
   }
 
   /** Fill an AcroForm, if the template has one. Returns true if anything was set. */
@@ -125,16 +145,21 @@ function createCertificates({
     if (!fields || !fields.length) return false;
 
     let filled = false;
+    const touched = [];        // [field, role] for the appearance pass below
     for (const field of fields) {
       let name;
       try { name = field.getName(); } catch { continue; }
-      const value = NAME_FIELD_RE.test(name)     ? personName
-                  : DATE_FIELD_RE.test(name)     ? dateText
-                  : TRAINING_FIELD_RE.test(name) ? (trainingName || '')
-                  : null;
-      if (value == null) continue;
+      const role = NAME_FIELD_RE.test(name)     ? 'name'
+                 : DATE_FIELD_RE.test(name)     ? 'date'
+                 : TRAINING_FIELD_RE.test(name) ? 'training'
+                 : null;
+      if (!role) continue;
+      const value = role === 'name' ? personName
+                  : role === 'date' ? dateText
+                  : (trainingName || '');
       try {
         field.setText(value);
+        touched.push([field, role]);
         filled = true;
       } catch (e) {
         log.warn(`⚠️   Certificate: could not set form field "${name}": ${e.message}`);
@@ -145,11 +170,19 @@ function createCertificates({
       // Flatten so the values are part of the page, not editable form state.
       // A certificate someone can retype is not a certificate.
       try {
-        const font = await embedFieldFont(pdfDoc);
-        if (font) {
-          // Render appearances ourselves in the display face, then flatten
-          // without letting pdf-lib regenerate them in its default font.
-          form.updateFieldAppearances(font);
+        const fonts = await embedFieldFonts(pdfDoc, [...new Set(touched.map(([, r]) => r))]);
+        const any   = Object.keys(fonts).length > 0;
+        if (any) {
+          // Render each field's appearance in ITS OWN face — the name may be a
+          // script the training and date must not inherit — then flatten
+          // without letting pdf-lib regenerate them all in its default font.
+          for (const [field, role] of touched) {
+            const font = fonts[role];
+            if (!font) continue;
+            try { field.updateAppearances(font); } catch (e) {
+              log.warn(`⚠️   Certificate: could not set the ${role} appearance: ${e.message}`);
+            }
+          }
           form.flatten({ updateFieldAppearances: false });
         } else {
           form.flatten();

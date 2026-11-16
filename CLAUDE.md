@@ -205,58 +205,72 @@ centred on page one. A designer can supply any PDF: name the fields `name`,
 
 ### Design
 
-The certificate follows the **training portal's own light theme** rather than
-inventing a look — the palette is lifted straight from `css/styles.css`
-`body.logged-in`: `#2a9640` green, `#152219` text, `#f2f5f2` page, hairline
-`rgba(0,0,0,0.1)` borders, and a rounded white card like the portal's. The
-portal is sans-serif, so the certificate is **Inter**, the closest open face to
-its `-apple-system` stack. No gold, no serif, no seal: none of those appear
-anywhere in the product.
+A classic award certificate, built from a reference Torin supplied: sweeping
+ribbons in the top-right and bottom-left corners, a thin gold double frame, a
+heavy green title, and the recipient's name in script. The greens are Solve's
+own from `css/styles.css` `body.logged-in` (`#2a9640`, `#217832`, `#152219`),
+deepened to `#13401f` for the ribbons so they read as layered rather than flat.
+Gold is the one colour from outside the product palette; it is what makes this
+kind of certificate look like one.
 
-The foot is a CEO signature block on the left — a rule with
-**Kane Hammontree, CEO** under it, the space above it deliberately empty for a
-signature — and the completion date mirrored on the right.
+The ribbons are built by `bandTopRight()` / `bandBottomLeft()`: each band is
+the area between two quarter-ellipses sharing a corner, and giving the outer
+and inner arcs different width:height ratios is what makes a band taper like a
+ribbon instead of sitting like a rainbow stripe.
 
-### Typography, and three traps that are all silent
+The foot has the completion date on the left and a signature rule on the right
+with **Kane Hammontree, CEO** under it, the space above deliberately empty for
+a signature. Content centres on `AXIS = 400`, left of the page centre, to stay
+clear of the top-right ribbon.
 
-Display face is **Inter** (SIL OFL, `assets/fonts/`, licence beside it), both
-weights embedded whole. pdf-lib has no letter-spacing, so `tracked()` draws the
-small caps glyph by glyph.
+### Typography, and the traps — all silent
+
+| Role | Face |
+|---|---|
+| Recipient's name | **Allura** (script) |
+| Title, training | **Inter** Bold / SemiBold |
+| Labels, date | **Inter** Regular |
+
+All SIL OFL, in `assets/fonts/` with the licences. All embedded **whole**.
 
 1. **`addToPage(page, {font})` does not set a field's font.** It has to be
-   `form.updateFieldAppearances(font)` before save, or every field's default
-   appearance says `/Helvetica` whatever you passed.
-2. **`form.flatten()` regenerates appearances in pdf-lib's *default* font**,
-   throwing away the template's. `certificates.js` therefore embeds the display
-   face itself, calls `updateFieldAppearances(font)`, then
-   `flatten({ updateFieldAppearances: false })`. Skip that and a template built
-   around Inter silently comes out in Helvetica — while the title, which is
-   static text, still looks right.
-3. **The field font must not be subsetted.** A subset only carries the glyphs
+   `form.updateFieldAppearances(font)` before save, and rewriting a field's
+   default appearance also rewrites the size baked into it, so `setFontSize()`
+   has to run again afterwards.
+2. **`form.flatten()` regenerates appearances in pdf-lib's *default* font.**
+   `certificates.js` therefore embeds the faces itself, calls
+   `field.updateAppearances(font)` **per field**, then
+   `flatten({ updateFieldAppearances: false })`. Per field matters: the name is
+   script and the training and date must not inherit it. Skip this and the
+   whole thing comes out in Helvetica while the static title still looks right.
+3. **The field fonts must not be subsetted.** A subset carries only the glyphs
    drawn at build time, so the first Renée or Muñoz gets holes punched through
-   their own name. Subsetting also mangles the Inter TTFs Google's CSS API
-   serves outright — most glyphs vanish — so both weights are embedded whole.
+   their own name.
+4. 🔴 **A face can carry a glyph and still render it wrongly.** Great Vibes was
+   the first script choice; it draws a precomposed `é` a clear space away from
+   the letter before it, so "Renée" comes out as "Ren ée". pdf-lib's own
+   metrics do **not** show this — it measures the string correctly. Allura
+   renders it properly and was chosen for that reason.
+5. **A text field paints its own background**, white by default. The training
+   field starts at `x = 200` because at its height the bottom-left ribbon
+   reaches `x = 173`, and a white slab over the ribbon is very visible.
+6. **`drawSvgPath`'s y axis runs downward** from the origin it is given, unlike
+   every other call on the page. `svgPath()` converts once, internally.
 
-Two more worth knowing:
+`test/certificates.test.js` guards 1–4. Both font tests work by **measuring
+what was rendered** and comparing it against the face's own metrics:
 
-- **A text field paints its own background, white by default.** The training
-  field sits on the green chip, so it is given the chip's colour; otherwise it
-  punches a white slab through it.
-- **`drawSvgPath`'s y axis runs downward** from the origin it is given, unlike
-  everything else on the page. `roundedRect()` converts once, internally;
-  getting that wrong silently put the training chip 200pt up the page, on top
-  of a label.
+- the name test catches (1)–(3) — asserting "the face appears in the page
+  fonts" does **not** work, since the title uses it either way, and that
+  version passed while the name was Helvetica;
+- the accent test catches (4), because a broken advance makes the rendered
+  width disagree with the metric width.
 
-`test/certificates.test.js` guards all of this. The font test measures the
-rendered name's width against both faces' metrics (322pt vs 293pt at 30pt — a
-10% gap). Asserting "Inter appears in the page fonts" does **not** work: the
-title is Inter either way, so that passes while the name is Helvetica. It was
-written that way first and proved vacuous; it is now verified by reintroducing
-the bug and watching it fail.
+Both are verified by reintroducing the bug and watching them fail.
 
-Fonts are wired in `server.js` (`CERT_FIELD_FONT` / `CERT_FONTKIT`) and are
-optional: if the file or `@pdf-lib/fontkit` is missing, certificates still issue,
-just in Helvetica.
+Fonts are wired in `server.js` (`CERT_FIELD_FONTS` / `CERT_FONTKIT`) as a map
+keyed by field role, and are optional: if a file or `@pdf-lib/fontkit` is
+missing, certificates still issue, just in Helvetica.
 
 > `solve_logo.png` is the **light-theme** SOLVE-U mark and is invisible on a
 > white certificate. `assets/solve-wordmark.png` is the dark one used here.

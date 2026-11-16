@@ -13,25 +13,25 @@
  * `training` and `date` is filled precisely, and a PDF with no fields at all
  * still works — the portal centres those three on page one.
  *
- * DESIGN: this follows the training portal's own light theme rather than
- * inventing a look. Everything below is lifted from css/styles.css
- * `body.logged-in`: the green, the near-black green text, the page tint, the
- * hairline borders, the rounded white card. The portal is sans-serif, so this
- * is Inter — the closest open face to its `-apple-system` stack. No gold, no
- * serif, no seal: none of those appear anywhere in the product.
+ * DESIGN: a classic award certificate — sweeping ribbons in the top-right and
+ * bottom-left corners, a thin double frame, a heavy title and the recipient's
+ * name in script. The greens are Solve's own (`css/styles.css`
+ * `body.logged-in`), deepened for the ribbons so they read as layered rather
+ * than flat. Gold is the one colour from outside the product palette, and it
+ * is what makes this kind of certificate look like one.
  *
- * Two font traps, both silent, both found the hard way:
+ * Font traps, all silent, all covered by test/certificates.test.js:
  *
- *   1. **The field font must not be subsetted.** A subset only contains the
+ *   1. **The field fonts must not be subsetted.** A subset only contains the
  *      glyphs drawn at build time, so the first person called Renée or Muñoz
- *      would get a certificate with holes in their name.
+ *      would get holes punched through their own name.
  *   2. **`addToPage({font})` does not set a field's font.** It has to be
- *      `form.updateFieldAppearances(font)` before save, or every field falls
- *      back to Helvetica no matter what was passed in. `certificates.js` then
- *      has to re-apply it before flattening, for the same reason.
- *
- * A third: subsetting mangles the Inter TTFs Google's CSS API serves — most
- * glyphs vanish. Inter is embedded whole here, which is required anyway by (1).
+ *      `form.updateFieldAppearances(font)` before save, and `certificates.js`
+ *      has to re-apply it before flattening, or everything falls back to
+ *      Helvetica while the static title still looks right.
+ *   3. **A text field paints its own background**, white by default.
+ *   4. **`drawSvgPath`'s y axis runs downward** from the origin it is given,
+ *      unlike every other call here. `svgPath()` converts once, internally.
  */
 
 import fs from 'node:fs';
@@ -44,21 +44,22 @@ const HERE  = path.dirname(fileURLToPath(import.meta.url));
 const ROOT  = path.join(HERE, '..');
 const FONTS = path.join(ROOT, 'assets', 'fonts');
 
-// ── Palette — css/styles.css, body.logged-in ─────────────────
+// ── Palette ──────────────────────────────────────────────────
 const hex = h => rgb(
   parseInt(h.slice(1, 3), 16) / 255,
   parseInt(h.slice(3, 5), 16) / 255,
   parseInt(h.slice(5, 7), 16) / 255,
 );
 
-const GREEN      = hex('#2a9640');  // --green
+const GREEN      = hex('#2a9640');  // --green, the portal's own
 const GREEN_MID  = hex('#217832');  // --green-mid
-const TEXT       = hex('#152219');  // --text
-const PAGE_BG    = hex('#f2f5f2');  // --page-bg
-const WHITE      = hex('#ffffff');  // --white
-const GRAY       = rgb(0.48, 0.48, 0.48);              // --gray, rgba(0,0,0,0.48)
-const BORDER     = rgb(0.90, 0.90, 0.90);              // --border, rgba(0,0,0,0.1)
-const GREEN_WASH = rgb(0.937, 0.961, 0.941);           // --green-light over white
+const GREEN_DEEP = hex('#13401f');  // deepened for the ribbons' shadow side
+const INK        = hex('#152219');  // --text
+const GOLD       = hex('#c9a349');
+const GOLD_LIGHT = hex('#e7d6a3');
+const GOLD_DEEP  = hex('#a8822f');
+const GRAY       = rgb(0.46, 0.49, 0.47);
+const WHITE      = rgb(1, 1, 1);
 
 const W = 842; // A4 landscape, points
 const H = 595;
@@ -72,159 +73,187 @@ doc.setCreator('Solve Energy');
 doc.setProducer('Solve University');
 
 const read = f => fs.readFileSync(path.join(FONTS, f));
-// Both embedded whole: SemiBold renders the name and training fields, which
-// hold text nobody has typed yet; and subsetting corrupts these TTFs anyway.
-const semi    = await doc.embedFont(read('Inter-SemiBold.ttf'), { subset: false });
-const regular = await doc.embedFont(read('Inter-Regular.ttf'),  { subset: false });
+// Embedded whole: these render the name and training FIELDS, which hold text
+// nobody has typed yet — and subsetting corrupts these TTFs anyway.
+// Allura, not Great Vibes: Great Vibes renders a precomposed é with a broken
+// advance in pdf-lib, so "Renée" comes out as "Ren ée". Verified by rendering
+// both against the same string.
+const script  = await doc.embedFont(read('Allura-Regular.ttf'), { subset: false });
+const bold    = await doc.embedFont(read('Inter-Bold.ttf'),         { subset: false });
+const semi    = await doc.embedFont(read('Inter-SemiBold.ttf'),     { subset: false });
+const regular = await doc.embedFont(read('Inter-Regular.ttf'),      { subset: false });
 
 const page = doc.addPage([W, H]);
 
 // ── Helpers ──────────────────────────────────────────────────
 
-const centre = (text, font, size, y, color = TEXT) => {
+const centreAt = (text, font, size, y, color, cx = W / 2) => {
   const w = font.widthOfTextAtSize(text, size);
-  page.drawText(text, { x: (W - w) / 2, y, size, font, color });
+  page.drawText(text, { x: cx - w / 2, y, size, font, color });
 };
 
-/** Letterspaced text. pdf-lib has no tracking, so draw per glyph. */
-const tracked = (text, font, size, y, tracking, color = TEXT, cx = W / 2) => {
+/** Letterspaced text, centred. pdf-lib has no tracking, so draw per glyph. */
+const tracked = (text, font, size, y, trackPt, color, cx = W / 2) => {
   const chars = [...text];
-  const total = chars.reduce((sum, c) => sum + font.widthOfTextAtSize(c, size) + tracking, 0) - tracking;
+  const total = chars.reduce((s, c) => s + font.widthOfTextAtSize(c, size) + trackPt, 0) - trackPt;
   let x = cx - total / 2;
   for (const c of chars) {
     page.drawText(c, { x, y, size, font, color });
-    x += font.widthOfTextAtSize(c, size) + tracking;
+    x += font.widthOfTextAtSize(c, size) + trackPt;
   }
 };
 
-/**
- * Rounded rectangle — pdf-lib's drawRectangle has no corner radius.
- *
- * Takes ordinary PDF coordinates (origin bottom-left, y up) like every other
- * call on this page. drawSvgPath's y axis runs DOWNWARD from the origin it is
- * given, so the conversion happens here, once, instead of at every call site —
- * getting that wrong silently put the training chip 200pt up the page, on top
- * of a label.
- */
-const roundedRect = ({ x, y, width, height, r, color, borderColor, borderWidth = 0 }) => {
-  const top = H - (y + height);   // distance from the top edge to the rect's top
-  const p = [
-    `M ${x + r} ${top}`,
-    `H ${x + width - r}`, `Q ${x + width} ${top} ${x + width} ${top + r}`,
-    `V ${top + height - r}`, `Q ${x + width} ${top + height} ${x + width - r} ${top + height}`,
-    `H ${x + r}`, `Q ${x} ${top + height} ${x} ${top + height - r}`,
-    `V ${top + r}`, `Q ${x} ${top} ${x + r} ${top}`,
-    'Z',
-  ].join(' ');
-  page.drawSvgPath(p, { x: 0, y: H, color, borderColor, borderWidth, scale: 1 });
-};
-
-const hline = (x1, x2, y, color = BORDER, thickness = 1) =>
+const hline = (x1, x2, y, color, thickness = 1) =>
   page.drawLine({ start: { x: x1, y }, end: { x: x2, y }, thickness, color });
 
-// ── Page ─────────────────────────────────────────────────────
-// The portal is a white card floating on a faintly green page.
+/**
+ * Draw an SVG path. drawSvgPath's y runs DOWNWARD from its origin, so every
+ * path below is written in that space and the origin is pinned to the top-left
+ * of the page here — converting once rather than at each call site.
+ */
+const svgPath = (d, opts) => page.drawSvgPath(d, { x: 0, y: H, ...opts });
 
-page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: PAGE_BG });
+const K = 0.5523;  // circle-to-bezier constant, for a quarter arc
 
-const M = 26;                      // page margin
-const R = 14;                      // card corner radius, as the portal's cards
+/**
+ * One band of a corner ribbon: the area between two quarter-ellipses sharing a
+ * corner. Giving the outer and inner arcs different width:height ratios is what
+ * makes a band taper like a ribbon instead of sitting like a rainbow stripe.
+ */
+const bandTopRight = (aO, bO, aI, bI) => [
+  `M ${W - aO} 0`,
+  `C ${W - aO} ${K * bO} ${W - K * aO} ${bO} ${W} ${bO}`,
+  `L ${W} ${bI}`,
+  `C ${W - K * aI} ${bI} ${W - aI} ${K * bI} ${W - aI} 0`,
+  'Z',
+].join(' ');
 
-roundedRect({
-  x: M, y: M, width: W - M * 2, height: H - M * 2, r: R,
-  color: WHITE, borderColor: BORDER, borderWidth: 1,
+const bandBottomLeft = (aO, bO, aI, bI) => [
+  `M ${aO} ${H}`,
+  `C ${aO} ${H - K * bO} ${K * aO} ${H - bO} 0 ${H - bO}`,
+  `L 0 ${H - bI}`,
+  `C ${K * aI} ${H - bI} ${aI} ${H - K * bI} ${aI} ${H}`,
+  'Z',
+].join(' ');
+
+// ── Page and ribbons ─────────────────────────────────────────
+
+page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: WHITE });
+
+// Top-right: a deep green mass, gold threading through it, a bright green
+// sweep, a pale highlight, then mid green at the inner edge.
+const TR = [
+  [326, 246, 274, 196, GREEN_DEEP],
+  [274, 196, 252, 180, GOLD],
+  [252, 180, 192, 128, GREEN],
+  [192, 128, 178, 118, GOLD_LIGHT],
+  [178, 118, 116,  78, GREEN_MID],
+];
+for (const [aO, bO, aI, bI, color] of TR) svgPath(bandTopRight(aO, bO, aI, bI), { color });
+
+// Bottom-left: the same system mirrored, a little smaller so the foot stays
+// clear for the date and signature lines.
+const BL = [
+  [296, 232, 246, 186, GREEN_DEEP],
+  [246, 186, 226, 172, GOLD],
+  [226, 172, 172, 118, GREEN],
+  [172, 118, 158, 108, GOLD_LIGHT],
+  [158, 108, 100,  68, GREEN_MID],
+];
+for (const [aO, bO, aI, bI, color] of BL) svgPath(bandBottomLeft(aO, bO, aI, bI), { color });
+
+// ── Frame ────────────────────────────────────────────────────
+// A thin double rule, as on the reference: it sits over the ribbons.
+
+page.drawRectangle({
+  x: 24, y: 24, width: W - 48, height: H - 48,
+  borderColor: GOLD, borderWidth: 1.1,
 });
-
-// Green keyline across the top of the card, inset past the corner radius so it
-// does not poke square ends out of the rounded corners.
-page.drawRectangle({ x: M + R, y: H - M - 5, width: W - (M + R) * 2, height: 4, color: GREEN });
+page.drawRectangle({
+  x: 30, y: 30, width: W - 60, height: H - 60,
+  borderColor: GOLD_LIGHT, borderWidth: 0.6,
+});
 
 // ── Wordmark ─────────────────────────────────────────────────
 
 try {
   const png   = await doc.embedPng(fs.readFileSync(path.join(ROOT, 'assets', 'solve-wordmark.png')));
-  const logoW = 112;
+  const logoW = 104;
   const logoH = (png.height / png.width) * logoW;
-  page.drawImage(png, { x: (W - logoW) / 2, y: 470, width: logoW, height: logoH });
+  page.drawImage(png, { x: 92, y: 492, width: logoW, height: logoH });
 } catch {
-  tracked('SOLVE', semi, 17, 474, 3, TEXT);
+  tracked('SOLVE', bold, 16, 496, 3, INK, 144);
 }
-
-tracked('SOLVE UNIVERSITY', regular, 7.5, 456, 2.6, GRAY);
 
 // ── Title ────────────────────────────────────────────────────
 
-centre('Certificate of Completion', semi, 26, 402, TEXT);
-hline(W / 2 - 24, W / 2 + 24, 384, GREEN, 2.5);   // the portal's accent, not an ornament
+const AXIS = 400;   // content centres left of the page centre, clear of the ribbon
+
+tracked('CERTIFICATE', bold, 41, 418, 3.5, GREEN_DEEP, AXIS);
+tracked('OF COMPLETION', semi, 14.5, 390, 5.5, GOLD_DEEP, AXIS);
 
 // ── Recipient ────────────────────────────────────────────────
 
-tracked('THIS IS TO CERTIFY THAT', regular, 8, 356, 2.2, GRAY);
+tracked('THIS CERTIFICATE IS PRESENTED TO', semi, 9.5, 348, 2.2, INK, AXIS);
 
 const form = doc.getForm();
 
 const nameField = form.createTextField('name');
 nameField.addToPage(page, {
-  x: 100, y: 300, width: W - 200, height: 42, borderWidth: 0, backgroundColor: WHITE,
+  x: AXIS - 280, y: 268, width: 560, height: 56, borderWidth: 0, backgroundColor: WHITE,
 });
 nameField.setAlignment(1);
-nameField.setFontSize(30);
+nameField.setFontSize(42);
 
-hline(W / 2 - 250, W / 2 + 250, 294, BORDER);
+hline(AXIS - 240, AXIS + 240, 264, GREEN_MID, 1);
 
-// ── Training, in a soft card like the portal's module rows ───
+// ── Training ─────────────────────────────────────────────────
 
-tracked('HAS SUCCESSFULLY COMPLETED', regular, 8, 268, 2.2, GRAY);
-
-const CHIP = { w: 460, h: 46, y: 206 };
-roundedRect({
-  x: (W - CHIP.w) / 2, y: CHIP.y, width: CHIP.w, height: CHIP.h, r: 10,
-  color: GREEN_WASH, borderColor: BORDER, borderWidth: 0.8,
-});
+tracked('HAS SUCCESSFULLY COMPLETED', regular, 8.5, 230, 2.2, GRAY, AXIS);
 
 const trainingField = form.createTextField('training');
 trainingField.addToPage(page, {
-  x: (W - CHIP.w) / 2 + 12, y: CHIP.y + 8, width: CHIP.w - 24, height: 30, borderWidth: 0,
-  // A text field paints its own background — white by default, which would
-  // punch a white slab through the chip it sits on.
-  backgroundColor: GREEN_WASH,
+  // Starts at x=200: a field paints its own white background, and at this
+  // height the bottom-left ribbon reaches x=173.
+  x: 200, y: 192, width: 400, height: 30, borderWidth: 0, backgroundColor: WHITE,
 });
 trainingField.setAlignment(1);
 trainingField.setFontSize(16);
 
-// ── Foot: CEO signature left, date right ─────────────────────
+// ── Foot: date and signature, clear of the bottom-left ribbon ─
 
-const FOOT_Y = 126;    // the rule both blocks sit on
-const OFFSET = 180;
-const SIG_X  = W / 2 - OFFSET;
-const DATE_X = W / 2 + OFFSET;
-const HALF   = 118;
-
-// Signature block. The space above the rule is deliberately empty: it is where
-// a signature goes, whether wet-signed on a print or dropped in as an image.
-hline(SIG_X - HALF, SIG_X + HALF, FOOT_Y, BORDER);
-centreAt('Kane Hammontree, CEO', semi, 10.5, FOOT_Y - 19, TEXT, SIG_X);
-
-// Date block — one line under the rule on this side too, so the foot is even.
-hline(DATE_X - HALF, DATE_X + HALF, FOOT_Y, BORDER);
-tracked('DATE COMPLETED', regular, 7, FOOT_Y - 18, 2.2, GRAY, DATE_X);
+const FOOT_Y = 112;
+const HALF   = 92;
+const DATE_X = 452;
+const SIG_X  = 672;
 
 const dateField = form.createTextField('date');
 dateField.addToPage(page, {
-  x: DATE_X - HALF, y: FOOT_Y + 7, width: HALF * 2, height: 22, borderWidth: 0,
-  backgroundColor: WHITE,
+  x: DATE_X - HALF, y: FOOT_Y + 7, width: HALF * 2, height: 22,
+  borderWidth: 0, backgroundColor: WHITE,
 });
 dateField.setAlignment(1);
-dateField.setFontSize(13);
+dateField.setFontSize(12.5);
 
-// ── Footer line ──────────────────────────────────────────────
+hline(DATE_X - HALF, DATE_X + HALF, FOOT_Y, GREEN_DEEP, 1.2);
+tracked('DATE', semi, 8.5, FOOT_Y - 17, 2.2, INK, DATE_X);
 
-tracked('ISSUED BY SOLVE ENERGY', regular, 6.5, 54, 2.4, GRAY);
+// Signature — the space above the rule is deliberately empty, for a signature
+hline(SIG_X - HALF, SIG_X + HALF, FOOT_Y, GREEN_DEEP, 1.2);
+centreAt('Kane Hammontree, CEO', semi, 9.5, FOOT_Y - 17, INK, SIG_X);
+tracked('SIGNATURE', regular, 7, FOOT_Y - 31, 2, GRAY, SIG_X);
 
 // ── Field typography ─────────────────────────────────────────
-// This, not the `font` option on addToPage, is what actually sets the font the
-// fields render in. Without it all three fall back to Helvetica.
-form.updateFieldAppearances(semi);
+// This, not the `font` option on addToPage, is what sets the font the fields
+// render in. The name is script; the other two are not, so they are repointed
+// afterwards — and setFontSize has to run again, because rewriting a field's
+// default appearance also rewrites the size baked into it.
+form.updateFieldAppearances(script);
+
+trainingField.updateAppearances(semi);
+trainingField.setFontSize(16);
+dateField.updateAppearances(regular);
+dateField.setFontSize(12.5);
 
 // ── Save ─────────────────────────────────────────────────────
 
@@ -232,9 +261,3 @@ fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, await doc.save());
 const kb = (fs.statSync(out).size / 1024).toFixed(0);
 console.log(`✔ certificate template → ${out} (${kb} KB)`);
-
-/** Centre text on an arbitrary x, not the page centre. */
-function centreAt(text, font, size, y, color, cx) {
-  const w = font.widthOfTextAtSize(text, size);
-  page.drawText(text, { x: cx - w / 2, y, size, font, color });
-}
