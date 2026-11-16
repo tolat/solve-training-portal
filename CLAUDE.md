@@ -38,7 +38,7 @@ solve-training-app/
 ├── css/
 │   └── styles.css     # Dark theme (default) + light theme (body.logged-in)
 ├── uploads/           # Temp multer upload dir (ephemeral on Railway)
-├── assets/            # certificate-template.pdf (generated), wordmark, seal mark, fonts/
+├── assets/            # certificate-template.pdf (generated), solve-wordmark.png, fonts/
 ├── bin/               # make-certificate-template.mjs — regenerates the template
 ├── signing-fields.json # Cached PDF signing field positions
 └── CLAUDE.md          # This file
@@ -203,12 +203,25 @@ A template with no form fields still works — the name, training and date are
 centred on page one. A designer can supply any PDF: name the fields `name`,
 `training`, `date` and it is filled precisely; omit them and it still works.
 
+### Design
+
+The certificate follows the **training portal's own light theme** rather than
+inventing a look — the palette is lifted straight from `css/styles.css`
+`body.logged-in`: `#2a9640` green, `#152219` text, `#f2f5f2` page, hairline
+`rgba(0,0,0,0.1)` borders, and a rounded white card like the portal's. The
+portal is sans-serif, so the certificate is **Inter**, the closest open face to
+its `-apple-system` stack. No gold, no serif, no seal: none of those appear
+anywhere in the product.
+
+The foot is a CEO signature block on the left — a rule with
+**Kane Hammontree, CEO** under it, the space above it deliberately empty for a
+signature — and the completion date mirrored on the right.
+
 ### Typography, and three traps that are all silent
 
-Display face is **Playfair Display** (SIL OFL, `assets/fonts/`, licence beside
-it). Small letterspaced labels are **Helvetica** — a standard PDF font that
-needs no embedding, and at 7–8pt caps a text face adds nothing for 325 KB.
-pdf-lib has no letter-spacing, so `centreTracked()` draws those glyph by glyph.
+Display face is **Inter** (SIL OFL, `assets/fonts/`, licence beside it), both
+weights embedded whole. pdf-lib has no letter-spacing, so `tracked()` draws the
+small caps glyph by glyph.
 
 1. **`addToPage(page, {font})` does not set a field's font.** It has to be
    `form.updateFieldAppearances(font)` before save, or every field's default
@@ -217,26 +230,36 @@ pdf-lib has no letter-spacing, so `centreTracked()` draws those glyph by glyph.
    throwing away the template's. `certificates.js` therefore embeds the display
    face itself, calls `updateFieldAppearances(font)`, then
    `flatten({ updateFieldAppearances: false })`. Skip that and a template built
-   around Playfair silently comes out in Helvetica.
+   around Inter silently comes out in Helvetica — while the title, which is
+   static text, still looks right.
 3. **The field font must not be subsetted.** A subset only carries the glyphs
    drawn at build time, so the first Renée or Muñoz gets holes punched through
-   their own name. `PlayfairDisplay-Regular` is embedded whole in both the
-   template and at runtime; the Bold weight is static-only and safe to subset.
-   Separately, **subsetting mangles the Inter TTFs from Google's CSS API** —
-   most glyphs vanish. That is why Inter was dropped rather than debugged.
+   their own name. Subsetting also mangles the Inter TTFs Google's CSS API
+   serves outright — most glyphs vanish — so both weights are embedded whole.
 
-`test/certificates.test.js` guards 1–3: it measures the rendered name's width
-against both fonts' metrics. Asserting "Playfair appears in the page fonts"
-does **not** work — the title is Playfair either way, so that passes while the
-name is Helvetica. It was written that way first and proved vacuous.
+Two more worth knowing:
+
+- **A text field paints its own background, white by default.** The training
+  field sits on the green chip, so it is given the chip's colour; otherwise it
+  punches a white slab through it.
+- **`drawSvgPath`'s y axis runs downward** from the origin it is given, unlike
+  everything else on the page. `roundedRect()` converts once, internally;
+  getting that wrong silently put the training chip 200pt up the page, on top
+  of a label.
+
+`test/certificates.test.js` guards all of this. The font test measures the
+rendered name's width against both faces' metrics (322pt vs 293pt at 30pt — a
+10% gap). Asserting "Inter appears in the page fonts" does **not** work: the
+title is Inter either way, so that passes while the name is Helvetica. It was
+written that way first and proved vacuous; it is now verified by reintroducing
+the bug and watching it fail.
 
 Fonts are wired in `server.js` (`CERT_FIELD_FONT` / `CERT_FONTKIT`) and are
 optional: if the file or `@pdf-lib/fontkit` is missing, certificates still issue,
 just in Helvetica.
 
 > `solve_logo.png` is the **light-theme** SOLVE-U mark and is invisible on a
-> white certificate. `assets/solve-wordmark.png` is the dark one, and
-> `assets/solve-mark.png` is the circle mark used inside the seal.
+> white certificate. `assets/solve-wordmark.png` is the dark one used here.
 
 **URLs expire.** Notion's file URLs are presigned for about an hour, so the
 template URL is fetched fresh on every issuance and `/api/my-certificates` is

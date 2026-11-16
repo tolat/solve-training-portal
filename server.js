@@ -269,7 +269,7 @@ const notionFileRef = (fileUploadId, name) => ({ name, type: 'file_upload', file
 // fontkit is missing the certificate still comes out, just in Helvetica.
 let CERT_FIELD_FONT = null, CERT_FONTKIT = null;
 try {
-  CERT_FIELD_FONT = fs.readFileSync(path.join(__dirname, 'assets', 'fonts', 'PlayfairDisplay-Regular.ttf'));
+  CERT_FIELD_FONT = fs.readFileSync(path.join(__dirname, 'assets', 'fonts', 'Inter-SemiBold.ttf'));
   CERT_FONTKIT    = require('@pdf-lib/fontkit');
 } catch (e) {
   console.warn(`⚠️   Certificate display font unavailable (${e.message}) — certificates will use Helvetica`);

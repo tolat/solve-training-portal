@@ -288,7 +288,7 @@ test('a missing recordId or blockId is a no-op, not a crash', async () => {
 const FS   = require('node:fs');
 const PATH = require('node:path');
 const TEMPLATE = PATH.join(__dirname, '..', 'assets', 'certificate-template.pdf');
-const FIELD_FONT = PATH.join(__dirname, '..', 'assets', 'fonts', 'PlayfairDisplay-Regular.ttf');
+const FIELD_FONT = PATH.join(__dirname, '..', 'assets', 'fonts', 'Inter-SemiBold.ttf');
 
 const withFieldFont = () => createCertificates({
   PDFLib,
@@ -303,18 +303,19 @@ test('filled fields render in the display face, not Helvetica', async () => {
   // `form.flatten()` regenerates every appearance in pdf-lib's DEFAULT font
   // unless it is handed one, which is exactly how this shipped broken once.
   //
-  // Asserting "Playfair is among the page fonts" does NOT catch it — the title
-  // is Playfair either way, so that assertion passes while the name is set in
-  // Helvetica. Measure the name instead: at 32pt this string is 333pt in
-  // Playfair and 313pt in Helvetica, a 6% gap no rounding can close.
+  // Asserting "the display face is among the page fonts" does NOT catch it —
+  // the title uses that face either way, so the assertion passes while the name
+  // is set in Helvetica. Measure the name instead: at 30pt this string is 322pt
+  // in Inter SemiBold and 293pt in Helvetica, a 10% gap nothing can close.
   const NAME = 'Wilhelmina Fitzwilliam';
+  const NAME_PT = 30;                 // must match nameField.setFontSize()
 
   const probe   = await PDFLib.PDFDocument.create();
   probe.registerFontkit(require('@pdf-lib/fontkit'));
-  const playfair  = await probe.embedFont(FS.readFileSync(FIELD_FONT), { subset: false });
+  const display   = await probe.embedFont(FS.readFileSync(FIELD_FONT), { subset: false });
   const helvetica = await probe.embedFont(PDFLib.StandardFonts.Helvetica);
-  const wantPlayfair  = playfair.widthOfTextAtSize(NAME, 32);
-  const wantHelvetica = helvetica.widthOfTextAtSize(NAME, 32);
+  const wantDisplay   = display.widthOfTextAtSize(NAME, NAME_PT);
+  const wantHelvetica = helvetica.widthOfTextAtSize(NAME, NAME_PT);
 
   const out = await withFieldFont().fill(FS.readFileSync(TEMPLATE), {
     personName: NAME, dateISO: '2026-11-16', trainingName: 'Asbestos Awareness',
@@ -324,8 +325,8 @@ test('filled fields render in the display face, not Helvetica', async () => {
   assert.ok(item, 'the name was not found in the rendered certificate');
 
   const offBy = f => Math.abs(item.width - f) / f;
-  assert.ok(offBy(wantPlayfair) < 0.02,
-    `name measured ${item.width.toFixed(1)}pt; Playfair is ${wantPlayfair.toFixed(1)}pt`);
+  assert.ok(offBy(wantDisplay) < 0.02,
+    `name measured ${item.width.toFixed(1)}pt; the display face sets it at ${wantDisplay.toFixed(1)}pt`);
   assert.ok(offBy(wantHelvetica) > 0.02,
     `name measured ${item.width.toFixed(1)}pt, indistinguishable from Helvetica (${wantHelvetica.toFixed(1)}pt) — the field font was not applied`);
 });
@@ -352,7 +353,7 @@ test('the static labels are not missing glyphs', async () => {
   // Subsetting silently dropped most letters from the label face once; these
   // strings are drawn glyph by glyph for letterspacing, which is what broke.
   const text = (await textOf(FS.readFileSync(TEMPLATE))).replace(/\s+/g, '');
-  for (const phrase of ['THISISTOCERTIFYTHAT', 'HASSUCCESSFULLYCOMPLETED', 'DATECOMPLETED', 'ISSUEDBYSOLVEENERGY']) {
+  for (const phrase of ['THISISTOCERTIFYTHAT', 'HASSUCCESSFULLYCOMPLETED', 'DATECOMPLETED', 'ISSUEDBYSOLVEENERGY', 'KaneHammontree,CEO']) {
     assert.ok(text.includes(phrase), `label "${phrase}" is incomplete in the template`);
   }
 });

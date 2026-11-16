@@ -100,7 +100,7 @@ function createCertificates({
    * This exists because `form.flatten()` regenerates every field's appearance
    * using pdf-lib's *default* font, throwing away whatever the template's own
    * default-appearance string asked for. Without this step a template built
-   * around Playfair still comes out in Helvetica, silently.
+   * around a display face still comes out in Helvetica, silently.
    */
   async function embedFieldFont(pdfDoc) {
     if (!fieldFontBytes) return null;
