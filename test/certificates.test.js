@@ -57,6 +57,24 @@ async function textOf(bytes) {
   }
 }
 
+/** The first rendered text item containing `needle`, with its measured width. */
+async function textItem(bytes, needle) {
+  if (!pdfjsLib) {
+    const warn = console.warn;
+    console.warn = (...a) => { if (!/polyfill/i.test(String(a[0]))) warn(...a); };
+    try { pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js'); } finally { console.warn = warn; }
+  }
+  const buf  = Buffer.from(bytes);
+  const data = new Uint8Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length));
+  const doc  = await pdfjsLib.getDocument({ data, useSystemFonts: true, disableFontFace: true, isEvalSupported: false, verbosity: 0 }).promise;
+  try {
+    const tc = await (await doc.getPage(1)).getTextContent();
+    return tc.items.find(i => i.str && i.str.includes(needle)) || null;
+  } finally {
+    await doc.destroy();
+  }
+}
+
 // ─── date formatting ──────────────────────────────────────────
 
 test('formatDate renders the calendar date, not a timezone-shifted one', () => {
@@ -260,4 +278,81 @@ test('a missing recordId or blockId is a no-op, not a crash', async () => {
   const certs = createCertificates(deps);
   assert.strictEqual(await certs.issue({ blockId: null, recordId: 'rec1', personName: 'Sam' }), null);
   assert.strictEqual(await certs.issue({ blockId: 'block1', recordId: null, personName: 'Sam' }), null);
+});
+
+// ─── the shipped template's typography ────────────────────────
+// Both of these guard bugs that shipped silently once already: the filled text
+// came out in Helvetica instead of the display face, and a subsetted font
+// punched holes through any name with an accent in it.
+
+const FS   = require('node:fs');
+const PATH = require('node:path');
+const TEMPLATE = PATH.join(__dirname, '..', 'assets', 'certificate-template.pdf');
+const FIELD_FONT = PATH.join(__dirname, '..', 'assets', 'fonts', 'PlayfairDisplay-Regular.ttf');
+
+const withFieldFont = () => createCertificates({
+  PDFLib,
+  log: silent,
+  fieldFontBytes: FS.readFileSync(FIELD_FONT),
+  fontkit: require('@pdf-lib/fontkit'),
+});
+
+test('filled fields render in the display face, not Helvetica', async () => {
+  if (!FS.existsSync(TEMPLATE) || !FS.existsSync(FIELD_FONT)) return;
+
+  // `form.flatten()` regenerates every appearance in pdf-lib's DEFAULT font
+  // unless it is handed one, which is exactly how this shipped broken once.
+  //
+  // Asserting "Playfair is among the page fonts" does NOT catch it — the title
+  // is Playfair either way, so that assertion passes while the name is set in
+  // Helvetica. Measure the name instead: at 32pt this string is 333pt in
+  // Playfair and 313pt in Helvetica, a 6% gap no rounding can close.
+  const NAME = 'Wilhelmina Fitzwilliam';
+
+  const probe   = await PDFLib.PDFDocument.create();
+  probe.registerFontkit(require('@pdf-lib/fontkit'));
+  const playfair  = await probe.embedFont(FS.readFileSync(FIELD_FONT), { subset: false });
+  const helvetica = await probe.embedFont(PDFLib.StandardFonts.Helvetica);
+  const wantPlayfair  = playfair.widthOfTextAtSize(NAME, 32);
+  const wantHelvetica = helvetica.widthOfTextAtSize(NAME, 32);
+
+  const out = await withFieldFont().fill(FS.readFileSync(TEMPLATE), {
+    personName: NAME, dateISO: '2026-11-16', trainingName: 'Asbestos Awareness',
+  });
+
+  const item = await textItem(out.bytes, 'Wilhelmina');
+  assert.ok(item, 'the name was not found in the rendered certificate');
+
+  const offBy = f => Math.abs(item.width - f) / f;
+  assert.ok(offBy(wantPlayfair) < 0.02,
+    `name measured ${item.width.toFixed(1)}pt; Playfair is ${wantPlayfair.toFixed(1)}pt`);
+  assert.ok(offBy(wantHelvetica) > 0.02,
+    `name measured ${item.width.toFixed(1)}pt, indistinguishable from Helvetica (${wantHelvetica.toFixed(1)}pt) — the field font was not applied`);
+});
+
+test('a name with accents survives the embedded font', async () => {
+  if (!FS.existsSync(TEMPLATE) || !FS.existsSync(FIELD_FONT)) return;
+
+  // A subsetted field font only carries the glyphs seen at build time, so the
+  // first Renée or Muñoz would get holes punched through their own name.
+  const name = 'Renée Muñoz-O’Regan';
+  const out  = await withFieldFont().fill(FS.readFileSync(TEMPLATE), {
+    personName: name, dateISO: '2026-11-16', trainingName: 'Asbestos Awareness',
+  });
+
+  const text = await textOf(out.bytes);
+  const flat = text.replace(/\s+/g, ' ');
+  for (const ch of ['Renée', 'Muñoz']) {
+    assert.ok(flat.includes(ch), `"${ch}" missing from the rendered certificate — font subsetting?`);
+  }
+});
+
+test('the static labels are not missing glyphs', async () => {
+  if (!FS.existsSync(TEMPLATE)) return;
+  // Subsetting silently dropped most letters from the label face once; these
+  // strings are drawn glyph by glyph for letterspacing, which is what broke.
+  const text = (await textOf(FS.readFileSync(TEMPLATE))).replace(/\s+/g, '');
+  for (const phrase of ['THISISTOCERTIFYTHAT', 'HASSUCCESSFULLYCOMPLETED', 'DATECOMPLETED', 'ISSUEDBYSOLVEENERGY']) {
+    assert.ok(text.includes(phrase), `label "${phrase}" is incomplete in the template`);
+  }
 });

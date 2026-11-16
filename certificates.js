@@ -70,7 +70,15 @@ function firstFile(prop) {
  * retry behaviour, failure reporting and Notion auth identical to every other
  * call the portal makes.
  */
-function createCertificates({ PDFLib, notionFetch, uploadBytesToNotion, notionFileRef, fetchFile, log = console }) {
+function createCertificates({
+  PDFLib, notionFetch, uploadBytesToNotion, notionFileRef, fetchFile,
+  log = console,
+  // The face filled fields render in, as TTF bytes, plus the fontkit module
+  // pdf-lib needs to read it. Both optional: without them the certificate still
+  // comes out, in pdf-lib's default Helvetica.
+  fieldFontBytes = null,
+  fontkit = null,
+}) {
 
   /**
    * The certificate template for a block, or null if it does not issue one.
@@ -85,8 +93,30 @@ function createCertificates({ PDFLib, notionFetch, uploadBytesToNotion, notionFi
     return { ...file, blockName: (page.properties?.['Name']?.title || []).map(t => t.plain_text).join('') };
   }
 
+  /**
+   * Embed the display face the filled fields should render in, or null to let
+   * pdf-lib fall back.
+   *
+   * This exists because `form.flatten()` regenerates every field's appearance
+   * using pdf-lib's *default* font, throwing away whatever the template's own
+   * default-appearance string asked for. Without this step a template built
+   * around Playfair still comes out in Helvetica, silently.
+   */
+  async function embedFieldFont(pdfDoc) {
+    if (!fieldFontBytes) return null;
+    try {
+      if (fontkit) pdfDoc.registerFontkit(fontkit);
+      // Never subset: this face renders names nobody has typed yet, and a
+      // subset would punch holes through the first Renée or Muñoz.
+      return await pdfDoc.embedFont(fieldFontBytes, { subset: false });
+    } catch (e) {
+      log.warn(`⚠️   Certificate: could not embed the field font, falling back: ${e.message}`);
+      return null;
+    }
+  }
+
   /** Fill an AcroForm, if the template has one. Returns true if anything was set. */
-  function fillFormFields(pdfDoc, { personName, dateText, trainingName }) {
+  async function fillFormFields(pdfDoc, { personName, dateText, trainingName }) {
     let form;
     try { form = pdfDoc.getForm(); } catch { return false; }
 
@@ -114,7 +144,17 @@ function createCertificates({ PDFLib, notionFetch, uploadBytesToNotion, notionFi
     if (filled) {
       // Flatten so the values are part of the page, not editable form state.
       // A certificate someone can retype is not a certificate.
-      try { form.flatten(); } catch (e) {
+      try {
+        const font = await embedFieldFont(pdfDoc);
+        if (font) {
+          // Render appearances ourselves in the display face, then flatten
+          // without letting pdf-lib regenerate them in its default font.
+          form.updateFieldAppearances(font);
+          form.flatten({ updateFieldAppearances: false });
+        } else {
+          form.flatten();
+        }
+      } catch (e) {
         log.warn(`⚠️   Certificate: could not flatten the form: ${e.message}`);
       }
     }
@@ -169,7 +209,7 @@ function createCertificates({ PDFLib, notionFetch, uploadBytesToNotion, notionFi
 
     const pdfDoc = await PDFDocument.load(templateBytes, { ignoreEncryption: true });
 
-    const usedForm = fillFormFields(pdfDoc, { personName, dateText, trainingName });
+    const usedForm = await fillFormFields(pdfDoc, { personName, dateText, trainingName });
     if (!usedForm) await drawCentred(pdfDoc, { personName, dateText, trainingName });
 
     return { bytes: await pdfDoc.save(), placedWith: usedForm ? 'form-fields' : 'centred-text' };
