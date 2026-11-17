@@ -205,36 +205,26 @@ centred on page one. A designer can supply any PDF: name the fields `name`,
 
 ### Design
 
-A classic award certificate, built from a reference Torin supplied: sweeping
-ribbons in the top-right and bottom-left corners, a thin gold double frame, a
-heavy green title, and the recipient's name in script. The greens are Solve's
-own from `css/styles.css` `body.logged-in` (`#2a9640`, `#217832`, `#152219`),
-deepened to `#13401f` for the ribbons so they read as layered rather than flat.
-Gold is the one colour from outside the product palette; it is what makes this
-kind of certificate look like one.
+Built to a reference Torin supplied: angled corner wedges top-right and
+bottom-left with gold stripes running parallel to them, a thin gold frame, a
+faint guilloche ground, a large letterspaced title and the recipient's name in
+script. The reference's navy is replaced by Solve's green throughout; gold is
+kept, because it is structural to the reference and carries the whole look.
 
-The ribbons are built by `ribbon()` and `cornerFill()`. **They are independent
-shapes, deliberately.** Two earlier attempts drew them as nested bands where
-each band's inner edge was the next one's outer edge — that constraint produces
-concentric rings by construction, and no amount of tuning the curve shape gets
-a ribbon out of it. It looked exactly like what it was.
+**The corners are straight-edged, not curved.** One diagonal (`A` → `B`, where
+it meets the top and right edges) defines everything: `wedge()` fills the far
+side of it, and `stripe(off, t)` lays a band parallel to it, offset along its
+own normal. Each stripe overshoots both ends by `EXT` so it runs off the page
+rather than stopping short — anything outside the page box is clipped on
+render. The bottom-left corner is the same artwork rotated 180° (`rotPath()`).
 
-Each ribbon now has its own centreline (`line()`, shaped by `lazy` / `bend` /
-`late` — how steeply it leaves the top edge, how deep it dips, how long it runs
-before turning into the right edge) and its own width along that line
-(`swell()` for fat-in-the-middle, `taperOut()` for an end that finishes inside
-the page). The outline is built by walking the centreline, taking the normal at
-each of 72 steps and offsetting both ways by half the width.
+The guilloche is 34 long, lazy sine waves at barely-off-white. It has to read
+as moiré texture; shorter wavelengths or more contrast make it read as
+scribble, which is how the first pass looked.
 
-Giving the ribbons **different `late` values is the point** — ribbons that turn
-into the edge at different places cross each other rather than nesting. The
-bottom-left corner is the same artwork rotated 180° (`rotPath()`) and scaled
-smaller, which keeps the foot clear for the date and signature.
-
-The foot has the completion date on the left and a signature rule on the right
-with **Kane Hammontree, CEO** under it, the space above deliberately empty for
-a signature. Content centres on `AXIS = 400`, left of the page centre, to stay
-clear of the top-right ribbon.
+The foot sits at `y = 94` and the date block at `x = 252` because the
+bottom-left wedge reaches roughly `y = 60` there — a date field paints its own
+white background, and a white slab across the wedge is very visible.
 
 ### Typography, and the traps — all silent
 

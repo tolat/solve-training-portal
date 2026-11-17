@@ -13,12 +13,12 @@
  * `training` and `date` is filled precisely, and a PDF with no fields at all
  * still works — the portal centres those three on page one.
  *
- * DESIGN: a classic award certificate — sweeping ribbons in the top-right and
- * bottom-left corners, a thin double frame, a heavy title and the recipient's
- * name in script. The greens are Solve's own (`css/styles.css`
- * `body.logged-in`), deepened for the ribbons so they read as layered rather
- * than flat. Gold is the one colour from outside the product palette, and it
- * is what makes this kind of certificate look like one.
+ * DESIGN: built to a reference Torin supplied — angled corner wedges top-right
+ * and bottom-left with gold stripes running parallel, a thin gold frame, a
+ * faint guilloche ground, a large letterspaced title and the recipient's name
+ * in script. The reference's navy is replaced by Solve's green throughout
+ * (`css/styles.css` `body.logged-in`), and the type is Inter, Solve's own face.
+ * Gold is kept: it is structural to the reference and carries the whole look.
  *
  * Font traps, all silent, all covered by test/certificates.test.js:
  *
@@ -27,8 +27,8 @@
  *      would get holes punched through their own name.
  *   2. **`addToPage({font})` does not set a field's font.** It has to be
  *      `form.updateFieldAppearances(font)` before save, and `certificates.js`
- *      has to re-apply it before flattening, or everything falls back to
- *      Helvetica while the static title still looks right.
+ *      has to re-apply it per field before flattening, or everything falls
+ *      back to Helvetica while the static title still looks right.
  *   3. **A text field paints its own background**, white by default.
  *   4. **`drawSvgPath`'s y axis runs downward** from the origin it is given,
  *      unlike every other call here. `svgPath()` converts once, internally.
@@ -51,14 +51,16 @@ const hex = h => rgb(
   parseInt(h.slice(5, 7), 16) / 255,
 );
 
-const GREEN      = hex('#2a9640');  // --green, the portal's own
-const GREEN_MID  = hex('#217832');  // --green-mid
-const GREEN_DEEP = hex('#13401f');  // deepened for the ribbons' shadow side
-const INK        = hex('#152219');  // --text
-const GOLD       = hex('#c9a349');
-const GOLD_LIGHT = hex('#e7d6a3');
-const GOLD_DEEP  = hex('#a8822f');
-const GRAY       = rgb(0.46, 0.49, 0.47);
+// The reference's navy, replaced by Solve's green at the same two depths.
+const GREEN_DEEP = hex('#134a26');
+const GREEN      = hex('#2a9640');  // --green
+const GOLD       = hex('#c8a24a');
+const GOLD_LIGHT = hex('#e8d7a4');
+const GOLD_DEEP  = hex('#a07c2c');
+const INK        = hex('#111111');
+const BODY       = hex('#333333');
+const GRAY       = rgb(0.42, 0.42, 0.42);
+const GUILLOCHE  = rgb(0.945, 0.952, 0.945);
 const WHITE      = rgb(1, 1, 1);
 
 const W = 842; // A4 landscape, points
@@ -75,13 +77,10 @@ doc.setProducer('Solve University');
 const read = f => fs.readFileSync(path.join(FONTS, f));
 // Embedded whole: these render the name and training FIELDS, which hold text
 // nobody has typed yet — and subsetting corrupts these TTFs anyway.
-// Allura, not Great Vibes: Great Vibes renders a precomposed é with a broken
-// advance in pdf-lib, so "Renée" comes out as "Ren ée". Verified by rendering
-// both against the same string.
 const script  = await doc.embedFont(read('Allura-Regular.ttf'), { subset: false });
-const bold    = await doc.embedFont(read('Inter-Bold.ttf'),         { subset: false });
-const semi    = await doc.embedFont(read('Inter-SemiBold.ttf'),     { subset: false });
-const regular = await doc.embedFont(read('Inter-Regular.ttf'),      { subset: false });
+const bold    = await doc.embedFont(read('Inter-Bold.ttf'),     { subset: false });
+const semi    = await doc.embedFont(read('Inter-SemiBold.ttf'), { subset: false });
+const regular = await doc.embedFont(read('Inter-Regular.ttf'),  { subset: false });
 
 const page = doc.addPage([W, H]);
 
@@ -113,133 +112,83 @@ const hline = (x1, x2, y, color, thickness = 1) =>
  */
 const svgPath = (d, opts) => page.drawSvgPath(d, { x: 0, y: H, ...opts });
 
-/**
- * ── The corner ribbons ───────────────────────────────────────
- *
- * The first two attempts drew the bands as nested arcs sharing a corner, each
- * band's inner edge being the next one's outer edge. That constraint makes
- * concentric rings by construction — no amount of tuning the curve shape gets
- * you a ribbon out of it, which is exactly how it looked.
- *
- * So: each ribbon here is an INDEPENDENT shape with its own centreline and its
- * own width along that line. They are free to cross each other, which is what
- * the reference actually does, and they swell and taper instead of running at
- * a constant width.
- *
- * A ribbon's outline is built by walking its centreline, taking the normal at
- * each step and offsetting both ways by half the width there. Sampled finely
- * enough it is indistinguishable from a true offset curve.
- *
- * Everything is in svgPath's space: origin top-left, y downward.
- */
+const poly = pts => 'M ' + pts.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join(' L ') + ' Z';
 
-const bez = (a, b, c, d, t) => {
-  const u = 1 - t;
-  return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d;
-};
-const bezDeriv = (a, b, c, d, t) => {
-  const u = 1 - t;
-  return 3 * u * u * (b - a) + 6 * u * t * (c - b) + 3 * t * t * (d - c);
-};
+// ── Corner wedges ────────────────────────────────────────────
+//
+// The reference's corners are straight-edged, not curved: a filled wedge cut
+// off by one diagonal, with gold stripes running parallel to it. Each stripe is
+// the diagonal offset along its own normal, extended well past both ends so it
+// runs off the page rather than stopping short — anything outside the page box
+// is clipped on render.
 
-/**
- * @param {number[][]} cp  four control points [[x,y],...]
- * @param {(t:number)=>number} widthAt  ribbon width at t, in points
- */
-function ribbon(cp, widthAt, samples = 72) {
-  const [P0, P1, P2, P3] = cp;
-  const left = [], right = [];
-  for (let i = 0; i <= samples; i++) {
-    const t = i / samples;
-    const x  = bez(P0[0], P1[0], P2[0], P3[0], t);
-    const y  = bez(P0[1], P1[1], P2[1], P3[1], t);
-    const dx = bezDeriv(P0[0], P1[0], P2[0], P3[0], t);
-    const dy = bezDeriv(P0[1], P1[1], P2[1], P3[1], t);
-    const len = Math.hypot(dx, dy) || 1;
-    const nx = -dy / len, ny = dx / len;      // unit normal
-    const h = widthAt(t) / 2;
-    left.push([x + nx * h, y + ny * h]);
-    right.push([x - nx * h, y - ny * h]);
-  }
-  const pts = [...left, ...right.reverse()];
-  return 'M ' + pts.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join(' L ') + ' Z';
-}
+/** The diagonal: meets the top edge at xTop and the right edge at yRight. */
+const A = [560, 0];
+const B = [W, 96];
 
-/** A ribbon centreline from the top edge to the right edge. */
-const line = (x, y, { lazy = 0.05, bend = 0.56, late = 0.68 } = {}) => [
-  [x, 0],
-  [x + lazy * (W - x), bend * y],
-  [x + late * (W - x), y],
-  [W, y],
+const dir = [B[0] - A[0], B[1] - A[1]];
+const dlen = Math.hypot(dir[0], dir[1]);
+const u = [dir[0] / dlen, dir[1] / dlen];       // along the diagonal
+const n = [-u[1], u[0]];                        // normal, pointing into the page
+
+const EXT = 420;                                // overshoot past both ends
+const at = (p, alongFrom, off) => [
+  p[0] + u[0] * alongFrom + n[0] * off,
+  p[1] + u[1] * alongFrom + n[1] * off,
 ];
 
-/** Fattest in the middle, never pinching to nothing at the page edges. */
-const swell = (max, ends = 0.55) => t => max * (ends + (1 - ends) * Math.sin(Math.PI * t));
-/** Full width at the start, tapering to a point — a ribbon end inside the page. */
-const taperOut = max => t => max * Math.max(0.02, 1 - Math.pow(t, 1.6));
+/** A stripe parallel to the diagonal: `off` from it, `t` thick. */
+const stripe = (off, t) => poly([
+  at(A, -EXT, off), at(B, EXT, off), at(B, EXT, off + t), at(A, -EXT, off + t),
+]);
 
-/** The solid corner: everything between a curve and the corner itself. */
-function cornerFill(x, y, opts) {
-  const [, c1, c2, p3] = line(x, y, opts);
-  return `M ${x} 0 C ${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${p3[0]} ${p3[1]} L ${W} 0 Z`;
-}
+/** The filled corner: everything on the far side of the diagonal. */
+const wedge = off => poly([
+  at(A, -EXT, off), at(B, EXT, off), [W + EXT, -EXT], [A[0] - EXT, -EXT],
+]);
 
 const rot = ([x, y]) => [W - x, H - y];
 const rotPath = d => d.replace(/(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g,
   (_, a, b) => { const [x, y] = rot([parseFloat(a), parseFloat(b)]); return `${x.toFixed(2)} ${y.toFixed(2)}`; });
 
-// ── Page and ribbons ─────────────────────────────────────────
+/** One corner's artwork, outermost first. */
+const cornerArt = () => [
+  [wedge(0),           GREEN_DEEP],   // the mass filling the corner
+  [stripe(0, 5),       GOLD],         // gold edging the wedge
+  [stripe(5, 26),      GREEN],        // the lighter green band
+  [stripe(31, 7),      GOLD],         // thick gold stripe
+  [stripe(46, 2.2),    GOLD_LIGHT],   // thin gold line, set off in the white
+];
+
+// ── Page ─────────────────────────────────────────────────────
 
 page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: WHITE });
 
-/**
- * The corner composition, drawn back to front. The `late` values differ on
- * purpose: ribbons that turn into the right edge at different points cross
- * each other instead of nesting, which is the whole difference between a
- * ribbon and a stripe.
- */
-function cornerArt(scale = 1) {
-  const sx = x => W - (W - x) * scale;     // pull entry points toward the corner
-  const sy = y => y * scale;
-  const sw = w => w * scale;
-  const out = [];
-
-  // The solid mass filling the corner
-  out.push([cornerFill(sx(470), sy(300), { lazy: 0.02, bend: 0.58, late: 0.74 }), GREEN_DEEP]);
-
-  // A bright green ribbon cutting across it, turning early so it crosses
-  out.push([ribbon(line(sx(505), sy(232), { lazy: 0.04, bend: 0.54, late: 0.64 }),
-                   swell(sw(62))), GREEN]);
-
-  // Gold, turning late — crosses the green twice
-  out.push([ribbon(line(sx(556), sy(206), { lazy: 0.03, bend: 0.60, late: 0.77 }),
-                   swell(sw(26), 0.4)), GOLD]);
-
-  // A second, thinner gold inboard of it
-  out.push([ribbon(line(sx(648), sy(140), { lazy: 0.05, bend: 0.54, late: 0.66 }),
-                   swell(sw(13), 0.35)), GOLD_LIGHT]);
-
-  // Mid green closing the inner edge, tapering to a point on the page
-  out.push([ribbon(line(sx(690), sy(104), { lazy: 0.05, bend: 0.58, late: 0.72 }),
-                   taperOut(sw(52))), GREEN_MID]);
-
-  return out;
+// Guilloche: a faint lattice of long sine waves, as on the reference. Kept very
+// close to white — it should read as texture, never as lines.
+for (let i = 0; i < 34; i++) {
+  const baseY = 74 + i * 14;
+  const amp   = 26 + (i % 3) * 10;
+  const wav   = 460 + (i % 4) * 110;   // long and lazy, so it reads as moiré
+  const pts = [];
+  for (let x = 36; x <= W - 36; x += 8) {
+    pts.push(`${x} ${(baseY + Math.sin((x + i * 46) / wav * Math.PI * 2) * amp).toFixed(2)}`);
+  }
+  svgPath('M ' + pts.join(' L '), { borderColor: GUILLOCHE, borderWidth: 0.35 });
 }
 
-for (const [d, color] of cornerArt(0.76))  svgPath(d, { color });
-for (const [d, color] of cornerArt(0.66))  svgPath(rotPath(d), { color });
-
 // ── Frame ────────────────────────────────────────────────────
-// A thin double rule, as on the reference: it sits over the ribbons.
 
 page.drawRectangle({
-  x: 24, y: 24, width: W - 48, height: H - 48,
-  borderColor: GOLD, borderWidth: 1.1,
+  x: 26, y: 26, width: W - 52, height: H - 52,
+  borderColor: GOLD, borderWidth: 1.4,
 });
-page.drawRectangle({
-  x: 30, y: 30, width: W - 60, height: H - 60,
-  borderColor: GOLD_LIGHT, borderWidth: 0.6,
-});
+
+// ── Corners ──────────────────────────────────────────────────
+// Drawn after the frame so the wedges sit over it, as on the reference.
+
+for (const [d, color] of cornerArt()) svgPath(d, { color });
+for (const [d, color] of cornerArt()) svgPath(rotPath(d), { color });
 
 // ── Wordmark ─────────────────────────────────────────────────
 
@@ -247,68 +196,68 @@ try {
   const png   = await doc.embedPng(fs.readFileSync(path.join(ROOT, 'assets', 'solve-wordmark.png')));
   const logoW = 104;
   const logoH = (png.height / png.width) * logoW;
-  page.drawImage(png, { x: 92, y: 492, width: logoW, height: logoH });
+  page.drawImage(png, { x: 70, y: 492, width: logoW, height: logoH });
 } catch {
-  tracked('SOLVE', bold, 16, 496, 3, INK, 144);
+  tracked('SOLVE', bold, 16, 496, 3, INK, 122);
 }
 
 // ── Title ────────────────────────────────────────────────────
 
-const AXIS = 400;   // content centres left of the page centre, clear of the ribbon
-
-tracked('CERTIFICATE', bold, 41, 418, 3.5, GREEN_DEEP, AXIS);
-tracked('OF COMPLETION', semi, 14.5, 390, 5.5, GOLD_DEEP, AXIS);
+tracked('CERTIFICATE', bold, 42, 410, 7, INK);
+tracked('OF COMPLETION', semi, 13, 378, 4.2, INK);
 
 // ── Recipient ────────────────────────────────────────────────
 
-tracked('THIS CERTIFICATE IS PRESENTED TO', semi, 9.5, 348, 2.2, INK, AXIS);
+tracked('PROUDLY PRESENTED TO', semi, 10.5, 318, 2.6, INK);
 
 const form = doc.getForm();
 
 const nameField = form.createTextField('name');
 nameField.addToPage(page, {
-  x: AXIS - 280, y: 268, width: 560, height: 56, borderWidth: 0, backgroundColor: WHITE,
+  x: 160, y: 236, width: W - 320, height: 54, borderWidth: 0, backgroundColor: WHITE,
 });
 nameField.setAlignment(1);
-nameField.setFontSize(42);
+nameField.setFontSize(40);
 
-hline(AXIS - 240, AXIS + 240, 264, GREEN_MID, 1);
+hline(150, W - 150, 232, rgb(0.35, 0.35, 0.35), 0.9);
 
 // ── Training ─────────────────────────────────────────────────
 
-tracked('HAS SUCCESSFULLY COMPLETED', regular, 8.5, 230, 2.2, GRAY, AXIS);
+centreAt('has successfully completed all requirements of', regular, 11, 204, BODY);
 
 const trainingField = form.createTextField('training');
 trainingField.addToPage(page, {
-  // Starts at x=200: a field paints its own white background, and at this
-  // height the bottom-left ribbon reaches x=173.
-  x: 200, y: 192, width: 400, height: 30, borderWidth: 0, backgroundColor: WHITE,
+  x: 150, y: 164, width: W - 300, height: 30, borderWidth: 0, backgroundColor: WHITE,
 });
 trainingField.setAlignment(1);
-trainingField.setFontSize(16);
+trainingField.setFontSize(17);
 
-// ── Foot: date and signature, clear of the bottom-left ribbon ─
+centreAt('issued by Solve University', regular, 11, 142, BODY);
 
-const FOOT_Y = 112;
-const HALF   = 92;
-const DATE_X = 452;
-const SIG_X  = 672;
+// ── Foot: date left, signature right ─────────────────────────
+
+// The bottom-left wedge reaches roughly y = 60 at this x, so the foot sits
+// above it — a date field paints its own white background and a white slab
+// across the wedge is very visible.
+const FOOT_Y = 94;
+const HALF   = 86;
+const DATE_X = 252;
+const SIG_X  = W - 252;
 
 const dateField = form.createTextField('date');
 dateField.addToPage(page, {
-  x: DATE_X - HALF, y: FOOT_Y + 7, width: HALF * 2, height: 22,
+  x: DATE_X - HALF, y: FOOT_Y + 6, width: HALF * 2, height: 22,
   borderWidth: 0, backgroundColor: WHITE,
 });
 dateField.setAlignment(1);
-dateField.setFontSize(12.5);
+dateField.setFontSize(12);
 
-hline(DATE_X - HALF, DATE_X + HALF, FOOT_Y, GREEN_DEEP, 1.2);
-tracked('DATE', semi, 8.5, FOOT_Y - 17, 2.2, INK, DATE_X);
+hline(DATE_X - HALF, DATE_X + HALF, FOOT_Y, rgb(0.35, 0.35, 0.35), 0.9);
+tracked('DATE', semi, 8.5, FOOT_Y - 17, 2.4, INK, DATE_X);
 
-// Signature — the space above the rule is deliberately empty, for a signature
-hline(SIG_X - HALF, SIG_X + HALF, FOOT_Y, GREEN_DEEP, 1.2);
-centreAt('Kane Hammontree, CEO', semi, 9.5, FOOT_Y - 17, INK, SIG_X);
-tracked('SIGNATURE', regular, 7, FOOT_Y - 31, 2, GRAY, SIG_X);
+// The space above this rule is deliberately empty — it is where a signature goes.
+hline(SIG_X - HALF, SIG_X + HALF, FOOT_Y, rgb(0.35, 0.35, 0.35), 0.9);
+tracked('KANE HAMMONTREE, CEO', semi, 8.5, FOOT_Y - 17, 2.4, INK, SIG_X);
 
 // ── Field typography ─────────────────────────────────────────
 // This, not the `font` option on addToPage, is what sets the font the fields
@@ -318,9 +267,9 @@ tracked('SIGNATURE', regular, 7, FOOT_Y - 31, 2, GRAY, SIG_X);
 form.updateFieldAppearances(script);
 
 trainingField.updateAppearances(semi);
-trainingField.setFontSize(16);
+trainingField.setFontSize(17);
 dateField.updateAppearances(regular);
-dateField.setFontSize(12.5);
+dateField.setFontSize(12);
 
 // ── Save ─────────────────────────────────────────────────────
 

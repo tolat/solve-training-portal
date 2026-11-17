@@ -314,7 +314,7 @@ test('filled fields render in the display face, not Helvetica', async () => {
   // is set in Helvetica. Measure the name instead: at 42pt this string is 346pt
   // in Allura and 411pt in Helvetica, a 16% gap nothing can close.
   const NAME = 'Wilhelmina Fitzwilliam';
-  const NAME_PT = 42;                 // must match nameField.setFontSize()
+  const NAME_PT = 40;                 // must match nameField.setFontSize()
 
   const probe   = await PDFLib.PDFDocument.create();
   probe.registerFontkit(require('@pdf-lib/fontkit'));
@@ -351,7 +351,7 @@ test('a name with accents survives the embedded font', async () => {
   // it measures the string correctly — so the only way to catch it is to
   // compare what was RENDERED against what the font says it should measure.
   const NAME = 'Renée Muñoz-O’Regan';
-  const NAME_PT = 42;
+  const NAME_PT = 40;
 
   const out = await withFieldFont().fill(FS.readFileSync(TEMPLATE), {
     personName: NAME, dateISO: '2026-11-16', trainingName: 'Asbestos Awareness',
@@ -378,8 +378,9 @@ test('the static labels are not missing glyphs', async () => {
   // Subsetting silently dropped most letters from the label face once; these
   // strings are drawn glyph by glyph for letterspacing, which is what broke.
   const text = (await textOf(FS.readFileSync(TEMPLATE))).replace(/\s+/g, '');
-  for (const phrase of ['CERTIFICATE', 'OFCOMPLETION', 'THISCERTIFICATEISPRESENTEDTO',
-                        'HASSUCCESSFULLYCOMPLETED', 'DATE', 'SIGNATURE', 'KaneHammontree,CEO']) {
+  for (const phrase of ['CERTIFICATE', 'OFCOMPLETION', 'PROUDLYPRESENTEDTO',
+                        'hassuccessfullycompletedallrequirementsof',
+                        'issuedbySolveUniversity', 'DATE', 'KANEHAMMONTREE,CEO']) {
     assert.ok(text.includes(phrase), `label "${phrase}" is incomplete in the template`);
   }
 });
