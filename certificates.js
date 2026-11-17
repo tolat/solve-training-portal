@@ -28,6 +28,26 @@ const PLACEHOLDER_RE = /\{\{\s*(name|full[_ ]?name|employee[_ ]?name|date|date[_
 const NAME_FIELD_RE     = /^(name|full[_ ]?name|employee[_ ]?name|recipient([_ ]?name)?)$/i;
 const DATE_FIELD_RE     = /^(date|date[_ ]?completed|completion[_ ]?date|completed([_ ]?on)?)$/i;
 const TRAINING_FIELD_RE = /^(training|training[_ ]?name|course|course[_ ]?name|module|block([_ ]?name)?)$/i;
+const CERTNO_FIELD_RE   = /^(cert(ificate)?[_ ]?(no|num|number|id))$/i;
+
+/**
+ * The serial printed under "CERTIFICATE No." on templates that have the field.
+ *
+ * It is the last 8 hex characters of the Training Record's Notion id, so it is
+ * stable across re-issues of the same certificate and resolvable: the record
+ * whose id ends in those characters is the one that was issued. A reference,
+ * not a key — 32 bits is plenty to tell two certificates apart by eye and not
+ * enough to promise global uniqueness.
+ *
+ * Returns '' for a missing id, which leaves the field blank rather than
+ * printing something that looks like a serial but means nothing.
+ */
+function certificateNumber(recordId) {
+  const hex = String(recordId || '').replace(/[^0-9a-f]/gi, '').toUpperCase();
+  if (hex.length < 8) return '';
+  const tail = hex.slice(-8);
+  return `SU-${tail.slice(0, 4)}-${tail.slice(4)}`;
+}
 
 /** Human-readable completion date: "11 November 2026". */
 function formatDate(iso) {
@@ -175,7 +195,7 @@ function createCertificates({
   }
 
   /** Fill an AcroForm, if the template has one. Returns true if anything was set. */
-  async function fillFormFields(pdfDoc, { personName, dateText, trainingName }) {
+  async function fillFormFields(pdfDoc, { personName, dateText, trainingName, certNo }) {
     let form;
     try { form = pdfDoc.getForm(); } catch { return false; }
 
@@ -191,10 +211,12 @@ function createCertificates({
       const role = NAME_FIELD_RE.test(name)     ? 'name'
                  : DATE_FIELD_RE.test(name)     ? 'date'
                  : TRAINING_FIELD_RE.test(name) ? 'training'
+                 : CERTNO_FIELD_RE.test(name)   ? 'certno'
                  : null;
       if (!role) continue;
-      const value = role === 'name' ? personName
-                  : role === 'date' ? dateText
+      const value = role === 'name'  ? personName
+                  : role === 'date'  ? dateText
+                  : role === 'certno' ? (certNo || '')
                   : (trainingName || '');
       try {
         field.setText(value);
@@ -274,14 +296,14 @@ function createCertificates({
   }
 
   /** Produce the finished certificate bytes from the template bytes. */
-  async function fill(templateBytes, { personName, dateISO, trainingName }) {
+  async function fill(templateBytes, { personName, dateISO, trainingName, certNo }) {
     if (!PDFLib) throw new Error('pdf-lib is not installed');
     const { PDFDocument } = PDFLib;
     const dateText = formatDate(dateISO);
 
     const pdfDoc = await PDFDocument.load(templateBytes, { ignoreEncryption: true });
 
-    const usedForm = await fillFormFields(pdfDoc, { personName, dateText, trainingName });
+    const usedForm = await fillFormFields(pdfDoc, { personName, dateText, trainingName, certNo });
     if (!usedForm) await drawCentred(pdfDoc, { personName, dateText, trainingName });
 
     return { bytes: await pdfDoc.save(), placedWith: usedForm ? 'form-fields' : 'centred-text' };
@@ -330,7 +352,8 @@ function createCertificates({
       let outBytes = templateBytes;
       let placedWith = 'not-a-pdf';
       if (isPdf) {
-        const out = await fill(templateBytes, { personName, dateISO, trainingName: title || template.blockName });
+        const out = await fill(templateBytes, { personName, dateISO, trainingName: title || template.blockName,
+                                               certNo: certificateNumber(recordId) });
         outBytes = Buffer.from(out.bytes);
         placedWith = out.placedWith;
       } else {
@@ -363,4 +386,5 @@ function createCertificates({
   return { issue, getTemplate, fill, formatDate, certificateFileName };
 }
 
-module.exports = { createCertificates, resolveCertificateTitle, formatDate, certificateFileName, PLACEHOLDER_RE };
+module.exports = { createCertificates, resolveCertificateTitle, formatDate, certificateFileName,
+                   certificateNumber, PLACEHOLDER_RE };

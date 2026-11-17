@@ -444,3 +444,85 @@ test('a missing block name never yields an empty title', () => {
   assert.strictEqual(resolveCertificateTitle({ blockName: '', pattern: '' }), 'Training');
   assert.strictEqual(resolveCertificateTitle({}), 'Training');
 });
+
+// ─── Certificate serial, and the dark template ────────────────
+
+const { certificateNumber } = require('../certificates');
+
+test('the certificate serial is derived from the record id, and is stable', () => {
+  // The last 8 hex characters of the Notion id, so the record it came from can
+  // be found again. Notion ids share a leading prefix, so the tail is what
+  // actually distinguishes two records.
+  assert.strictEqual(certificateNumber('2e8b73d8-b43a-813a-89f9-c7912637b76d'), 'SU-2637-B76D');
+  assert.strictEqual(certificateNumber('2e8b73d8b43a813a89f9c7912637b76d'), 'SU-2637-B76D',
+    'dashes in the id must not change the serial');
+  assert.strictEqual(certificateNumber('2e8b73d8-b43a-813a-89f9-c7912637b76d'),
+                     certificateNumber('2e8b73d8-b43a-813a-89f9-c7912637b76d'),
+                     're-issuing the same certificate must not renumber it');
+});
+
+test('a serial is left blank rather than invented', () => {
+  // Better an empty line under "CERTIFICATE No." than something that looks
+  // like a serial and resolves to nothing.
+  for (const bad of [null, undefined, '', 'rec1', 'zzz']) {
+    assert.strictEqual(certificateNumber(bad), '', `${JSON.stringify(bad)} should not produce a serial`);
+  }
+});
+
+test('a template with a certificate_no field gets the serial', async () => {
+  const doc  = await PDFLib.PDFDocument.create();
+  const page = doc.addPage([792, 612]);
+  const form = doc.getForm();
+  form.createTextField('name').addToPage(page,           { x: 72,  y: 300, width: 450, height: 36 });
+  form.createTextField('certificate_no').addToPage(page, { x: 408, y: 112, width: 139, height: 18 });
+  const template = Buffer.from(await doc.save());
+
+  let out = null;
+  const certs = createCertificates({
+    PDFLib, log: silent,
+    async notionFetch(endpoint, method = 'GET') {
+      if (method === 'PATCH') return { properties: { 'Internal Certificates': { files: [] } } };
+      if (endpoint.includes('/pages/block')) return { properties: {
+        Name: { title: [{ plain_text: 'Fall Protection' }] },
+        'Certificate Template': { files: [{ type: 'file', name: 't.pdf', file: { url: 'x' } }] } } };
+      return { properties: { 'Internal Certificates': { files: [] } } };
+    },
+    async uploadBytesToNotion(bytes) { out = Buffer.from(bytes); return 'id'; },
+    notionFileRef: (id, n) => ({ name: n, type: 'file_upload', file_upload: { id } }),
+    async fetchFile() { return { ok: true, arrayBuffer: async () => template }; },
+  });
+
+  await certs.issue({ blockId: 'block1', recordId: '2e8b73d8-b43a-813a-89f9-c7912637b76d',
+                      personName: 'Sam Lee', dateISO: '2026-11-17' });
+  const text = (await textOf(out)).replace(/\s+/g, ' ');
+  assert.match(text, /SU-2637-B76D/, 'the serial should be printed on the certificate');
+});
+
+test('the dark template keeps its auto-size and its light ink', async () => {
+  // Both are silently destroyed by `PDFDocument.save()` running
+  // updateFieldAppearances, which resolves `0 Tf` into a fixed size and would
+  // repaint the text black. Black on this plate is invisible, and a fixed size
+  // clips long names at the end of the rule instead of shrinking them.
+  const fs  = require('node:fs');
+  const path = require('node:path');
+  const file = path.join(__dirname, '..', 'assets', 'certificate-template-dark.pdf');
+  if (!fs.existsSync(file)) return;          // not every checkout regenerates it
+
+  const doc = await PDFLib.PDFDocument.load(fs.readFileSync(file));
+  const das = Object.fromEntries(doc.getForm().getFields()
+    .map(f => [f.getName(), f.acroField.getDefaultAppearance() || '']));
+
+  assert.deepStrictEqual(Object.keys(das).sort(),
+    ['certificate_no', 'date', 'name', 'training'],
+    'the dark template should carry exactly these four fields');
+
+  for (const role of ['name', 'training']) {
+    assert.match(das[role], /\s0\s+Tf/, `${role} must stay auto-sized (0 Tf) so long values shrink`);
+  }
+  for (const [role, da] of Object.entries(das)) {
+    const m = da.match(/([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+rg/);
+    assert.ok(m, `${role} must carry an explicit colour — the default is black, which is invisible here`);
+    assert.ok(Number(m[1]) > 0.5 && Number(m[2]) > 0.5 && Number(m[3]) > 0.5,
+      `${role} must be light ink on this dark plate, got ${m[0]}`);
+  }
+});

@@ -275,6 +275,7 @@ try {
     name:     font('Allura-Regular.ttf'),
     training: font('Inter-SemiBold.ttf'),
     date:     font('Inter-Regular.ttf'),
+    certno:   font('Inter-Regular.ttf'),
     default:  font('Inter-SemiBold.ttf'),
   };
   CERT_FONTKIT = require('@pdf-lib/fontkit');
