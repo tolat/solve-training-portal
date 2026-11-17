@@ -113,54 +113,96 @@ const hline = (x1, x2, y, color, thickness = 1) =>
  */
 const svgPath = (d, opts) => page.drawSvgPath(d, { x: 0, y: H, ...opts });
 
-const K = 0.5523;  // circle-to-bezier constant, for a quarter arc
+/**
+ * ── The corner swoops ────────────────────────────────────────
+ *
+ * Each ribbon edge is a cubic from a point on the top edge to a point on the
+ * right edge, written in svgPath's space (origin top-left, y down).
+ *
+ * A quarter-ellipse — the obvious shape — bends evenly the whole way round and
+ * reads as a rainbow stripe. The reference's ribbons do not: they leave the top
+ * edge steeply, run almost straight across the diagonal, then turn hard into
+ * the right edge. `lazy` and `late` are what buy that.
+ *
+ *   x, y   where the edge meets the top and right edges
+ *   lazy   how far along the diagonal the first control point sits
+ *          (small = leaves the top edge steeply, like the reference)
+ *   bend   how far down the first control point pulls (big = flatter middle)
+ *   late   where the second control point sits (big = turns into the right
+ *          edge at the last moment, which is the "swoosh")
+ */
+const edge = ({ x, y, lazy = 0.10, bend = 0.80, late = 0.52 }) => ({
+  p0: [x, 0],
+  p1: [x + lazy * (W - x), bend * y],
+  p2: [x + late * (W - x), y],
+  p3: [W, y],
+});
+
+/** 180° rotation about the page centre: maps the top-right corner onto the bottom-left. */
+const rot = ([x, y]) => [W - x, H - y];
 
 /**
- * One band of a corner ribbon: the area between two quarter-ellipses sharing a
- * corner. Giving the outer and inner arcs different width:height ratios is what
- * makes a band taper like a ribbon instead of sitting like a rainbow stripe.
+ * A band is the area between two edges. Giving the outer and inner edges
+ * different entry points AND different curvature is what makes a band swell
+ * and taper like a ribbon instead of sitting at a constant width.
  */
-const bandTopRight = (aO, bO, aI, bI) => [
-  `M ${W - aO} 0`,
-  `C ${W - aO} ${K * bO} ${W - K * aO} ${bO} ${W} ${bO}`,
-  `L ${W} ${bI}`,
-  `C ${W - K * aI} ${bI} ${W - aI} ${K * bI} ${W - aI} 0`,
-  'Z',
-].join(' ');
-
-const bandBottomLeft = (aO, bO, aI, bI) => [
-  `M ${aO} ${H}`,
-  `C ${aO} ${H - K * bO} ${K * aO} ${H - bO} 0 ${H - bO}`,
-  `L 0 ${H - bI}`,
-  `C ${K * aI} ${H - bI} ${aI} ${H - K * bI} ${aI} ${H}`,
-  'Z',
-].join(' ');
+function swoop(outerSpec, innerSpec, { rotate = false } = {}) {
+  const o = edge(outerSpec), i = edge(innerSpec);
+  const t = rotate ? rot : (q => q);
+  const [o0, o1, o2, o3] = [o.p0, o.p1, o.p2, o.p3].map(t);
+  const [i0, i1, i2, i3] = [i.p0, i.p1, i.p2, i.p3].map(t);
+  return [
+    `M ${o0[0]} ${o0[1]}`,
+    `C ${o1[0]} ${o1[1]} ${o2[0]} ${o2[1]} ${o3[0]} ${o3[1]}`,
+    `L ${i3[0]} ${i3[1]}`,                                   // along the right edge
+    `C ${i2[0]} ${i2[1]} ${i1[0]} ${i1[1]} ${i0[0]} ${i0[1]}`, // inner edge, reversed
+    'Z',
+  ].join(' ');
+}
 
 // ── Page and ribbons ─────────────────────────────────────────
 
 page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: WHITE });
 
-// Top-right: a deep green mass, gold threading through it, a bright green
-// sweep, a pale highlight, then mid green at the inner edge.
-const TR = [
-  [326, 246, 274, 196, GREEN_DEEP],
-  [274, 196, 252, 180, GOLD],
-  [252, 180, 192, 128, GREEN],
-  [192, 128, 178, 118, GOLD_LIGHT],
-  [178, 118, 116,  78, GREEN_MID],
-];
-for (const [aO, bO, aI, bI, color] of TR) svgPath(bandTopRight(aO, bO, aI, bI), { color });
+// Outermost first, so each band overlaps the one before it. Read the pairs as
+// "outer edge, inner edge": the deep green mass fills the corner, gold threads
+// through it, bright green sweeps across, a pale highlight catches the inner
+// turn, and mid green closes it off.
+const BANDS = [
+  // A quarter arc is lazy 0, bend 0.55, late 0.55. Holding bend near that keeps
+  // the ribbon hugging the corner instead of flooding the page; pushing `late`
+  // to ~0.70 makes it run flat across the diagonal then turn hard into the
+  // right edge — the swoosh.
+  //
+  // The bands are spread wider where they meet the top edge than where they
+  // meet the right, so each one narrows along its length. That taper is what
+  // reads as a ribbon; equal gaps at both ends read as a rainbow stripe.
+  //
+  // Each band's inner edge is the next band's outer edge, exactly — a mismatch
+  // there opens a seam of whatever was drawn underneath.
+  [{ x: 516, y: 246, lazy: 0.02, bend: 0.58, late: 0.72 },
+   { x: 568, y: 200, lazy: 0.04, bend: 0.57, late: 0.70 }, GREEN_DEEP],
 
-// Bottom-left: the same system mirrored, a little smaller so the foot stays
-// clear for the date and signature lines.
-const BL = [
-  [296, 232, 246, 186, GREEN_DEEP],
-  [246, 186, 226, 172, GOLD],
-  [226, 172, 172, 118, GREEN],
-  [172, 118, 158, 108, GOLD_LIGHT],
-  [158, 108, 100,  68, GREEN_MID],
+  [{ x: 568, y: 200, lazy: 0.04, bend: 0.57, late: 0.70 },
+   { x: 590, y: 190, lazy: 0.05, bend: 0.56, late: 0.69 }, GOLD],
+
+  [{ x: 590, y: 190, lazy: 0.05, bend: 0.56, late: 0.69 },
+   { x: 650, y: 140, lazy: 0.07, bend: 0.55, late: 0.67 }, GREEN],
+
+  [{ x: 650, y: 140, lazy: 0.07, bend: 0.55, late: 0.67 },
+   { x: 664, y: 134, lazy: 0.08, bend: 0.55, late: 0.66 }, GOLD_LIGHT],
+
+  [{ x: 664, y: 134, lazy: 0.08, bend: 0.55, late: 0.66 },
+   { x: 726, y:  92, lazy: 0.10, bend: 0.54, late: 0.64 }, GREEN_MID],
 ];
-for (const [aO, bO, aI, bI, color] of BL) svgPath(bandBottomLeft(aO, bO, aI, bI), { color });
+
+for (const [o, i, color] of BANDS) svgPath(swoop(o, i), { color });
+
+// The bottom-left corner is the same artwork rotated 180°, as on the reference,
+// scaled in a little so the foot stays clear for the date and signature lines.
+const SCALE = 0.88;
+const scaled = spec => ({ ...spec, x: W - (W - spec.x) * SCALE, y: spec.y * SCALE });
+for (const [o, i, color] of BANDS) svgPath(swoop(scaled(o), scaled(i), { rotate: true }), { color });
 
 // ── Frame ────────────────────────────────────────────────────
 // A thin double rule, as on the reference: it sits over the ribbons.
