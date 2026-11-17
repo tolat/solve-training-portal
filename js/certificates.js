@@ -19,6 +19,12 @@
 
   var STYLE_ID = 'solve-cert-styles';
 
+  // One fetch serves both the main-page list and the per-block panel. Notion's
+  // file URLs are presigned for about an hour, so this is deliberately short-
+  // lived: a stale entry hands someone a dead link.
+  var CACHE_MS = 15 * 60 * 1000;
+  var cache = { at: 0, items: null, inflight: null };
+
   function injectStyles() {
     if (document.getElementById(STYLE_ID)) return;
     var el = document.createElement('style');
@@ -45,6 +51,13 @@
       '.cert-tile .ct-name{display:block;font:700 13.5px -apple-system,"Segoe UI",sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
       '.cert-tile .ct-date{display:block;font:500 12px -apple-system,"Segoe UI",sans-serif;opacity:.62;margin-top:3px;}',
       '.cert-empty{font:500 13px -apple-system,"Segoe UI",sans-serif;opacity:.6;}',
+      '.cert-block-panel{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:14px 16px;margin-bottom:16px;border-radius:12px;background:rgba(42,150,64,.07);border:1px solid rgba(42,150,64,.22);}',
+      '.cert-block-head{display:flex;align-items:center;gap:11px;min-width:0;}',
+      '.cert-block-title{display:block;font:700 14px -apple-system,"Segoe UI",sans-serif;}',
+      // The award modal's button styles are scoped to #certAwardOverlay, so the
+      // panel needs its own or the Download control renders as a bare link.
+      '.cert-block-panel .cert-btn{appearance:none;border:0;border-radius:9px;padding:9px 16px;background:#2a9640;color:#fff;font:700 13px -apple-system,"Segoe UI",sans-serif;text-decoration:none;display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;}',
+      '.cert-block-panel .cert-btn:hover{background:#217832;}',
     ].join('\n');
     document.head.appendChild(el);
   }
@@ -140,6 +153,61 @@
    * no certificates — an empty "My Certificates" heading reads like something
    * is broken.
    */
+  /** Every certificate issued to this person, cached briefly. */
+  async function list(force) {
+    if (!force && cache.items && Date.now() - cache.at < CACHE_MS) return cache.items;
+    if (cache.inflight) return cache.inflight;
+
+    cache.inflight = (async function () {
+      try {
+        var data  = await apiFetch('/api/my-certificates', 'GET', null, { quiet: true });
+        var items = (data && data.certificates) || [];
+        cache.items = items;
+        cache.at = Date.now();
+        return items;
+      } finally {
+        cache.inflight = null;
+      }
+    })();
+    return cache.inflight;
+  }
+
+  /** Drop the cache so the next read reflects a certificate just issued. */
+  function invalidate() { cache.items = null; cache.at = 0; }
+
+  /**
+   * Show the certificate for one block, beside its training materials.
+   * Hides the host entirely when there is none — most blocks never issue one.
+   */
+  async function renderForBlock(blockId, host) {
+    injectStyles();
+    if (!host) return;
+    host.style.display = 'none';
+    host.innerHTML = '';
+    if (!blockId) return;
+
+    try {
+      var items = await list();
+      var item  = items.find(function (c) { return c.blockId === blockId; });
+      if (!item) return;
+      var f = (item.files && item.files[0]) || {};
+      if (!f.url) return;
+
+      host.style.display = '';
+      host.innerHTML =
+        '<div class="cert-block-panel">' +
+          '<div class="cert-block-head">' +
+            '<span class="ct-icon">\uD83C\uDFC5</span>' +
+            '<span><span class="cert-block-title">Your certificate</span>' +
+            '<span class="ct-date">' + esc(prettyDate(item.date)) + '</span></span>' +
+          '</div>' +
+          '<a class="cert-btn" href="' + esc(f.url) + '" target="_blank" rel="noopener" download>Download</a>' +
+        '</div>';
+    } catch (err) {
+      console.warn('Could not load this block\'s certificate:', err && err.message);
+    }
+  }
+
   async function renderSection() {
     injectStyles();
 
@@ -149,8 +217,7 @@
     try {
       // apiFetch (app.js) sends the sign-in token. A bare fetch sends none, the server answers 401 and
       // the whole section silently never appears. `quiet`: this is background work, no connection banner.
-      var data  = await apiFetch('/api/my-certificates', 'GET', null, { quiet: true });
-      var items = (data && data.certificates) || [];
+      var items = await list(true);
 
       if (!items.length) { host.style.display = 'none'; host.innerHTML = ''; return; }
 
@@ -166,5 +233,6 @@
     }
   }
 
-  window.SolveCerts = { showAward: showAward, renderSection: renderSection, closeAward: closeAward };
+  window.SolveCerts = { showAward: showAward, renderSection: renderSection, closeAward: closeAward,
+                        renderForBlock: renderForBlock, list: list, invalidate: invalidate };
 })();

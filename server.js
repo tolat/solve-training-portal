@@ -147,7 +147,7 @@ const PROPS = {
   trainingRecord: ['Training Block', 'Date Completed', 'Status'],
   role:           ['Name', 'Training Profiles', 'Department', 'Import Contractor Trainings'],
   profile:        ['Name'],   // block membership comes from the Training Blocks side (Notion cuts relations at 25)
-  block:          ['Name', 'Training link', 'Notes', 'Policy No.', 'Type', 'Certificate Template', 'Ordering', 'Pipeline Stages', 'Training Profiles'],
+  block:          ['Name', 'Training link', 'Notes', 'Policy No.', 'Type', 'Certificate Template', 'Certificate Title', 'Ordering', 'Pipeline Stages', 'Training Profiles'],
   stage:          ['Stage', 'Ordering', 'Ordered Pipeline Stage', 'Stage Type'],
 };
 const filterQS = (props) => props && props.length
@@ -282,6 +282,8 @@ try {
   console.warn(`⚠️   Certificate fonts unavailable (${e.message}) — certificates will use Helvetica`);
 }
 
+const { resolveCertificateTitle } = require('./certificates');
+
 const certificates = require('./certificates').createCertificates({
   PDFLib,
   notionFetch,
@@ -305,7 +307,7 @@ const certificates = require('./certificates').createCertificates({
  */
 const noCertificateBlocks = new Set();
 
-async function issueCertificateFor(recordId, blockId, session, dateISO) {
+async function issueCertificateFor(recordId, blockId, session, dateISO, roleName) {
   const cached = cache.blocks[blockId];
 
   if (cached && !cached.hasCertificate) {
@@ -337,6 +339,12 @@ async function issueCertificateFor(recordId, blockId, session, dateISO) {
     recordId,
     personName: session?.name || 'Team Member',
     dateISO,
+    title: resolveCertificateTitle({
+      blockName: cache.blocks[blockId]?.name,
+      pattern:   cache.blocks[blockId]?.certificateTitle,
+      roleName,
+      log:       console,
+    }),
   });
 }
 
@@ -484,6 +492,7 @@ async function refreshCache() {
       // Whether this block issues a certificate. Only the flag is cached, never
       // the file URL — Notion's file URLs are presigned and expire within the hour.
       hasCertificate: (prop(p, 'Certificate Template')?.files || []).length > 0,
+      certificateTitle: prop(p, 'Certificate Title')?.select?.name || null,
       blockOrdering: prop(p, 'Ordering')?.number ?? null,
       stageOrdering,
       stageName,
@@ -1809,7 +1818,7 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
 // ─── POST /api/complete ───────────────────────────────────────
 app.post('/api/complete', requireAuth, async (req, res) => {
   try {
-    const { blockId, blockName } = req.body || {};
+    const { blockId, blockName, roleName } = req.body || {};
     if (!blockId) return res.status(400).json({ error: 'blockId is required' });
 
     const { pageId: userPageId } = req.session;
@@ -1831,7 +1840,7 @@ app.post('/api/complete', requireAuth, async (req, res) => {
         },
       });
       console.log(`✔  Updated Training Record ${existing[0].id} → ${today} (${req.session.name})`);
-      const certificate = await issueCertificateFor(existing[0].id, blockId, req.session, today);
+      const certificate = await issueCertificateFor(existing[0].id, blockId, req.session, today, roleName);
       res.json({ status: 'updated', recordId: existing[0].id, date: today, certificate });
 
     } else {
@@ -1846,7 +1855,7 @@ app.post('/api/complete', requireAuth, async (req, res) => {
         },
       });
       console.log(`✔  Created Training Record ${newPage.id} → ${today} (${req.session.name})`);
-      const certificate = await issueCertificateFor(newPage.id, blockId, req.session, today);
+      const certificate = await issueCertificateFor(newPage.id, blockId, req.session, today, roleName);
       res.json({ status: 'created', recordId: newPage.id, date: today, certificate });
     }
 
@@ -2544,7 +2553,7 @@ app.post('/api/webhook/notion/profile', async (req, res) => {
 // record's Certificates field, and marks the block as complete.
 app.post('/api/upload-certificate', requireAuth, upload.array('files', 10), async (req, res) => {
   try {
-    const { blockId } = req.body;
+    const { blockId, roleName } = req.body;
     if (!blockId)         return res.status(400).json({ error: 'blockId is required' });
     if (!req.files?.length) return res.status(400).json({ error: 'At least one file is required' });
 
@@ -2626,7 +2635,7 @@ app.post('/api/upload-certificate', requireAuth, upload.array('files', 10), asyn
       console.log(`✔  Certificate upload: created record ${recordId} (${req.session.name})`);
     }
 
-    const certificate = await issueCertificateFor(recordId, blockId, req.session, today);
+    const certificate = await issueCertificateFor(recordId, blockId, req.session, today, roleName);
 
     res.json({
       ok:       true,
@@ -2649,7 +2658,7 @@ app.post('/api/upload-certificate', requireAuth, upload.array('files', 10), asyn
 // Creates a new entry in HR Documents.db and marks the training record complete.
 app.post('/api/upload-hr-document', requireAuth, upload.array('files', 10), async (req, res) => {
   try {
-    const { blockId } = req.body;
+    const { blockId, roleName } = req.body;
     if (!blockId)           return res.status(400).json({ error: 'blockId is required' });
     if (!req.files?.length) return res.status(400).json({ error: 'At least one file is required' });
 
@@ -2704,7 +2713,7 @@ app.post('/api/upload-hr-document', requireAuth, upload.array('files', 10), asyn
     }
 
     console.log(`✔  HR doc upload: filed for ${req.session.name}, block: ${blockName}`);
-    const certificate = await issueCertificateFor(recordId, blockId, req.session, today);
+    const certificate = await issueCertificateFor(recordId, blockId, req.session, today, roleName);
     res.json({ ok: true, recordId, date: today, files: req.files.map(f => f.originalname), certificate });
 
   } catch (err) {
@@ -2819,7 +2828,7 @@ app.get('/api/block/:blockId/signing-config', requireAuth, async (req, res) => {
 // to the training record's Certificates field, marks record complete.
 app.post('/api/sign-document', requireAuth, async (req, res) => {
   try {
-    const { blockId, fieldValues } = req.body || {};
+    const { blockId, fieldValues, roleName } = req.body || {};
     if (!blockId)     return res.status(400).json({ error: 'blockId is required' });
     if (!fieldValues) return res.status(400).json({ error: 'fieldValues is required' });
 
@@ -2900,7 +2909,7 @@ app.post('/api/sign-document', requireAuth, async (req, res) => {
       console.log(`✅  sign-document: created record ${recordId} (${req.session.name})`);
     }
 
-    const certificate = await issueCertificateFor(recordId, blockId, req.session, today);
+    const certificate = await issueCertificateFor(recordId, blockId, req.session, today, roleName);
     res.json({ ok: true, recordId, date: today, certificate });
 
   } catch (err) {

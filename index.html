@@ -191,10 +191,10 @@
     <div id="rolesSubtitle" class="roles-subtitle"></div>
     <button type="button" class="tour-link" id="tourLink" onclick="window.SolveTour && SolveTour.replay()">Watch the Solve-U Walkthrough <span aria-hidden="true">→</span></button>
   </div>
+  <!-- Certificates Solve has issued, above the courses. Hidden until the person has at least one. -->
+  <div class="cert-section" id="certSection" style="display:none"></div>
   <h2 class="roles-section-title">My Courses</h2>
   <div class="roles-grid" id="rolesGrid"></div>
-  <!-- Certificates Solve has issued. Hidden until the person has at least one. -->
-  <div class="cert-section" id="certSection" style="display:none"></div>
 </div>
 
 <!-- ─── SCREEN 1: Course Overview ───────────────────────── -->
@@ -253,6 +253,8 @@
   </div>
 
   <div class="block-card">
+    <!-- The certificate Solve issued for this block, once there is one. -->
+    <div id="blockCertificate" style="display:none"></div>
     <div id="blockMaterials"></div>
   </div>
 

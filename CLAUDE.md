@@ -194,6 +194,38 @@ finished training into an error the person sees.
 **Idempotent.** A record that already has an issued certificate is left alone,
 so re-completing a module does not pile up duplicates.
 
+### What the certificate calls the training — `Certificate Title`
+
+A select on the Training Block. Empty or **"Block Title"** means use the
+block's own name. Anything else is a **pattern**: every `[tag]` is substituted,
+so `Certified [Role]` becomes *Certified Warehouse Coordinator* for whoever
+completes it from that role's course. Tags are case- and space-insensitive;
+`[Role]`, `[Course]`, `[Block]` and `[Title]` are understood.
+
+🔴 **A tag with no value abandons the pattern for the block name.** A block
+opened from "Other Assigned Trainings" has no role in context, and a
+certificate reading *Certified [Role]* is far worse than a plainer one.
+
+`resolveCertificateTitle()` lives in `certificates.js` (not `server.js`) purely
+so it can be unit-tested; `test/certificates.test.js` covers the fallbacks.
+The role reaches the server because every completion path now sends
+`roleName` — including queued offline completions, which store it so a replay
+days later still resolves the pattern.
+
+> `'Certificate Title'` had to be added to **`PROPS.block`**. A property read
+> but not listed there comes back missing under `filter_properties`, silently.
+
+### Where certificates show up
+
+- **Main page**, above *My Courses* — `#certSection`, `SolveCerts.renderSection()`
+- **Block page**, above the training materials — `#blockCertificate`,
+  `SolveCerts.renderForBlock(blockId, host)`; hidden when that block issued none
+- **On completion** — the award modal
+
+All three read one cached list (`SolveCerts.list()`, 15 minutes). The cache is
+deliberately short because Notion's file URLs expire in about an hour, and
+`SolveCerts.invalidate()` runs on issuance so a new certificate appears at once.
+
 ### 🔴 A cached `hasCertificate: false` must never suppress issuance outright
 
 `issueCertificateFor` skips the Notion call when the cached block has no

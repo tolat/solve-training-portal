@@ -64,6 +64,45 @@ function firstFile(prop) {
 }
 
 /**
+ * What a certificate should call the thing it certifies.
+ *
+ * `Certificate Title` on the block is a select. Empty or "Block Title" means
+ * use the block's own name. Anything else is a pattern: every `[tag]` in it is
+ * replaced from the values below, so "Certified [Role]" becomes "Certified
+ * Warehouse Coordinator" for someone completing it from that role's course.
+ *
+ * If a tag has no value — most often because the block was opened from "Other
+ * Assigned Trainings", where there is no role in context — the whole pattern is
+ * abandoned for the block name. A certificate reading "Certified [Role]" is
+ * worse than a plainer one.
+ */
+function resolveCertificateTitle({ blockName, pattern, roleName, log = null } = {}) {
+  const fallback = (blockName || 'Training').trim() || 'Training';
+  const raw = (pattern || '').trim();
+  if (!raw || raw.toLowerCase() === 'block title') return fallback;
+
+  const values = {
+    role:   (roleName || '').trim(),
+    course: fallback,
+    block:  fallback,
+    title:  fallback,
+  };
+
+  let unresolved = false;
+  const filled = raw.replace(/\[([^\]]+)\]/g, (whole, tag) => {
+    const value = values[tag.trim().toLowerCase()];
+    if (!value) { unresolved = true; return whole; }
+    return value;
+  });
+
+  if (unresolved) {
+    log?.log?.(`\u2139\uFE0F   Certificate title "${raw}" had no value for one of its tags \u2014 using the block name`);
+    return fallback;
+  }
+  return filled.replace(/\s+/g, ' ').trim();
+}
+
+/**
  * Build the factory for a given server context.
  *
  * Passing the server's own helpers in rather than re-implementing them keeps
@@ -258,7 +297,12 @@ function createCertificates({
    * completion that earned it — the training is done either way, and a
    * swallowed error here is visible in the logs and fixable later.
    */
-  async function issue({ blockId, recordId, personName, dateISO, force = false }) {
+  /**
+   * @param {string} [title] what the certificate should call the training.
+   *   Defaults to the block's own name; the caller passes something else when
+   *   the block's `Certificate Title` asks for a pattern like "Certified [Role]".
+   */
+  async function issue({ blockId, recordId, personName, dateISO, title = null, force = false }) {
     try {
       if (!blockId || !recordId) return null;
       if (!PDFLib) {
@@ -286,7 +330,7 @@ function createCertificates({
       let outBytes = templateBytes;
       let placedWith = 'not-a-pdf';
       if (isPdf) {
-        const out = await fill(templateBytes, { personName, dateISO, trainingName: template.blockName });
+        const out = await fill(templateBytes, { personName, dateISO, trainingName: title || template.blockName });
         outBytes = Buffer.from(out.bytes);
         placedWith = out.placedWith;
       } else {
@@ -294,7 +338,7 @@ function createCertificates({
       }
 
       const fileName = isPdf
-        ? certificateFileName(template.blockName, personName, dateISO)
+        ? certificateFileName(title || template.blockName, personName, dateISO)
         : template.name;
 
       const uploadId = await uploadBytesToNotion(outBytes, fileName, isPdf ? 'application/pdf' : 'application/octet-stream');
@@ -307,7 +351,7 @@ function createCertificates({
       const stored = firstFile(updated?.properties?.['Internal Certificates']);
 
       log.log(`🏅  Certificate issued to ${personName} for "${template.blockName}" (${placedWith}) → record ${recordId}`);
-      return { name: fileName, blockName: template.blockName, placedWith, url: stored?.url || null };
+      return { name: fileName, blockId, blockName: title || template.blockName, placedWith, url: stored?.url || null };
 
     } catch (err) {
       // Deliberately swallowed — see the doc comment.
@@ -319,4 +363,4 @@ function createCertificates({
   return { issue, getTemplate, fill, formatDate, certificateFileName };
 }
 
-module.exports = { createCertificates, formatDate, certificateFileName, PLACEHOLDER_RE };
+module.exports = { createCertificates, resolveCertificateTitle, formatDate, certificateFileName, PLACEHOLDER_RE };

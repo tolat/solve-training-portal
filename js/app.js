@@ -521,11 +521,28 @@ function renderRoles() {
  * is nothing for callers to check. Refreshes the main-page list too, so the
  * certificate is already there when they go back.
  */
+/**
+ * The role whose course the person is currently working through, by name.
+ *
+ * The server needs it to resolve a `Certificate Title` like "Certified [Role]".
+ * Null when there is no role in context — "Other Assigned Trainings" — and the
+ * server falls back to the block's own name rather than printing the tag.
+ */
+function currentRoleName() {
+  if (!currentRoleId || !trainingData?.roles) return null;
+  const role = trainingData.roles.find(r => r.id === currentRoleId);
+  return role?.name || null;
+}
+
 function awardCertificate(certificate) {
   if (!certificate || !window.SolveCerts) return;
   try {
+    // The list is cached for both the main page and the per-block panel, so it
+    // has to be dropped or neither shows the certificate just issued.
+    window.SolveCerts.invalidate();
     window.SolveCerts.showAward(certificate);
     window.SolveCerts.renderSection();
+    window.SolveCerts.renderForBlock(certificate.blockId || null, document.getElementById('blockCertificate'));
   } catch (err) {
     // A failed celebration must never cost someone their completion.
     console.warn('Could not show the certificate:', err && err.message);
@@ -708,7 +725,9 @@ function savePending(list) {
 function queueCompletion(block) {
   const list = loadPending();
   if (!list.some(p => p.blockId === block.id)) {
-    list.push({ blockId: block.id, blockName: block.name, date: new Date().toISOString().split('T')[0], queuedAt: Date.now() });
+    // roleName rides along so a completion replayed later still resolves a
+    // `Certificate Title` pattern like "Certified [Role]".
+    list.push({ blockId: block.id, blockName: block.name, roleName: currentRoleName(), date: new Date().toISOString().split('T')[0], queuedAt: Date.now() });
     savePending(list);
   }
   schedulePendingFlush();
@@ -743,7 +762,7 @@ async function flushPendingCompletions() {
   try {
     for (const p of loadPending()) {
       try {
-        const r = await apiFetch('/api/complete', 'POST', { blockId: p.blockId, blockName: p.blockName }, { quiet: true, waits: [3000] });
+        const r = await apiFetch('/api/complete', 'POST', { blockId: p.blockId, blockName: p.blockName, roleName: p.roleName || null }, { quiet: true, waits: [3000] });
         savePending(loadPending().filter(x => x.blockId !== p.blockId));
         saved++;
         // The server may already hold this record (it updates rather than duplicates); record its id locally
@@ -1249,6 +1268,11 @@ function openBlock(index) {
 
   // Show materials section (guidance/forms/media) for all block types.
   // For Document Upload blocks, also append previously-uploaded certificates below.
+  // The certificate Solve issued for this block, if any, above its materials.
+  if (window.SolveCerts) {
+    window.SolveCerts.renderForBlock(block.id, document.getElementById('blockCertificate'));
+  }
+
   const materialsDiv = document.getElementById('blockMaterials');
   if (materialsDiv) {
     const contractorPageId = currentRoleId?.startsWith('__contractor__')
@@ -2275,6 +2299,7 @@ async function submitSignedDocument() {
     const result = await apiFetch('/api/sign-document', 'POST', {
       blockId:     currentSigningConfig.blockId,
       fieldValues,
+      roleName:    currentRoleName(),
     });
 
     // Mark block complete locally
@@ -2381,6 +2406,7 @@ async function submitUpload() {
   try {
     const formData = new FormData();
     formData.append('blockId', block.id);
+    if (currentRoleName()) formData.append('roleName', currentRoleName());
     uploadFiles.forEach(f => formData.append('files', f));
 
     const endpoint = isHRDoc ? '/api/upload-hr-document' : '/api/upload-certificate';
@@ -2574,7 +2600,7 @@ async function submitQuiz() {
     markBlockCompleteLocally(block.id, { date: today, recordId: null, status: 'OK' });
 
     try {
-      const result = await apiFetch('/api/complete', 'POST', { blockId: block.id, blockName: block.name });
+      const result = await apiFetch('/api/complete', 'POST', { blockId: block.id, blockName: block.name, roleName: currentRoleName() });
       markBlockCompleteLocally(block.id, { date: today, recordId: result.recordId, status: 'OK' });
       awardCertificate(result.certificate);
 

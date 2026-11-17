@@ -384,3 +384,63 @@ test('the static labels are not missing glyphs', async () => {
     assert.ok(text.includes(phrase), `label "${phrase}" is incomplete in the template`);
   }
 });
+
+// ─── Certificate Title ────────────────────────────────────────
+// The block's `Certificate Title` select is a pattern: "Certified [Role]"
+// becomes "Certified Warehouse Coordinator" for whoever completes it from that
+// role's course.
+
+const { resolveCertificateTitle } = require('../certificates');
+
+test('an empty or "Block Title" pattern uses the block name', () => {
+  const blockName = 'Upload Signed Onboarding Path';
+  for (const pattern of ['', null, undefined, '   ', 'Block Title', 'block title', 'BLOCK TITLE']) {
+    assert.strictEqual(
+      resolveCertificateTitle({ blockName, pattern, roleName: 'Warehouse Coordinator' }),
+      blockName, `pattern ${JSON.stringify(pattern)} should fall through to the block name`);
+  }
+});
+
+test('[Role] is replaced with the role the course was completed for', () => {
+  assert.strictEqual(
+    resolveCertificateTitle({ blockName: 'Day Zero', pattern: 'Certified [Role]', roleName: 'Warehouse Coordinator' }),
+    'Certified Warehouse Coordinator');
+  assert.strictEqual(
+    resolveCertificateTitle({ blockName: 'Day Zero', pattern: '[Role] Certification', roleName: 'Lead Installer' }),
+    'Lead Installer Certification');
+});
+
+test('the tag is matched whatever its case or spacing', () => {
+  for (const pattern of ['Certified [Role]', 'Certified [role]', 'Certified [ ROLE ]']) {
+    assert.strictEqual(
+      resolveCertificateTitle({ blockName: 'Day Zero', pattern, roleName: 'Setter' }),
+      'Certified Setter', `pattern ${JSON.stringify(pattern)}`);
+  }
+});
+
+test('🔴 a tag with no value abandons the pattern for the block name', () => {
+  // This is the case that matters: a block opened from "Other Assigned
+  // Trainings" has no role in context. Printing "Certified [Role]" on someone's
+  // certificate is far worse than printing the training's own name.
+  const blockName = 'Asbestos Awareness';
+  for (const roleName of [null, undefined, '', '   ']) {
+    assert.strictEqual(
+      resolveCertificateTitle({ blockName, pattern: 'Certified [Role]', roleName }),
+      blockName, `roleName ${JSON.stringify(roleName)} should not leave the tag on the certificate`);
+  }
+  // An unknown tag is the same story.
+  assert.strictEqual(
+    resolveCertificateTitle({ blockName, pattern: 'Certified [Supervisor]', roleName: 'Setter' }),
+    blockName);
+});
+
+test('a pattern with several tags resolves all of them', () => {
+  assert.strictEqual(
+    resolveCertificateTitle({ blockName: 'Fall Protection', pattern: '[Role]: [Course]', roleName: 'Installer' }),
+    'Installer: Fall Protection');
+});
+
+test('a missing block name never yields an empty title', () => {
+  assert.strictEqual(resolveCertificateTitle({ blockName: '', pattern: '' }), 'Training');
+  assert.strictEqual(resolveCertificateTitle({}), 'Training');
+});
