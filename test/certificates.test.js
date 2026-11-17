@@ -379,7 +379,7 @@ test('the static labels are not missing glyphs', async () => {
   // strings are drawn glyph by glyph for letterspacing, which is what broke.
   const text = (await textOf(FS.readFileSync(TEMPLATE))).replace(/\s+/g, '');
   for (const phrase of ['CERTIFICATE', 'OFCOMPLETION', 'PROUDLYPRESENTEDTO',
-                        'hassuccessfullycompletedallrequirementsof',
+                        'hassuccessfullycompletedallrequirementsfor',
                         'issuedbySolveUniversity', 'DATE', 'KANEHAMMONTREE,CEO']) {
     assert.ok(text.includes(phrase), `label "${phrase}" is incomplete in the template`);
   }

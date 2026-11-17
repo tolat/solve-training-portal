@@ -205,26 +205,35 @@ centred on page one. A designer can supply any PDF: name the fields `name`,
 
 ### Design
 
-Built to a reference Torin supplied: angled corner wedges top-right and
-bottom-left with gold stripes running parallel to them, a thin gold frame, a
-faint guilloche ground, a large letterspaced title and the recipient's name in
-script. The reference's navy is replaced by Solve's green throughout; gold is
-kept, because it is structural to the reference and carries the whole look.
+The artwork is a supplied base plate, **`assets/certificate-base.png`** —
+green corner wedges, gold frame, gold seal and a guilloche ground. It is drawn
+full-bleed and everything else is typeset on top of it.
 
-**The corners are straight-edged, not curved.** One diagonal (`A` → `B`, where
-it meets the top and right edges) defines everything: `wedge()` fills the far
-side of it, and `stripe(off, t)` lays a band parallel to it, offset along its
-own normal. Each stripe overshoots both ends by `EXT` so it runs off the page
-rather than stopping short — anything outside the page box is clipped on
-render. The bottom-left corner is the same artwork rotated 180° (`rotPath()`).
+> 🔴 **Do not try to redraw that plate.** Three separate attempts at
+> reproducing the guilloche in code all came out as random scribble rather
+> than the plate's even swoops. It is a plotted pattern; it belongs as an
+> image.
 
-The guilloche is 34 long, lazy sine waves at barely-off-white. It has to read
-as moiré texture; shorter wavelengths or more contrast make it read as
-scribble, which is how the first pass looked.
+The layout is pinned to the plate's own geometry, measured off the image
+rather than guessed (points, A4 landscape 842 × 595):
 
-The foot sits at `y = 94` and the date block at `x = 252` because the
-bottom-left wedge reaches roughly `y = 60` there — a date field paints its own
-white background, and a white slab across the wedge is very visible.
+| Feature | Where |
+|---|---|
+| Top-right wedge | a shallow triangle, (460, 595) → (842, 527) |
+| Gold seal | x 661–821, y 459–577 |
+| Bottom-left wedge | a triangle, (0, 68) → (394, 0) |
+
+So the clear column for type is roughly x 60–790, y 100–500, and the foot must
+stay above y ≈ 100. `assets/certificate-base.png` is the plate at ~200 dpi; the
+original supplied file was 1492 × 1054.
+
+The body reads: name, rule, *has successfully completed all requirements for*,
+the training, *issued by Solve University*. The foot is the date on the left
+and a signature rule on the right with **Kane Hammontree, CEO** under it, the
+space above deliberately empty for a signature.
+
+**The plate is stock artwork.** Recolouring it did not create a licence —
+confirm it is licensed for commercial use before certificates go out.
 
 ### Typography, and the traps — all silent
 

@@ -7,18 +7,23 @@
  * `training` and `date` — which `certificates.js` fills at completion time and
  * then flattens.
  *
- * The template is generated rather than checked in as artwork so the wording,
- * spacing and colours are reviewable in a diff. To use a designer's artwork
- * instead, hand them this spec: any PDF with text fields named `name`,
- * `training` and `date` is filled precisely, and a PDF with no fields at all
- * still works — the portal centres those three on page one.
+ * DESIGN: the artwork is a supplied base plate, `assets/certificate-base.png`
+ * — green corner wedges, gold frame, gold seal and a guilloche ground. It is
+ * drawn full-bleed and everything below is typeset on top of it.
  *
- * DESIGN: built to a reference Torin supplied — angled corner wedges top-right
- * and bottom-left with gold stripes running parallel, a thin gold frame, a
- * faint guilloche ground, a large letterspaced title and the recipient's name
- * in script. The reference's navy is replaced by Solve's green throughout
- * (`css/styles.css` `body.logged-in`), and the type is Inter, Solve's own face.
- * Gold is kept: it is structural to the reference and carries the whole look.
+ * **Do not try to redraw that plate.** Three attempts at reproducing the
+ * guilloche by hand all came out as random scribble rather than the plate's
+ * even swoops; it is a plotted pattern and it belongs as an image.
+ *
+ * The layout below is pinned to the plate's own geometry, measured from the
+ * image rather than guessed (all in points, A4 landscape 842 × 595):
+ *
+ *   top-right wedge     a shallow triangle, (460, 595) to (842, 527)
+ *   gold seal           x 661–821, y 459–577
+ *   bottom-left wedge   a triangle, (0, 68) to (394, 0)
+ *
+ * So the clear column for type is roughly x 60–790, y 100–500, and the foot
+ * has to stay above y ≈ 100 or it runs into the bottom-left wedge.
  *
  * Font traps, all silent, all covered by test/certificates.test.js:
  *
@@ -29,41 +34,34 @@
  *      `form.updateFieldAppearances(font)` before save, and `certificates.js`
  *      has to re-apply it per field before flattening, or everything falls
  *      back to Helvetica while the static title still looks right.
- *   3. **A text field paints its own background**, white by default.
- *   4. **`drawSvgPath`'s y axis runs downward** from the origin it is given,
- *      unlike every other call here. `svgPath()` converts once, internally.
+ *   3. **A text field paints its own background, white by default.** Over the
+ *      plate's guilloche that shows as a pale box around every value — near-
+ *      white is not good enough, it has to be absent. `transparent()` strips
+ *      the widget's /MK appearance dictionary so nothing is painted at all.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PDFDocument, rgb } from 'pdf-lib';
+import { PDFDocument, PDFName, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 
 const HERE  = path.dirname(fileURLToPath(import.meta.url));
 const ROOT  = path.join(HERE, '..');
 const FONTS = path.join(ROOT, 'assets', 'fonts');
 
-// ── Palette ──────────────────────────────────────────────────
 const hex = h => rgb(
   parseInt(h.slice(1, 3), 16) / 255,
   parseInt(h.slice(3, 5), 16) / 255,
   parseInt(h.slice(5, 7), 16) / 255,
 );
 
-// The reference's navy, replaced by Solve's green at the same two depths.
-const GREEN_DEEP = hex('#134a26');
-const GREEN      = hex('#2a9640');  // --green
-const GOLD       = hex('#c8a24a');
-const GOLD_LIGHT = hex('#e8d7a4');
-const GOLD_DEEP  = hex('#a07c2c');
-const INK        = hex('#111111');
-const BODY       = hex('#333333');
-const GRAY       = rgb(0.42, 0.42, 0.42);
-const GUILLOCHE  = rgb(0.945, 0.952, 0.945);
-const WHITE      = rgb(1, 1, 1);
+const INK   = hex('#1a1a1a');
+const BODY  = hex('#3a3a3a');
+const GREEN = hex('#0d6b24');   // sampled from the plate's wedges
+const RULE  = rgb(0.38, 0.38, 0.38);
 
-const W = 842; // A4 landscape, points
+const W = 842;
 const H = 595;
 
 const out = process.argv[2] || path.join(ROOT, 'assets', 'certificate-template.pdf');
@@ -102,162 +100,99 @@ const tracked = (text, font, size, y, trackPt, color, cx = W / 2) => {
   }
 };
 
-const hline = (x1, x2, y, color, thickness = 1) =>
+const hline = (x1, x2, y, color = RULE, thickness = 0.9) =>
   page.drawLine({ start: { x: x1, y }, end: { x: x2, y }, thickness, color });
 
 /**
- * Draw an SVG path. drawSvgPath's y runs DOWNWARD from its origin, so every
- * path below is written in that space and the origin is pinned to the top-left
- * of the page here — converting once rather than at each call site.
+ * Remove a field's background entirely.
+ *
+ * Passing `backgroundColor: undefined` stops pdf-lib writing a /BG entry, but
+ * the widget still carries an /MK dictionary; dropping it outright is what
+ * guarantees nothing is painted behind the value. Over the plate's guilloche
+ * even a near-white fill reads as a box.
  */
-const svgPath = (d, opts) => page.drawSvgPath(d, { x: 0, y: H, ...opts });
+const transparent = field => {
+  for (const widget of field.acroField.getWidgets()) widget.dict.delete(PDFName.of('MK'));
+};
 
-const poly = pts => 'M ' + pts.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join(' L ') + ' Z';
+// ── The plate ────────────────────────────────────────────────
 
-// ── Corner wedges ────────────────────────────────────────────
-//
-// The reference's corners are straight-edged, not curved: a filled wedge cut
-// off by one diagonal, with gold stripes running parallel to it. Each stripe is
-// the diagonal offset along its own normal, extended well past both ends so it
-// runs off the page rather than stopping short — anything outside the page box
-// is clipped on render.
-
-/** The diagonal: meets the top edge at xTop and the right edge at yRight. */
-const A = [560, 0];
-const B = [W, 96];
-
-const dir = [B[0] - A[0], B[1] - A[1]];
-const dlen = Math.hypot(dir[0], dir[1]);
-const u = [dir[0] / dlen, dir[1] / dlen];       // along the diagonal
-const n = [-u[1], u[0]];                        // normal, pointing into the page
-
-const EXT = 420;                                // overshoot past both ends
-const at = (p, alongFrom, off) => [
-  p[0] + u[0] * alongFrom + n[0] * off,
-  p[1] + u[1] * alongFrom + n[1] * off,
-];
-
-/** A stripe parallel to the diagonal: `off` from it, `t` thick. */
-const stripe = (off, t) => poly([
-  at(A, -EXT, off), at(B, EXT, off), at(B, EXT, off + t), at(A, -EXT, off + t),
-]);
-
-/** The filled corner: everything on the far side of the diagonal. */
-const wedge = off => poly([
-  at(A, -EXT, off), at(B, EXT, off), [W + EXT, -EXT], [A[0] - EXT, -EXT],
-]);
-
-const rot = ([x, y]) => [W - x, H - y];
-const rotPath = d => d.replace(/(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g,
-  (_, a, b) => { const [x, y] = rot([parseFloat(a), parseFloat(b)]); return `${x.toFixed(2)} ${y.toFixed(2)}`; });
-
-/** One corner's artwork, outermost first. */
-const cornerArt = () => [
-  [wedge(0),           GREEN_DEEP],   // the mass filling the corner
-  [stripe(0, 5),       GOLD],         // gold edging the wedge
-  [stripe(5, 26),      GREEN],        // the lighter green band
-  [stripe(31, 7),      GOLD],         // thick gold stripe
-  [stripe(46, 2.2),    GOLD_LIGHT],   // thin gold line, set off in the white
-];
-
-// ── Page ─────────────────────────────────────────────────────
-
-page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: WHITE });
-
-// Guilloche: a faint lattice of long sine waves, as on the reference. Kept very
-// close to white — it should read as texture, never as lines.
-for (let i = 0; i < 34; i++) {
-  const baseY = 74 + i * 14;
-  const amp   = 26 + (i % 3) * 10;
-  const wav   = 460 + (i % 4) * 110;   // long and lazy, so it reads as moiré
-  const pts = [];
-  for (let x = 36; x <= W - 36; x += 8) {
-    pts.push(`${x} ${(baseY + Math.sin((x + i * 46) / wav * Math.PI * 2) * amp).toFixed(2)}`);
-  }
-  svgPath('M ' + pts.join(' L '), { borderColor: GUILLOCHE, borderWidth: 0.35 });
-}
-
-// ── Frame ────────────────────────────────────────────────────
-
-page.drawRectangle({
-  x: 26, y: 26, width: W - 52, height: H - 52,
-  borderColor: GOLD, borderWidth: 1.4,
-});
-
-// ── Corners ──────────────────────────────────────────────────
-// Drawn after the frame so the wedges sit over it, as on the reference.
-
-for (const [d, color] of cornerArt()) svgPath(d, { color });
-for (const [d, color] of cornerArt()) svgPath(rotPath(d), { color });
+const plate = await doc.embedPng(fs.readFileSync(path.join(ROOT, 'assets', 'certificate-base.png')));
+page.drawImage(plate, { x: 0, y: 0, width: W, height: H });
 
 // ── Wordmark ─────────────────────────────────────────────────
+// Top-left: the plate's seal sits top-right and the wedge only reaches down to
+// y 527 beyond x 460, so this corner is the one piece of clear space up there.
 
 try {
   const png   = await doc.embedPng(fs.readFileSync(path.join(ROOT, 'assets', 'solve-wordmark.png')));
   const logoW = 104;
   const logoH = (png.height / png.width) * logoW;
-  page.drawImage(png, { x: 70, y: 492, width: logoW, height: logoH });
+  page.drawImage(png, { x: 72, y: 498, width: logoW, height: logoH });
 } catch {
-  tracked('SOLVE', bold, 16, 496, 3, INK, 122);
+  tracked('SOLVE', bold, 16, 502, 3, INK, 124);
 }
 
 // ── Title ────────────────────────────────────────────────────
 
-tracked('CERTIFICATE', bold, 42, 410, 7, INK);
-tracked('OF COMPLETION', semi, 13, 378, 4.2, INK);
+const AXIS = W / 2;
+
+tracked('CERTIFICATE', bold, 40, 428, 7, INK, AXIS);
+tracked('OF COMPLETION', semi, 13, 398, 4.4, GREEN, AXIS);
 
 // ── Recipient ────────────────────────────────────────────────
 
-tracked('PROUDLY PRESENTED TO', semi, 10.5, 318, 2.6, INK);
+tracked('PROUDLY PRESENTED TO', semi, 10, 352, 2.6, INK, AXIS);
 
 const form = doc.getForm();
 
 const nameField = form.createTextField('name');
 nameField.addToPage(page, {
-  x: 160, y: 236, width: W - 320, height: 54, borderWidth: 0, backgroundColor: WHITE,
+  x: AXIS - 290, y: 280, width: 580, height: 54, borderWidth: 0, backgroundColor: undefined,
 });
 nameField.setAlignment(1);
 nameField.setFontSize(40);
 
-hline(150, W - 150, 232, rgb(0.35, 0.35, 0.35), 0.9);
+hline(AXIS - 250, AXIS + 250, 276);
 
 // ── Training ─────────────────────────────────────────────────
 
-centreAt('has successfully completed all requirements of', regular, 11, 204, BODY);
+centreAt('has successfully completed all requirements for', regular, 11, 248, BODY, AXIS);
 
 const trainingField = form.createTextField('training');
 trainingField.addToPage(page, {
-  x: 150, y: 164, width: W - 300, height: 30, borderWidth: 0, backgroundColor: WHITE,
+  x: AXIS - 270, y: 206, width: 540, height: 30, borderWidth: 0, backgroundColor: undefined,
 });
 trainingField.setAlignment(1);
 trainingField.setFontSize(17);
 
-centreAt('issued by Solve University', regular, 11, 142, BODY);
+centreAt('issued by Solve University', regular, 11, 184, BODY, AXIS);
 
-// ── Foot: date left, signature right ─────────────────────────
+// ── Foot ─────────────────────────────────────────────────────
+// Kept above y ≈ 100: the plate's bottom-left wedge reaches (394, 0) to (0, 68),
+// and a field's own background over it would be very visible.
 
-// The bottom-left wedge reaches roughly y = 60 at this x, so the foot sits
-// above it — a date field paints its own white background and a white slab
-// across the wedge is very visible.
-const FOOT_Y = 94;
-const HALF   = 86;
-const DATE_X = 252;
-const SIG_X  = W - 252;
+const FOOT_Y = 122;
+const HALF   = 92;
+const DATE_X = 262;
+const SIG_X  = W - 262;
 
 const dateField = form.createTextField('date');
 dateField.addToPage(page, {
-  x: DATE_X - HALF, y: FOOT_Y + 6, width: HALF * 2, height: 22,
-  borderWidth: 0, backgroundColor: WHITE,
+  x: DATE_X - HALF, y: FOOT_Y + 7, width: HALF * 2, height: 22,
+  borderWidth: 0, backgroundColor: undefined,
 });
 dateField.setAlignment(1);
 dateField.setFontSize(12);
 
-hline(DATE_X - HALF, DATE_X + HALF, FOOT_Y, rgb(0.35, 0.35, 0.35), 0.9);
+hline(DATE_X - HALF, DATE_X + HALF, FOOT_Y);
 tracked('DATE', semi, 8.5, FOOT_Y - 17, 2.4, INK, DATE_X);
 
 // The space above this rule is deliberately empty — it is where a signature goes.
-hline(SIG_X - HALF, SIG_X + HALF, FOOT_Y, rgb(0.35, 0.35, 0.35), 0.9);
+hline(SIG_X - HALF, SIG_X + HALF, FOOT_Y);
 tracked('KANE HAMMONTREE, CEO', semi, 8.5, FOOT_Y - 17, 2.4, INK, SIG_X);
+
+for (const f of [nameField, trainingField, dateField]) transparent(f);
 
 // ── Field typography ─────────────────────────────────────────
 // This, not the `font` option on addToPage, is what sets the font the fields
