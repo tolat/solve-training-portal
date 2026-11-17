@@ -55,10 +55,11 @@
       // before it was added. Both templates are landscape (1.29 and 1.42), so
       // the box sits between them and the canvas is centred inside it.
       '.cert-tile .ct-thumb{flex:0 0 auto;width:72px;height:52px;border-radius:6px;overflow:hidden;background:#fff;border:1px solid rgba(0,0,0,.12);display:flex;align-items:center;justify-content:center;position:relative;}',
-      // Fit the WHOLE page inside the frame rather than filling it: the two
-      // templates have different aspects (1.29 and 1.42), so filling crops the
-      // foot off one of them. Constraining both sides letterboxes instead.
-      '.cert-tile .ct-thumb canvas{max-width:100%;max-height:100%;width:auto;height:auto;display:block;}',
+      // Cover, not contain: the canvas fills the frame and the overflow is
+      // cropped. Its CSS size is set in drawThumb — a canvas sizes itself from
+      // its pixel buffer, so `width:auto` means "twice as big" on a 2x screen,
+      // not "fit the box", and object-fit is unreliable on a canvas.
+      '.cert-tile .ct-thumb canvas{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:block;}',
       // Shown until a page is rendered, and left showing if one never is.
       '.cert-tile .ct-thumb .ct-icon{font-size:20px;}',
       // Spans are inline by default: without display:block the name and date
@@ -254,11 +255,19 @@
       var page = await pdf.getPage(1);
       var dpr  = window.devicePixelRatio || 1;
       var base = page.getViewport({ scale: 1 });
-      var view = page.getViewport({ scale: ((frame.clientWidth || 72) * dpr) / base.width });
+
+      // Cover: the larger of the two ratios, so the page overflows the frame on
+      // one axis and is cropped there rather than letterboxed.
+      var fw    = frame.clientWidth  || 72;
+      var fh    = frame.clientHeight || 52;
+      var cover = Math.max(fw / base.width, fh / base.height);
+      var view  = page.getViewport({ scale: cover * dpr });
 
       var canvas = document.createElement('canvas');
-      canvas.width  = view.width;
+      canvas.width  = view.width;                       // the pixel buffer, at dpr
       canvas.height = view.height;
+      canvas.style.width  = (base.width  * cover) + 'px';   // ...and its size on the page
+      canvas.style.height = (base.height * cover) + 'px';
       await page.render({ canvasContext: canvas.getContext('2d'), viewport: view }).promise;
 
       // Swapped in only once it has actually drawn, so a half-painted page is

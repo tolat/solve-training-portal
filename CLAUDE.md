@@ -236,11 +236,17 @@ All three read one cached list (`SolveCerts.list()`, 15 minutes). The cache is
 deliberately short because Notion's file URLs expire in about an hour, and
 `SolveCerts.invalidate()` runs on issuance so a new certificate appears at once.
 
-Each card carries a thumbnail of page one of the certificate itself, drawn with
-the portal's existing pdf.js setup (`ensurePdfWorker` in `app.js`) straight from
-the Notion file URL — no proxy, those URLs are fetchable cross-origin, which the
+Each card carries a thumbnail of page one of the certificate itself, cropped to
+fill its frame (cover, not contain), drawn with the portal's existing pdf.js
+setup (`ensurePdfWorker` in `app.js`) straight from the Notion file URL — no proxy, those URLs are fetchable cross-origin, which the
 Quick Reference Documents thumbnails already relied on. The medal shows while it
 loads and stays if it fails; an empty white frame would read as broken.
+
+> A canvas takes its size from its pixel buffer, so `width: auto` means "twice
+> as big" on a 2x screen rather than "fit the box", and `object-fit` is
+> unreliable on one. The cover scale is therefore worked out in `drawThumb` and
+> written to the canvas's `style.width`/`style.height`; the frame's
+> `overflow: hidden` does the cropping.
 
 > **The thumbnails load only as their cards come into view** (IntersectionObserver,
 > 200px margin, once each). An issued certificate is ~1.2 MB — the fonts are
