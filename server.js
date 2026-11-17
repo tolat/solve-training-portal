@@ -298,8 +298,40 @@ const certificates = require('./certificates').createCertificates({
  * completion is already recorded by the time this runs, and a certificate that
  * failed to generate can be reissued later.
  */
+/**
+ * Blocks confirmed against Notion to have no `Certificate Template`, for this
+ * cache generation. Cleared by refreshCache, so a template attached later is
+ * picked up on the next completion rather than waiting for a refresh.
+ */
+const noCertificateBlocks = new Set();
+
 async function issueCertificateFor(recordId, blockId, session, dateISO) {
-  if (cache.blocks[blockId] && !cache.blocks[blockId].hasCertificate) return null; // FIX 3: no template => no Notion call
+  const cached = cache.blocks[blockId];
+
+  if (cached && !cached.hasCertificate) {
+    // `hasCertificate` is a CACHED fact about Notion, and trusting it to skip
+    // outright silently swallowed a real certificate on 2026-11-17: the Notion
+    // webhook fired at 02:54:40 and the refresh read the block before the file
+    // finished attaching at 02:55:00, so the flag stayed false and the next
+    // completion issued nothing — with no log line to show it had been skipped.
+    //
+    // So a cached `false` is now confirmed against Notion once per block per
+    // cache generation. Steady state still costs no extra Notion call per
+    // completion, which is why the skip exists.
+    if (noCertificateBlocks.has(blockId)) return null;
+
+    const live = await certificates.getTemplate(blockId).catch(err => {
+      console.warn(`⚠️   Certificate: could not re-check block ${blockId}: ${err.message}`);
+      return null;
+    });
+    if (!live) {
+      noCertificateBlocks.add(blockId);
+      return null;
+    }
+    console.log(`🏅  Certificate: block ${blockId} has a template the cache had not seen yet`);
+    cached.hasCertificate = true;
+  }
+
   return certificates.issue({
     blockId,
     recordId,
@@ -374,6 +406,9 @@ let cache = {
 
 async function refreshCache() {
   console.log('🔄  Refreshing training data from Notion...');
+  // Blocks are about to be re-read, so anything previously confirmed to have
+  // no certificate template gets another chance.
+  noCertificateBlocks.clear();
   const [rolePages, profilePages, blockPages, stagePages] = await Promise.all([
     queryAll(DB.roles, null, PROPS.role),
     queryAll(DB.trainingProfiles, null, PROPS.profile),
