@@ -41,14 +41,19 @@
       '#certAwardOverlay .ca-btn.primary{background:#2a9640;color:#fff;}',
       '#certAwardOverlay .ca-btn.ghost{background:rgba(0,0,0,.06);color:#152219;}',
       '.cert-section{margin-top:28px;}',
-      '.cert-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;}',
-      '.cert-tile{display:flex;align-items:center;gap:11px;padding:13px 14px;border-radius:12px;background:var(--card,#fff);border:1px solid rgba(0,0,0,.09);text-decoration:none;color:inherit;transition:transform .12s ease,box-shadow .12s ease;}',
+      // index.html gives .roles-section-title no bottom margin; "My Courses" gets
+      // its gap from the grid below it. Scoped here so only this heading changes.
+      '.cert-section .roles-section-title{margin:4px 0 14px;}',
+      '.cert-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(265px,1fr));gap:12px;}',
+      '.cert-tile{display:flex;align-items:flex-start;gap:11px;padding:13px 14px;border-radius:12px;background:var(--card,#fff);border:1px solid rgba(0,0,0,.09);text-decoration:none;color:inherit;transition:transform .12s ease,box-shadow .12s ease;}',
       '.cert-tile:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(0,0,0,.09);}',
-      '.cert-tile .ct-icon{font-size:22px;flex:0 0 auto;line-height:1;}',
+      '.cert-tile .ct-icon{font-size:22px;flex:0 0 auto;line-height:1.1;}',
       // Spans are inline by default: without display:block the name and date
       // render on one line and run into each other.
       '.cert-tile .ct-body{min-width:0;display:block;}',
-      '.cert-tile .ct-name{display:block;font:700 13.5px -apple-system,"Segoe UI",sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+      // Certificate titles are patterns ("Certified Warehouse Coordinator"), so they
+      // run long. Wrapping beats an ellipsis: a truncated title is unidentifiable.
+      '.cert-tile .ct-name{display:block;font:700 13.5px -apple-system,"Segoe UI",sans-serif;line-height:1.3;overflow-wrap:anywhere;}',
       '.cert-tile .ct-date{display:block;font:500 12px -apple-system,"Segoe UI",sans-serif;opacity:.62;margin-top:3px;}',
       '.cert-empty{font:500 13px -apple-system,"Segoe UI",sans-serif;opacity:.6;}',
       '.cert-block-panel{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:14px 16px;margin-bottom:16px;border-radius:12px;background:rgba(42,150,64,.07);border:1px solid rgba(42,150,64,.22);}',
