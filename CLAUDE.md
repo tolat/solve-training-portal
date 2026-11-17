@@ -232,6 +232,16 @@ the training, *issued by Solve University*. The foot is the date on the left
 and a signature rule on the right with **Kane Hammontree, CEO** under it, the
 space above deliberately empty for a signature.
 
+The plate's seal is blank, so **COURSE / COMPLETE** is set into it at
+`(720, 530)` and `(720, 514)` — above the embossed stars at y ≈ 490, in a
+bronze that reads on gold.
+
+The top-left mark is **`assets/solveu-wordmark.png`**, the portal's own SOLVE-U
+logo recoloured dark. The shipped `solve_logo.png` is near-white for the
+portal's dark theme (mean RGB 250, 253, 235) and is invisible on the
+certificate's paper; the dark copy keeps the same letterforms and alpha and
+only repaints the colour, so it stays the same mark.
+
 **The plate is stock artwork.** Recolouring it did not create a licence —
 confirm it is licensed for commercial use before certificates go out.
 

@@ -124,14 +124,28 @@ page.drawImage(plate, { x: 0, y: 0, width: W, height: H });
 // Top-left: the plate's seal sits top-right and the wedge only reaches down to
 // y 527 beyond x 460, so this corner is the one piece of clear space up there.
 
+// `solveu-wordmark.png` is the portal's own SOLVE-U mark recoloured dark: the
+// shipped `solve_logo.png` is near-white for the portal's dark theme and is
+// invisible on the certificate's paper. Same letterforms, same alpha.
 try {
-  const png   = await doc.embedPng(fs.readFileSync(path.join(ROOT, 'assets', 'solve-wordmark.png')));
-  const logoW = 104;
+  const png   = await doc.embedPng(fs.readFileSync(path.join(ROOT, 'assets', 'solveu-wordmark.png')));
+  const logoW = 116;
   const logoH = (png.height / png.width) * logoW;
-  page.drawImage(png, { x: 72, y: 498, width: logoW, height: logoH });
+  page.drawImage(png, { x: 72, y: 500, width: logoW, height: logoH });
 } catch {
-  tracked('SOLVE', bold, 16, 502, 3, INK, 124);
+  tracked('SOLVE-U', bold, 16, 504, 3, INK, 130);
 }
+
+// ── Seal ─────────────────────────────────────────────────────
+// The plate's seal is blank. Measured off the image: the disc spans roughly
+// x 660-780, y 480-570, its smooth inner face is about 96pt across, and the
+// embossed stars sit at y ~ 490 — so the text goes above them.
+
+const SEAL_X = 720;
+const SEAL_BRONZE = hex('#6d5118');   // reads on gold without going muddy
+
+tracked('COURSE',   semi, 9, 530, 1.8, SEAL_BRONZE, SEAL_X);
+tracked('COMPLETE', semi, 9, 514, 1.1, SEAL_BRONZE, SEAL_X);
 
 // ── Title ────────────────────────────────────────────────────
 

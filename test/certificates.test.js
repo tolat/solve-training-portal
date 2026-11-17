@@ -380,7 +380,8 @@ test('the static labels are not missing glyphs', async () => {
   const text = (await textOf(FS.readFileSync(TEMPLATE))).replace(/\s+/g, '');
   for (const phrase of ['CERTIFICATE', 'OFCOMPLETION', 'PROUDLYPRESENTEDTO',
                         'hassuccessfullycompletedallrequirementsfor',
-                        'issuedbySolveUniversity', 'DATE', 'KANEHAMMONTREE,CEO']) {
+                        'issuedbySolveUniversity', 'DATE', 'KANEHAMMONTREE,CEO',
+                        'COURSE', 'COMPLETE']) {
     assert.ok(text.includes(phrase), `label "${phrase}" is incomplete in the template`);
   }
 });
