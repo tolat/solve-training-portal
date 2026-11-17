@@ -131,3 +131,8 @@ public
 .env.example
 .DS_Store
 uploads/signed-*.pdf
+
+# Local-only working backups (handbook source PDFs, snapshots, the banking form).
+# 808 MB as of 2026-11-17, and express.static(__dirname) serves this folder with no
+# auth — committing it would publish all of it at https://<host>/backups/... .
+backups/
