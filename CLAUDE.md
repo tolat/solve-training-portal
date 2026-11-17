@@ -58,7 +58,7 @@ hrDocuments:          '366b73d8-b43a-80dc-98e1-f7df637d49c7'
 
 ## Key Notion Data Model
 - **Training Block**: has `Name`, `Type` (multi-select), `Ordering` (number, optional), `Training link` (url), `Pipeline Stages` (relation), `Notes`, `Policy No.`, `Certificate Template` (files)
-- **Training Record**: links Employee + Training Block, has `Date Completed`, `Certificates` (files — **uploaded by the trainee as proof**), `Internal Certificates` (files — **issued by Solve**), `Status`
+- **Training Record**: links Employee + Training Block, has `Date Completed`, `Uploads` (files — **uploaded by the trainee as proof**), `Certificates` (files — **issued by Solve**), `Status`
 - **Company Directory**: employees with `Roles`, `Ordered Onboarding Stage`, `Contractor Pages`, `Dealer Organizations`
 - **HR Documents**: `Name`, `Person` (relation to directory), `Files & media`, `Type` (select)
 
@@ -134,13 +134,13 @@ HR document uploads use Notion's File Upload API (NOT external URLs):
 | POST | `/api/login` | Email + password auth |
 | GET | `/api/training-data` | All blocks, records, roles for the logged-in user |
 | POST | `/api/submit-quiz` | Submit quiz answers, mark record complete |
-| POST | `/api/upload-certificate` | Upload cert files → training record Certificates field |
+| POST | `/api/upload-certificate` | Upload proof files → training record `Uploads` field |
 | POST | `/api/upload-hr-document` | Upload to HR Documents DB via Notion file upload API |
 | POST | `/api/sign-document` | PDF e-signature → stamps PDF, marks record complete |
 | POST | `/api/sync` | Refresh employee data + training cache |
 | GET | `/api/tour-status` | `{ tourCompleted }` from the Company Directory checkbox (null if the property is missing) |
 | POST | `/api/tour-complete` | Sets `Portal Tour Completed` on the logged-in employee |
-| GET | `/api/my-certificates` | Every certificate Solve has issued the logged-in person (reads `Internal Certificates`), newest first |
+| GET | `/api/my-certificates` | Every certificate Solve has issued the logged-in person (reads `Certificates`), newest first |
 | POST | `/api/resource-files` | `{ blockIds }` → files (Guidance / Associated forms / Files & media) and Training link for General Resource blocks (cached 20 min server-side) |
 
 ## CSS Theming
@@ -165,16 +165,26 @@ HR document uploads use Notion's File Upload API (NOT external URLs):
 When someone completes a block that has a **`Certificate Template`** file, the
 portal fills that template with their name, the training name and the
 completion date, and stores the result on their Training Record under
-**`Internal Certificates`**.
+**`Certificates`**.
 
-**The two certificate fields are deliberately separate and must stay that way:**
+**The two file fields are deliberately separate and must stay that way:**
 
 | Field | Holds | Written by |
 |---|---|---|
-| `Certificates` | what the **trainee uploaded** as proof (Asbestos ticket, signed handbook) | `/api/upload-certificate`, `/api/sign-document`, `/api/upload-hr-document` |
-| `Internal Certificates` | what **Solve issued** | `certificates.js` only |
+| `Uploads` | what the **trainee uploaded** as proof (Asbestos ticket, signed handbook) | `/api/upload-certificate`, `/api/sign-document` |
+| `Certificates` | what **Solve issued** | `certificates.js` only |
 
 Mixing them would make "did they give us a ticket?" unanswerable.
+
+> 🔴 **Renamed 2026-11-17, and the names swapped sides.** `Internal
+> Certificates` → **`Certificates`**, and the old `Certificates` (the
+> trainee's uploads) → **`Uploads`**. Notion renames by property id, so no
+> data moved — but every consumer binds by **name**, so for a few hours the
+> portal's upload endpoints were writing a trainee's file into the field that
+> holds their issued certificate. If you see `Internal Certificates` anywhere,
+> it is stale. Make scenario **4451925** (Docusign → Update Training Record On
+> Envelope Complete) writes the signed document by name too and had to be
+> changed with it.
 
 **Where it runs.** `issueCertificateFor()` in `server.js` is called from every
 path that writes `Date Completed` — `/api/complete`, `/api/upload-certificate`,

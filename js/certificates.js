@@ -7,8 +7,11 @@
  *   2. "My Certificates" on the main page — everything Solve has ever issued
  *      you, newest first.
  *
- * Reads only `Internal Certificates` (what Solve issued), never `Certificates`
- * (what the trainee uploaded as proof). The server keeps them apart; so does this.
+ * Reads only `Certificates` (what Solve issued), never `Uploads` (what the
+ * trainee uploaded as proof). The server keeps them apart; so does this.
+ *
+ * Those two Notion properties were renamed on 2026-11-17 and the names swapped
+ * sides — `Certificates` used to be `Internal Certificates`.
  *
  * Styles are injected from here rather than living in styles.css because the
  * service worker serves CSS cache-first: on the first load after a deploy, new

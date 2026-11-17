@@ -2346,7 +2346,7 @@ app.get('/api/block/:blockId/certificates', requireAuth, async (req, res) => {
     if (!record) return res.json({ certificates: [] });
 
     const page         = await notionFetch(`/pages/${record.id}`);
-    const certificates = getFiles(prop(page, 'Certificates'));
+    const certificates = getFiles(prop(page, 'Uploads'));
 
     res.json({ certificates });
   } catch (err) {
@@ -2358,9 +2358,13 @@ app.get('/api/block/:blockId/certificates', requireAuth, async (req, res) => {
 // ─── GET /api/my-certificates ────────────────────────────────
 // Every certificate SOLVE has issued to the logged-in person, newest first.
 //
-// Reads `Internal Certificates` only — never `Certificates`, which holds what
-// the trainee uploaded as proof. Those are two different claims and the portal
-// must not present one as the other.
+// Reads `Certificates` only — never `Uploads`, which holds what the trainee
+// uploaded as proof. Those are two different claims and the portal must not
+// present one as the other.
+//
+// Both properties were renamed in Notion on 2026-11-17 and the names SWAPPED
+// sides: what is now `Certificates` used to be `Internal Certificates`, and
+// the old `Certificates` is now `Uploads`.
 //
 // Never cached: Notion's file URLs are presigned and expire within the hour, so
 // a cached list hands out dead links.
@@ -2381,7 +2385,7 @@ app.get('/api/my-certificates', requireAuth, async (req, res) => {
       if (seen.has(r.id)) continue;      // a record can match more than one query
       seen.add(r.id);
 
-      const files = (prop(r, 'Internal Certificates')?.files || [])
+      const files = (prop(r, 'Certificates')?.files || [])
         .map(f => ({
           name: f.name || 'Certificate.pdf',
           url:  f.type === 'file' ? f.file?.url : (f.type === 'external' ? f.external?.url : null),
@@ -2621,7 +2625,7 @@ app.post('/api/upload-certificate', requireAuth, upload.array('files', 10), asyn
       await notionFetch(`/pages/${existing[0].id}`, 'PATCH', {
         properties: {
           'Date Completed': { date:  { start: today } },
-          'Certificates':   { files: fileRefs        },
+          'Uploads':        { files: fileRefs        },
         },
       });
       recordId = existing[0].id;
@@ -2636,7 +2640,7 @@ app.post('/api/upload-certificate', requireAuth, upload.array('files', 10), asyn
           'Employee':       { relation: [{ id: userPageId }]               },
           'Training Block': { relation: [{ id: blockId    }]               },
           'Date Completed': { date:     { start: today }                   },
-          'Certificates':   { files:    fileRefs        },
+          'Uploads':        { files:    fileRefs        },
         },
       });
       recordId = newPage.id;
@@ -2896,7 +2900,7 @@ app.post('/api/sign-document', requireAuth, async (req, res) => {
       await notionFetch(`/pages/${existing[0].id}`, 'PATCH', {
         properties: {
           'Date Completed': { date:  { start: today } },
-          'Certificates':   { files: [fileRef]       },
+          'Uploads':        { files: [fileRef]       },
         },
       });
       recordId = existing[0].id;
@@ -2910,7 +2914,7 @@ app.post('/api/sign-document', requireAuth, async (req, res) => {
           'Employee':       { relation: [{ id: userPageId }]               },
           'Training Block': { relation: [{ id: blockId    }]               },
           'Date Completed': { date:     { start: today }                   },
-          'Certificates':   { files:    [fileRef]       },
+          'Uploads':        { files:    [fileRef]       },
         },
       });
       recordId = newPage.id;

@@ -2,13 +2,18 @@
 //
 // When someone finishes a training block that carries a `Certificate Template`,
 // we fill that template with their name and completion date and store the
-// result on their Training Record under `Internal Certificates`.
+// result on their Training Record under `Certificates`.
 //
 // Two fields, deliberately kept apart:
-//   Certificates          — what the TRAINEE uploaded as proof (Asbestos
-//                           Awareness tickets, signed handbooks). Read and
-//                           written by /api/upload-certificate and friends.
-//   Internal Certificates — what SOLVE issued. Only this file writes it.
+//   Certificates — what SOLVE issued. Only this file writes it.
+//   Uploads      — what the TRAINEE uploaded as proof (Asbestos Awareness
+//                  tickets, signed handbooks). Read and written by
+//                  /api/upload-certificate and friends, never here.
+//
+// 🔴 Both were renamed in Notion on 2026-11-17 and the names SWAPPED SIDES:
+// today's `Certificates` is the old `Internal Certificates`, and the old
+// `Certificates` (the trainee's uploads) is now `Uploads`. Anything still
+// reading the old names reads the wrong field, or nothing at all.
 //
 // Mixing them would make "did they give us a ticket?" unanswerable.
 //
@@ -367,7 +372,7 @@ function createCertificates({
 
       if (!force) {
         const record = await notionFetch(`/pages/${recordId}`);
-        if ((record.properties?.['Internal Certificates']?.files || []).length) {
+        if ((record.properties?.['Certificates']?.files || []).length) {
           log.log(`ℹ️   Certificate: record ${recordId} already has one — leaving it`);
           return null;
         }
@@ -399,9 +404,9 @@ function createCertificates({
       // The PATCH response carries the stored file back with a usable URL, so the
       // caller can show it immediately without a second round trip.
       const updated = await notionFetch(`/pages/${recordId}`, 'PATCH', {
-        properties: { 'Internal Certificates': { files: [notionFileRef(uploadId, fileName)] } },
+        properties: { 'Certificates': { files: [notionFileRef(uploadId, fileName)] } },
       });
-      const stored = firstFile(updated?.properties?.['Internal Certificates']);
+      const stored = firstFile(updated?.properties?.['Certificates']);
 
       log.log(`🏅  Certificate issued to ${personName} for "${template.blockName}" (${placedWith}) → record ${recordId}`);
       return { name: fileName, blockId, blockName: title || template.blockName, placedWith, url: stored?.url || null };

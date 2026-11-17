@@ -187,12 +187,12 @@ function mockDeps({ templateFiles, recordFiles = [], onPatch = () => {}, uploadT
         if (method === 'PATCH') {
           calls.patches++;
           onPatch(body);
-          return { properties: { 'Internal Certificates': { files: [{ type: 'file', name: 'c.pdf', file: { url: 'https://notion.example/c.pdf' } }] } } };
+          return { properties: { 'Certificates': { files: [{ type: 'file', name: 'c.pdf', file: { url: 'https://notion.example/c.pdf' } }] } } };
         }
         if (endpoint.includes('/pages/block')) {
           return { properties: { 'Name': { title: [{ plain_text: 'Fall Protection' }] }, 'Certificate Template': { files: templateFiles } } };
         }
-        return { properties: { 'Internal Certificates': { files: recordFiles } } };
+        return { properties: { 'Certificates': { files: recordFiles } } };
       },
       async uploadBytesToNotion() {
         calls.uploads++;
@@ -232,15 +232,15 @@ test('a block with a template issues one, and returns a usable url', async () =>
   assert.strictEqual(calls.patches, 1);
 });
 
-test('it writes Internal Certificates, never Certificates', async () => {
+test('it writes Certificates, never Uploads', async () => {
   let patched = null;
   const { deps } = mockDeps({ templateFiles: TEMPLATE_FILE, onPatch: b => { patched = b; } });
   const certs = createCertificates(deps);
   await certs.issue({ blockId: 'block1', recordId: 'rec1', personName: 'Sam', dateISO: '2026-11-11' });
 
-  assert.ok(patched.properties['Internal Certificates'], 'should write Internal Certificates');
-  assert.strictEqual(patched.properties['Certificates'], undefined,
-    'must never touch Certificates — that field holds what the trainee uploaded as proof');
+  assert.ok(patched.properties['Certificates'], 'should write the issued-certificates field');
+  assert.strictEqual(patched.properties['Uploads'], undefined,
+    'must never touch Uploads — that field holds what the trainee uploaded as proof');
 });
 
 test('re-completing a module does not issue a second certificate', async () => {
@@ -481,11 +481,11 @@ test('a template with a certificate_no field gets the serial', async () => {
   const certs = createCertificates({
     PDFLib, log: silent,
     async notionFetch(endpoint, method = 'GET') {
-      if (method === 'PATCH') return { properties: { 'Internal Certificates': { files: [] } } };
+      if (method === 'PATCH') return { properties: { 'Certificates': { files: [] } } };
       if (endpoint.includes('/pages/block')) return { properties: {
         Name: { title: [{ plain_text: 'Fall Protection' }] },
         'Certificate Template': { files: [{ type: 'file', name: 't.pdf', file: { url: 'x' } }] } } };
-      return { properties: { 'Internal Certificates': { files: [] } } };
+      return { properties: { 'Certificates': { files: [] } } };
     },
     async uploadBytesToNotion(bytes) { out = Buffer.from(bytes); return 'id'; },
     notionFileRef: (id, n) => ({ name: n, type: 'file_upload', file_upload: { id } }),
