@@ -213,21 +213,23 @@ deepened to `#13401f` for the ribbons so they read as layered rather than flat.
 Gold is the one colour from outside the product palette; it is what makes this
 kind of certificate look like one.
 
-The ribbons are built by `edge()` and `swoop()`. Each ribbon edge is a cubic
-from a point on the top edge to a point on the right edge, shaped by three
-numbers: `lazy` (how steeply it leaves the top edge), `bend` (how deep it dips)
-and `late` (how long it runs before turning into the right edge). A quarter
-ellipse — the obvious shape — is `lazy 0, bend 0.55, late 0.55`, and it reads
-as a rainbow stripe; holding `bend` near 0.55 while pushing `late` to ~0.70 is
-what gives the reference's swoosh, flat across the diagonal then turning hard
-at the end.
+The ribbons are built by `ribbon()` and `cornerFill()`. **They are independent
+shapes, deliberately.** Two earlier attempts drew them as nested bands where
+each band's inner edge was the next one's outer edge — that constraint produces
+concentric rings by construction, and no amount of tuning the curve shape gets
+a ribbon out of it. It looked exactly like what it was.
 
-The bands are spread wider where they meet the top edge than where they meet
-the right, so each narrows along its length — that taper is what reads as a
-ribbon. Each band's inner edge is the next band's outer edge **exactly**; a
-mismatch opens a seam of whatever was drawn underneath. The bottom-left corner
-is the same artwork rotated 180° (`rot()`) and scaled to 0.88, which keeps the
-foot clear for the date and signature lines.
+Each ribbon now has its own centreline (`line()`, shaped by `lazy` / `bend` /
+`late` — how steeply it leaves the top edge, how deep it dips, how long it runs
+before turning into the right edge) and its own width along that line
+(`swell()` for fat-in-the-middle, `taperOut()` for an end that finishes inside
+the page). The outline is built by walking the centreline, taking the normal at
+each of 72 steps and offsetting both ways by half the width.
+
+Giving the ribbons **different `late` values is the point** — ribbons that turn
+into the edge at different places cross each other rather than nesting. The
+bottom-left corner is the same artwork rotated 180° (`rotPath()`) and scaled
+smaller, which keeps the foot clear for the date and signature.
 
 The foot has the completion date on the left and a signature rule on the right
 with **Kane Hammontree, CEO** under it, the space above deliberately empty for

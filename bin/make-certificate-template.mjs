@@ -114,95 +114,120 @@ const hline = (x1, x2, y, color, thickness = 1) =>
 const svgPath = (d, opts) => page.drawSvgPath(d, { x: 0, y: H, ...opts });
 
 /**
- * ── The corner swoops ────────────────────────────────────────
+ * ── The corner ribbons ───────────────────────────────────────
  *
- * Each ribbon edge is a cubic from a point on the top edge to a point on the
- * right edge, written in svgPath's space (origin top-left, y down).
+ * The first two attempts drew the bands as nested arcs sharing a corner, each
+ * band's inner edge being the next one's outer edge. That constraint makes
+ * concentric rings by construction — no amount of tuning the curve shape gets
+ * you a ribbon out of it, which is exactly how it looked.
  *
- * A quarter-ellipse — the obvious shape — bends evenly the whole way round and
- * reads as a rainbow stripe. The reference's ribbons do not: they leave the top
- * edge steeply, run almost straight across the diagonal, then turn hard into
- * the right edge. `lazy` and `late` are what buy that.
+ * So: each ribbon here is an INDEPENDENT shape with its own centreline and its
+ * own width along that line. They are free to cross each other, which is what
+ * the reference actually does, and they swell and taper instead of running at
+ * a constant width.
  *
- *   x, y   where the edge meets the top and right edges
- *   lazy   how far along the diagonal the first control point sits
- *          (small = leaves the top edge steeply, like the reference)
- *   bend   how far down the first control point pulls (big = flatter middle)
- *   late   where the second control point sits (big = turns into the right
- *          edge at the last moment, which is the "swoosh")
+ * A ribbon's outline is built by walking its centreline, taking the normal at
+ * each step and offsetting both ways by half the width there. Sampled finely
+ * enough it is indistinguishable from a true offset curve.
+ *
+ * Everything is in svgPath's space: origin top-left, y downward.
  */
-const edge = ({ x, y, lazy = 0.10, bend = 0.80, late = 0.52 }) => ({
-  p0: [x, 0],
-  p1: [x + lazy * (W - x), bend * y],
-  p2: [x + late * (W - x), y],
-  p3: [W, y],
-});
 
-/** 180° rotation about the page centre: maps the top-right corner onto the bottom-left. */
-const rot = ([x, y]) => [W - x, H - y];
+const bez = (a, b, c, d, t) => {
+  const u = 1 - t;
+  return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d;
+};
+const bezDeriv = (a, b, c, d, t) => {
+  const u = 1 - t;
+  return 3 * u * u * (b - a) + 6 * u * t * (c - b) + 3 * t * t * (d - c);
+};
 
 /**
- * A band is the area between two edges. Giving the outer and inner edges
- * different entry points AND different curvature is what makes a band swell
- * and taper like a ribbon instead of sitting at a constant width.
+ * @param {number[][]} cp  four control points [[x,y],...]
+ * @param {(t:number)=>number} widthAt  ribbon width at t, in points
  */
-function swoop(outerSpec, innerSpec, { rotate = false } = {}) {
-  const o = edge(outerSpec), i = edge(innerSpec);
-  const t = rotate ? rot : (q => q);
-  const [o0, o1, o2, o3] = [o.p0, o.p1, o.p2, o.p3].map(t);
-  const [i0, i1, i2, i3] = [i.p0, i.p1, i.p2, i.p3].map(t);
-  return [
-    `M ${o0[0]} ${o0[1]}`,
-    `C ${o1[0]} ${o1[1]} ${o2[0]} ${o2[1]} ${o3[0]} ${o3[1]}`,
-    `L ${i3[0]} ${i3[1]}`,                                   // along the right edge
-    `C ${i2[0]} ${i2[1]} ${i1[0]} ${i1[1]} ${i0[0]} ${i0[1]}`, // inner edge, reversed
-    'Z',
-  ].join(' ');
+function ribbon(cp, widthAt, samples = 72) {
+  const [P0, P1, P2, P3] = cp;
+  const left = [], right = [];
+  for (let i = 0; i <= samples; i++) {
+    const t = i / samples;
+    const x  = bez(P0[0], P1[0], P2[0], P3[0], t);
+    const y  = bez(P0[1], P1[1], P2[1], P3[1], t);
+    const dx = bezDeriv(P0[0], P1[0], P2[0], P3[0], t);
+    const dy = bezDeriv(P0[1], P1[1], P2[1], P3[1], t);
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len, ny = dx / len;      // unit normal
+    const h = widthAt(t) / 2;
+    left.push([x + nx * h, y + ny * h]);
+    right.push([x - nx * h, y - ny * h]);
+  }
+  const pts = [...left, ...right.reverse()];
+  return 'M ' + pts.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join(' L ') + ' Z';
 }
+
+/** A ribbon centreline from the top edge to the right edge. */
+const line = (x, y, { lazy = 0.05, bend = 0.56, late = 0.68 } = {}) => [
+  [x, 0],
+  [x + lazy * (W - x), bend * y],
+  [x + late * (W - x), y],
+  [W, y],
+];
+
+/** Fattest in the middle, never pinching to nothing at the page edges. */
+const swell = (max, ends = 0.55) => t => max * (ends + (1 - ends) * Math.sin(Math.PI * t));
+/** Full width at the start, tapering to a point — a ribbon end inside the page. */
+const taperOut = max => t => max * Math.max(0.02, 1 - Math.pow(t, 1.6));
+
+/** The solid corner: everything between a curve and the corner itself. */
+function cornerFill(x, y, opts) {
+  const [, c1, c2, p3] = line(x, y, opts);
+  return `M ${x} 0 C ${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${p3[0]} ${p3[1]} L ${W} 0 Z`;
+}
+
+const rot = ([x, y]) => [W - x, H - y];
+const rotPath = d => d.replace(/(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g,
+  (_, a, b) => { const [x, y] = rot([parseFloat(a), parseFloat(b)]); return `${x.toFixed(2)} ${y.toFixed(2)}`; });
 
 // ── Page and ribbons ─────────────────────────────────────────
 
 page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: WHITE });
 
-// Outermost first, so each band overlaps the one before it. Read the pairs as
-// "outer edge, inner edge": the deep green mass fills the corner, gold threads
-// through it, bright green sweeps across, a pale highlight catches the inner
-// turn, and mid green closes it off.
-const BANDS = [
-  // A quarter arc is lazy 0, bend 0.55, late 0.55. Holding bend near that keeps
-  // the ribbon hugging the corner instead of flooding the page; pushing `late`
-  // to ~0.70 makes it run flat across the diagonal then turn hard into the
-  // right edge — the swoosh.
-  //
-  // The bands are spread wider where they meet the top edge than where they
-  // meet the right, so each one narrows along its length. That taper is what
-  // reads as a ribbon; equal gaps at both ends read as a rainbow stripe.
-  //
-  // Each band's inner edge is the next band's outer edge, exactly — a mismatch
-  // there opens a seam of whatever was drawn underneath.
-  [{ x: 516, y: 246, lazy: 0.02, bend: 0.58, late: 0.72 },
-   { x: 568, y: 200, lazy: 0.04, bend: 0.57, late: 0.70 }, GREEN_DEEP],
+/**
+ * The corner composition, drawn back to front. The `late` values differ on
+ * purpose: ribbons that turn into the right edge at different points cross
+ * each other instead of nesting, which is the whole difference between a
+ * ribbon and a stripe.
+ */
+function cornerArt(scale = 1) {
+  const sx = x => W - (W - x) * scale;     // pull entry points toward the corner
+  const sy = y => y * scale;
+  const sw = w => w * scale;
+  const out = [];
 
-  [{ x: 568, y: 200, lazy: 0.04, bend: 0.57, late: 0.70 },
-   { x: 590, y: 190, lazy: 0.05, bend: 0.56, late: 0.69 }, GOLD],
+  // The solid mass filling the corner
+  out.push([cornerFill(sx(470), sy(300), { lazy: 0.02, bend: 0.58, late: 0.74 }), GREEN_DEEP]);
 
-  [{ x: 590, y: 190, lazy: 0.05, bend: 0.56, late: 0.69 },
-   { x: 650, y: 140, lazy: 0.07, bend: 0.55, late: 0.67 }, GREEN],
+  // A bright green ribbon cutting across it, turning early so it crosses
+  out.push([ribbon(line(sx(505), sy(232), { lazy: 0.04, bend: 0.54, late: 0.64 }),
+                   swell(sw(62))), GREEN]);
 
-  [{ x: 650, y: 140, lazy: 0.07, bend: 0.55, late: 0.67 },
-   { x: 664, y: 134, lazy: 0.08, bend: 0.55, late: 0.66 }, GOLD_LIGHT],
+  // Gold, turning late — crosses the green twice
+  out.push([ribbon(line(sx(556), sy(206), { lazy: 0.03, bend: 0.60, late: 0.77 }),
+                   swell(sw(26), 0.4)), GOLD]);
 
-  [{ x: 664, y: 134, lazy: 0.08, bend: 0.55, late: 0.66 },
-   { x: 726, y:  92, lazy: 0.10, bend: 0.54, late: 0.64 }, GREEN_MID],
-];
+  // A second, thinner gold inboard of it
+  out.push([ribbon(line(sx(648), sy(140), { lazy: 0.05, bend: 0.54, late: 0.66 }),
+                   swell(sw(13), 0.35)), GOLD_LIGHT]);
 
-for (const [o, i, color] of BANDS) svgPath(swoop(o, i), { color });
+  // Mid green closing the inner edge, tapering to a point on the page
+  out.push([ribbon(line(sx(690), sy(104), { lazy: 0.05, bend: 0.58, late: 0.72 }),
+                   taperOut(sw(52))), GREEN_MID]);
 
-// The bottom-left corner is the same artwork rotated 180°, as on the reference,
-// scaled in a little so the foot stays clear for the date and signature lines.
-const SCALE = 0.88;
-const scaled = spec => ({ ...spec, x: W - (W - spec.x) * SCALE, y: spec.y * SCALE });
-for (const [o, i, color] of BANDS) svgPath(swoop(scaled(o), scaled(i), { rotate: true }), { color });
+  return out;
+}
+
+for (const [d, color] of cornerArt(0.76))  svgPath(d, { color });
+for (const [d, color] of cornerArt(0.66))  svgPath(rotPath(d), { color });
 
 // ── Frame ────────────────────────────────────────────────────
 // A thin double rule, as on the reference: it sits over the ribbons.
