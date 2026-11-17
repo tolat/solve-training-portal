@@ -6,7 +6,7 @@
  *   • API calls       → Network-first (fresh data when online, fallback offline message)
  */
 
-const CACHE_NAME = 'solve-training-v24';
+const CACHE_NAME = 'solve-training-v25';
 
 // Truly static assets that rarely change — served cache-first
 const STATIC_ASSETS = [
@@ -89,9 +89,14 @@ self.addEventListener('fetch', event => {
 });
 
 // Network-first for app files: fetch fresh, update cache, fall back to cache offline
+//
+// `cache: 'no-cache'` makes it a conditional request — the browser's own HTTP
+// cache can no longer hand back a stale copy of a JS file, and an unchanged one
+// still costs only a 304. Without it there are two caches in the way of a
+// deploy, this one and the browser's, and only one of them is ours to bust.
 async function networkFirstStatic(request) {
   try {
-    const response = await fetch(request);
+    const response = await fetch(request, { cache: 'no-cache' });
     if (response.ok) {
       const cache = await caches.open(CACHE_NAME);
       cache.put(request, response.clone());
