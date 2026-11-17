@@ -64,6 +64,36 @@ function formatDate(iso) {
 }
 
 /** A filename that is safe on every platform and says what it is. */
+/**
+ * Recover what a certificate actually says, from the name of the stored file.
+ *
+ * `certificateFileName` bakes the resolved title into the file at issuance,
+ * and that is the **only** place it survives: the Training Record does not
+ * store it, and it cannot be re-derived afterwards because a `[Role]` pattern
+ * needs the role the person completed the block under — which, for contractor
+ * roles, only `/api/training-data` knows how to work out.
+ *
+ * The date and the person's name are the last two segments, so the title is
+ * everything between them and the `Certificate` prefix; anchoring on the end
+ * means a title containing an underscore still comes back whole.
+ *
+ * Lossy in two small ways, both cosmetic and confined to this label — the PDF
+ * itself is untouched. Spaces became hyphens on the way in and come back as
+ * spaces, so a title that genuinely contains a hyphen reads with a space
+ * instead; and the punctuation `safe()` stripped is gone for good.
+ *
+ * Returns null for anything that is not one of our own file names, so the
+ * caller can fall back.
+ */
+function titleFromCertificateFile(fileName) {
+  const base  = String(fileName || '').replace(/\.pdf$/i, '');
+  const parts = base.split('_');
+  if (parts.length < 4 || parts[0] !== 'Certificate') return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(parts[parts.length - 1])) return null;
+  const title = parts.slice(1, -2).join('_').replace(/-+/g, ' ').trim();
+  return title || null;
+}
+
 function certificateFileName(blockName, personName, iso) {
   const safe = s => String(s || '')
     .replace(/[^A-Za-z0-9 _-]+/g, '')
@@ -387,4 +417,4 @@ function createCertificates({
 }
 
 module.exports = { createCertificates, resolveCertificateTitle, formatDate, certificateFileName,
-                   certificateNumber, PLACEHOLDER_RE };
+                   titleFromCertificateFile, certificateNumber, PLACEHOLDER_RE };

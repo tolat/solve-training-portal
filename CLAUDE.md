@@ -226,6 +226,28 @@ All three read one cached list (`SolveCerts.list()`, 15 minutes). The cache is
 deliberately short because Notion's file URLs expire in about an hour, and
 `SolveCerts.invalidate()` runs on issuance so a new certificate appears at once.
 
+Each card is labelled with **what the certificate says**, not the block it came
+from — the block is "Upload Signed Onboarding Path" and the certificate is
+"Lead Solar Installer Certification", and the two have to agree.
+
+> 🔴 **The resolved title only survives in the stored file's name.** The
+> Training Record does not keep it, and it cannot be re-derived at read time: a
+> `[Role]` pattern needs the role the person completed the block under, and for
+> a contractor role that is worked out inside `/api/training-data` from their
+> contractor records — far too much work to repeat on a read, and unknowable
+> from the record alone. So `titleFromCertificateFile()` parses it back out of
+> `Certificate_<title>_<person>_<date>.pdf`, anchoring on the date and person
+> at the end so an underscore in the title survives. It is paired with
+> `certificateFileName()` by a round-trip test: change one and the other fails.
+>
+> Lossy in two small ways, both confined to the label — spaces became hyphens
+> on the way in, so a title with a real hyphen reads with a space, and stripped
+> punctuation is gone. The PDF itself is untouched. If this ever needs to be
+> exact, the fix is a property on the Training Record written at issuance.
+
+The award modal was already right: `issue()` returns the resolved title as
+`blockName`.
+
 > 🔴 **`js/certificates.js` and `js/tour.js` must load before `js/app.js`.**
 > `app.js` ends with `boot()`, which runs the moment the file executes, and on the
 > common path — a stored token plus a training cache under `CACHE_TTL` — it reaches

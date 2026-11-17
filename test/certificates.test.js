@@ -526,3 +526,30 @@ test('the dark template keeps its auto-size and its light ink', async () => {
       `${role} must be light ink on this dark plate, got ${m[0]}`);
   }
 });
+
+// ─── The card has to say what the certificate says ────────────
+
+const { titleFromCertificateFile } = require('../certificates');
+
+test('the issued title is recovered from the stored file name', () => {
+  // The real file name from the first certificate issued in production. The
+  // block is called "Upload Signed Onboarding Path"; the certificate is not.
+  assert.strictEqual(
+    titleFromCertificateFile('Certificate_Lead-Solar-Installer-Certification_Torin-ORegan-Latarius_2026-11-17.pdf'),
+    'Lead Solar Installer Certification');
+});
+
+test('recovery round-trips whatever certificateFileName produced', () => {
+  for (const title of ['WHMIS', 'Lead Solar Installer Certification', 'Certified Warehouse Coordinator']) {
+    const file = certificateFileName(title, "Torin O'Regan-Latarius", '2026-11-17');
+    assert.strictEqual(titleFromCertificateFile(file), title,
+      `"${title}" should survive the trip through the file name`);
+  }
+});
+
+test('a file name that is not ours yields nothing, so the caller can fall back', () => {
+  for (const bad of [null, '', 'handbook.pdf', 'Certificate.pdf', 'Certificate_X_Y_notadate.pdf',
+                     'Certificate__Sam-Lee_2026-11-17.pdf']) {
+    assert.strictEqual(titleFromCertificateFile(bad), null, `${JSON.stringify(bad)} should not yield a title`);
+  }
+});

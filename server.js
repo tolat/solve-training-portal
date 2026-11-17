@@ -283,7 +283,7 @@ try {
   console.warn(`⚠️   Certificate fonts unavailable (${e.message}) — certificates will use Helvetica`);
 }
 
-const { resolveCertificateTitle } = require('./certificates');
+const { resolveCertificateTitle, titleFromCertificateFile } = require('./certificates');
 
 const certificates = require('./certificates').createCertificates({
   PDFLib,
@@ -2393,7 +2393,14 @@ app.get('/api/my-certificates', requireAuth, async (req, res) => {
       items.push({
         recordId: r.id,
         blockId,
-        name:     (blockId && cache.blocks[blockId]?.name) || titleTxt(prop(r, 'Name')) || 'Training',
+        // What the certificate itself says, not the block it came from: a block
+        // called "Upload Signed Onboarding Path" issues "Lead Solar Installer
+        // Certification", and the card has to agree with the PDF. The resolved
+        // title only survives in the stored file's name — see
+        // titleFromCertificateFile. Falls back to the block name.
+        name:     titleFromCertificateFile(files[0]?.name)
+                  || (blockId && cache.blocks[blockId]?.name)
+                  || titleTxt(prop(r, 'Name')) || 'Training',
         date:     prop(r, 'Date Completed')?.date?.start || null,
         files,
       });
