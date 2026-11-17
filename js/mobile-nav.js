@@ -1,6 +1,10 @@
 /**
  * Solve-U — the phone's navigation bar (window.SolveNav)
  *
+ * It also carries the handful of other phone-only layout rules, for the same
+ * cache-first reason below: a rule added to `css/styles.css` is missing on the
+ * first load after a deploy, and that is the load people notice.
+ *
  * On a phone the header collapses from two rows to one: the SOLVE-U mark on the
  * left, Back (when there is somewhere to go back to) and a menu button on the
  * right. Everything the second row used to carry — the onboarding stage, the
@@ -77,6 +81,15 @@
       '  #syncBarRoles{display:none !important;}',
       '  .nav-burger{display:inline-flex;}',
       '  .header-back{height:34px;}',
+
+      // ── Course rows ──
+      // The status sits to the right of the title on a desktop. On a phone that
+      // leaves the title a narrow column — "Upload Direct Deposit Information"
+      // was wrapping to three lines beside a date — so it drops to its own row
+      // under the title, indented past the number badge to line up with it.
+      '  .module-item{flex-wrap:wrap;row-gap:5px;padding:12px 14px;}',
+      '  .module-info{flex:1 1 auto;min-width:0;}',
+      '  .module-status{flex:1 0 100%;margin-left:46px;}',   // 32px badge + 14px gap
       '}',
     ].join('\n');
     document.head.appendChild(el);

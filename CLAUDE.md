@@ -122,6 +122,19 @@ after this file.
 The header controls are shown by `app.js` with inline styles, so hiding them on
 a phone needs `!important`.
 
+The same file carries the other phone-only layout rules — currently the course
+rows, where the status drops below the title instead of sitting beside it,
+indented past the number badge. A date beside a title left the title a narrow
+column that wrapped to three lines.
+
+**Completion dates** go through `prettyDay()` in `app.js`. Notion returns
+whatever the property holds — `2026-11-16` for a date, or the full
+`2026-07-27T13:13:00.000-07:00` when a time is set, which was being printed
+raw. It reads only the leading `YYYY-MM-DD`: `new Date('2026-11-16')` is UTC
+midnight and renders as the day before across North America, and converting the
+datetime form to the viewer's timezone would show a different day from the one
+Notion shows.
+
 The walkthrough follows: `onPhone()` is "is the menu button visible", not a
 width, so it tracks the stylesheet. On a phone the first step becomes the menu
 and the separate stage and sync steps drop out via `available()` — three

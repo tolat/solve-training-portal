@@ -392,6 +392,26 @@ function updateSyncBar() {
   if (rolesText) rolesText.textContent = `Last synced: ${ago}`;
 }
 
+/**
+ * A completion date as someone would write it: "27 Jul 2026".
+ *
+ * Notion hands back whatever shape the property holds — a bare `2026-11-16`
+ * for a date, or a full `2026-07-27T13:13:00.000-07:00` when a time was set —
+ * and the raw second form was being printed on the card.
+ *
+ * Only the leading YYYY-MM-DD is read, deliberately. `new Date('2026-11-16')`
+ * parses as UTC midnight and renders as the day before across North America,
+ * and converting the datetime form to the viewer's timezone would show a
+ * different day from the one Notion shows. The date Notion stores is the date
+ * we print.
+ */
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function prettyDay(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  if (!m) return String(iso || '');
+  return `${Number(m[3])} ${MONTHS_SHORT[Number(m[2]) - 1]} ${m[1]}`;
+}
+
 function timeSince(ts) {
   const secs = Math.floor((Date.now() - ts) / 1000);
   if (secs < 60) return 'just now';
@@ -944,7 +964,7 @@ function renderCourse(blocksOverride, skipCompleteRedirect = false) {
 
       if (completed) {
         const dateStr    = completedMap[block.id]?.date || '';
-        const statusText = `✓ Done${dateStr ? ' (' + dateStr + ')' : ''}`;
+        const statusText = `✓ Done${dateStr ? ' · ' + prettyDay(dateStr) : ''}`;
         addModuleItem(block, gi, 'completed', statusText, true, dispNum);
       } else if (locked) {
         addModuleItem(block, gi, 'locked', '🔒 Complete previous trainings first', false, dispNum);
@@ -1229,7 +1249,7 @@ function openBlock(index) {
     }
     const dateStr = getActiveCompletedMap()[block.id]?.date || '';
     const completedHTML = `
-      <div class="quiz-result-title">✅ Already Completed${dateStr ? ' — ' + dateStr : ''}</div>
+      <div class="quiz-result-title">✅ Already Completed${dateStr ? ' — ' + prettyDay(dateStr) : ''}</div>
       <div class="quiz-result-msg">You've already completed this module. You can review the materials above at any time.</div>
       <button class="btn btn-outline" onclick="goBack()">← Back to Course</button>
     `;
@@ -2679,7 +2699,7 @@ function renderCompletion() {
   const list = document.getElementById('completionList');
   list.innerHTML = currentBlocks.map(b => {
     const dateStr = getActiveCompletedMap()[b.id]?.date || '';
-    return `<div class="completion-item"><span>✅</span><span>${escHtml(b.name)}${dateStr ? ' <span style="font-size:11px;color:#64748b">(' + dateStr + ')</span>' : ''}</span></div>`;
+    return `<div class="completion-item"><span>✅</span><span>${escHtml(b.name)}${dateStr ? ' <span style="font-size:11px;color:#64748b">(' + prettyDay(dateStr) + ')</span>' : ''}</span></div>`;
   }).join('');
 }
 
