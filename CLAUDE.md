@@ -236,10 +236,8 @@ the training, *issued by Solve University*. The foot is the date on the left
 and a signature rule on the right with **Kane Hammontree, CEO** under it, the
 space above deliberately empty for a signature.
 
-The plate's seal is blank, so **COURSE / COMPLETE** is set into it at
-`(722, 527)` and `(722, 511)`, in a bronze that reads on gold. Neither word has
-a descender, so the ink runs from the lower baseline to the upper baseline plus
-cap height — those two values centre it on the disc.
+The plate's seal is left **blank**, as supplied — Torin's call. Its measured
+centre is kept in the table above in case anything is ever set into it.
 
 The top-left mark is **`assets/solveu-wordmark.png`**, the portal's own SOLVE-U
 logo recoloured dark. The shipped `solve_logo.png` is near-white for the

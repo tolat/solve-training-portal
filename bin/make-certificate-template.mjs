@@ -136,20 +136,6 @@ try {
   tracked('SOLVE-U', bold, 16, 504, 3, INK, 130);
 }
 
-// ── Seal ─────────────────────────────────────────────────────
-// The plate's seal is blank. Measured off the image: the disc spans roughly
-// x 655-790, y 465-581 — centre (722, 523), measured by scanning columns for
-// the disc's longest gold run rather than reading it off a grid, which put it
-// 5pt high. Nothing is embossed in it, so the two lines centre on the disc.
-// COURSE and COMPLETE have no descenders, so the ink runs from the lower
-// baseline to the upper baseline plus cap height; these two centre on 523.
-
-const SEAL_X = 722;
-const SEAL_BRONZE = hex('#6d5118');   // reads on gold without going muddy
-
-tracked('COURSE',   semi, 9.5, 527, 2.0, SEAL_BRONZE, SEAL_X);
-tracked('COMPLETE', semi, 9.5, 511, 1.2, SEAL_BRONZE, SEAL_X);
-
 // ── Title ────────────────────────────────────────────────────
 
 const AXIS = W / 2;
