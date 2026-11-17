@@ -95,6 +95,30 @@ Within each stage group:
 - Replay: a permanent green underlined "Watch the Solve-U Walkthrough →" link under the main-page heading (`#tourLink`), plus the "Take the tour" card on the profile screen (both call `SolveTour.replay()`). The main page heading is "Welcome Back, <first name>" with a "My Courses" heading above the role cards; their styles are inline in `index.html`. `SolveTour.abort()` is called on sign-out and on a 401.
 - Steps live in the `STEPS` array: each has a `target()` returning the element(s) to spotlight; a step whose target is not visible (e.g. header hidden in embedded mode) is skipped. Its styles (`tour-*` / `tw-*`) are injected by `tour.js` itself, deliberately not in `styles.css`: the service worker serves CSS cache-first, so on the first load after a deploy new JS would otherwise run against stale CSS.
 
+## Pull down to refresh (`js/pull-to-refresh.js`)
+
+Phones only. Drag past the top and a spinner comes down with the finger; let go
+past the threshold and it runs `manualSync()` — the same thing Sync now does,
+which is otherwise two taps away in the menu.
+
+The travel is rubber-banded, `MAX * (1 - e^(-dy/MAX))`, so it follows the
+finger at first and stiffens as it goes. With `MAX = 160` and
+`THRESHOLD = 96` that works out at about **140px of finger travel** to arm it.
+The disc lands at `dist + TOP_GAP - HIDE`, which keeps it clear of the 56px
+phone header rather than sitting on top of it; it parks ~45px below the header
+while it works.
+
+> 🔴 It has to take the gesture over. `preventDefault()` on touchmove is what
+> stops the browser overscrolling underneath — hence `{ passive: false }`,
+> without which the call is ignored — and `overscroll-behavior-y: contain`
+> disables **Chrome on Android's own pull-to-refresh**, which reloads the whole
+> page. Sessions are in memory, so that would sign everyone out.
+
+It stays out of the way unless the page is at the very top, signed in, on a
+phone, and nothing is over it (the menu, the award modal, the walkthrough, a
+video, the signature sheet) — and never on the signing screen, which is
+canvases and signature pads.
+
 ## UI vocabulary: "course", not "training"
 
 Everything a trainee reads says **course**. The Notion side is still Training

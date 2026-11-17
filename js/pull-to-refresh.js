@@ -36,9 +36,11 @@
   'use strict';
 
   var STYLE_ID  = 'solve-pull-styles';
-  var MAX       = 110;   // the asymptote of the rubber band, px
-  var THRESHOLD = 64;    // past this, releasing refreshes
-  var RESTING   = 52;    // where the spinner sits while it works
+  var MAX       = 160;   // the asymptote of the rubber band, px
+  var THRESHOLD = 96;    // past this, releasing refreshes — a deliberate stroke
+  var RESTING   = 96;    // where the spinner sits while it works
+  var TOP_GAP   = 56;    // the phone header's height: the spinner clears it
+  var HIDE      = 48;    // parked above the viewport (the disc plus its shadow)
 
   var startY = 0, dist = 0, tracking = false, armed = false, busy = false;
   var el = null, ring = null;
@@ -51,7 +53,7 @@
       '#solvePull{position:fixed;top:0;left:50%;z-index:10085;width:38px;height:38px;margin-left:-19px;',
         'border-radius:50%;background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.22);',
         'display:none;align-items:center;justify-content:center;pointer-events:none;',
-        'transform:translate3d(0,-52px,0);}',
+        'transform:translate3d(0,-48px,0);}',
       '#solvePull.on{display:flex;}',
       // Springs back with a touch of overshoot. Only while settling — during the
       // drag the transform has to track the finger with no transition at all.
@@ -84,17 +86,22 @@
     return el;
   }
 
+  /**
+   * The disc's top edge lands at `y + TOP_GAP - HIDE`, so by the time the pull
+   * is anywhere near the threshold it is clear of the header rather than
+   * sitting on top of it.
+   */
   function place(y, settle) {
     build();
     el.classList.add('on');
     el.classList.toggle('settle', !!settle);
-    el.style.transform = 'translate3d(0,' + (y - 52) + 'px,0)';
+    el.style.transform = 'translate3d(0,' + (y + TOP_GAP - HIDE) + 'px,0)';
   }
 
   function hide() {
     if (!el) return;
     el.classList.add('settle');
-    el.style.transform = 'translate3d(0,-52px,0)';
+    el.style.transform = 'translate3d(0,-' + HIDE + 'px,0)';
     el.classList.remove('spin');
     setTimeout(function () { if (!tracking && !busy && el) el.classList.remove('on'); }, 360);
   }
@@ -142,7 +149,7 @@
     armed = dist >= THRESHOLD;
     place(dist, false);
     if (ring) ring.style.opacity = armed ? '1' : String(0.35 + 0.65 * (dist / THRESHOLD));
-    if (el) el.style.opacity = String(Math.min(1, dist / 24));
+    if (el) el.style.opacity = String(Math.min(1, dist / 40));
   }
 
   async function onEnd() {
