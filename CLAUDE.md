@@ -219,9 +219,13 @@ rather than guessed (points, A4 landscape 842 × 595):
 
 | Feature | Where |
 |---|---|
-| Top-right wedge | a shallow triangle, (460, 595) → (842, 527) |
-| Gold seal | x 661–821, y 459–577 |
-| Bottom-left wedge | a triangle, (0, 68) → (394, 0) |
+| Top-right wedge | a shallow triangle, (460, 595) → (842, 515) |
+| Gold seal | a disc, x 655–790, y 465–581, centre **(722, 523)** |
+| Bottom-left wedge | a triangle, (0, 85) → (395, 0) |
+
+Measure the seal by scanning columns for the disc's longest gold run, not by
+eye off a grid — reading it off a grid put the centre 5pt high, which is
+visible once text is sitting in it.
 
 So the clear column for type is roughly x 60–790, y 100–500, and the foot must
 stay above y ≈ 100. `assets/certificate-base.png` is the plate at ~200 dpi; the
@@ -233,8 +237,9 @@ and a signature rule on the right with **Kane Hammontree, CEO** under it, the
 space above deliberately empty for a signature.
 
 The plate's seal is blank, so **COURSE / COMPLETE** is set into it at
-`(720, 530)` and `(720, 514)` — above the embossed stars at y ≈ 490, in a
-bronze that reads on gold.
+`(722, 527)` and `(722, 511)`, in a bronze that reads on gold. Neither word has
+a descender, so the ink runs from the lower baseline to the upper baseline plus
+cap height — those two values centre it on the disc.
 
 The top-left mark is **`assets/solveu-wordmark.png`**, the portal's own SOLVE-U
 logo recoloured dark. The shipped `solve_logo.png` is near-white for the

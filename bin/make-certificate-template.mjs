@@ -18,9 +18,9 @@
  * The layout below is pinned to the plate's own geometry, measured from the
  * image rather than guessed (all in points, A4 landscape 842 × 595):
  *
- *   top-right wedge     a shallow triangle, (460, 595) to (842, 527)
- *   gold seal           x 661–821, y 459–577
- *   bottom-left wedge   a triangle, (0, 68) to (394, 0)
+ *   top-right wedge     a shallow triangle, (460, 595) to (842, 515)
+ *   gold seal           a disc, x 655–790, y 480–575
+ *   bottom-left wedge   a triangle, (0, 85) to (395, 0)
  *
  * So the clear column for type is roughly x 60–790, y 100–500, and the foot
  * has to stay above y ≈ 100 or it runs into the bottom-left wedge.
@@ -138,14 +138,17 @@ try {
 
 // ── Seal ─────────────────────────────────────────────────────
 // The plate's seal is blank. Measured off the image: the disc spans roughly
-// x 660-780, y 480-570, its smooth inner face is about 96pt across, and the
-// embossed stars sit at y ~ 490 — so the text goes above them.
+// x 655-790, y 465-581 — centre (722, 523), measured by scanning columns for
+// the disc's longest gold run rather than reading it off a grid, which put it
+// 5pt high. Nothing is embossed in it, so the two lines centre on the disc.
+// COURSE and COMPLETE have no descenders, so the ink runs from the lower
+// baseline to the upper baseline plus cap height; these two centre on 523.
 
-const SEAL_X = 720;
+const SEAL_X = 722;
 const SEAL_BRONZE = hex('#6d5118');   // reads on gold without going muddy
 
-tracked('COURSE',   semi, 9, 530, 1.8, SEAL_BRONZE, SEAL_X);
-tracked('COMPLETE', semi, 9, 514, 1.1, SEAL_BRONZE, SEAL_X);
+tracked('COURSE',   semi, 9.5, 527, 2.0, SEAL_BRONZE, SEAL_X);
+tracked('COMPLETE', semi, 9.5, 511, 1.2, SEAL_BRONZE, SEAL_X);
 
 // ── Title ────────────────────────────────────────────────────
 
