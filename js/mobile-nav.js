@@ -88,7 +88,11 @@
       // was wrapping to three lines beside a date — so it drops to its own row
       // under the title, indented past the number badge to line up with it.
       '  .module-item{flex-wrap:wrap;row-gap:5px;padding:12px 14px;}',
-      '  .module-info{flex:1 1 auto;min-width:0;}',
+      // Keep the base `flex: 1` (basis 0). Giving it `auto` makes the basis the
+      // title's own width, and with flex-wrap on, a long title no longer fits
+      // beside the badge and drops to the next line — which is what put the
+      // number circle on its own row above the locked handbook parts.
+      '  .module-info{min-width:0;}',
       '  .module-status{flex:1 0 100%;margin-left:46px;}',   // 32px badge + 14px gap
       '}',
     ].join('\n');

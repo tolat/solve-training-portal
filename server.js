@@ -1792,7 +1792,7 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
     if (supplementBlockIds.length) {
       roles.push({
         id: '__supplement__',
-        name: 'Other Assigned Trainings',
+        name: 'Other Assigned Courses',
         blockIds: supplementBlockIds,
       });
     }
@@ -1812,7 +1812,7 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
 
   } catch (err) {
     console.error('Training data error:', err.message);
-    res.status(500).json({ error: 'Failed to load training data: ' + err.message });
+    res.status(500).json({ error: 'Failed to load course data: ' + err.message });
   }
 });
 

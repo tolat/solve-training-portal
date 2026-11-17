@@ -169,7 +169,7 @@
 <div class="screen" id="screenLoading">
   <div class="loading-screen">
     <div class="spinner"></div>
-    <div class="loading-text" id="loadingText">Loading your training data…</div>
+    <div class="loading-text" id="loadingText">Loading your course data…</div>
   </div>
 </div>
 
@@ -183,7 +183,7 @@
     </button>
   </div>
   <div class="sync-bar" id="syncBarRoles">
-    <span id="syncBarRolesText">Training data up to date</span>
+    <span id="syncBarRolesText">Course data up to date</span>
     <button id="syncNowBtnRoles" onclick="manualSync()"><span class="sync-spin"></span>Sync now</button>
   </div>
   <div class="roles-page-header">
@@ -200,13 +200,13 @@
 <!-- ─── SCREEN 1: Course Overview ───────────────────────── -->
 <div class="screen" id="screenCourse">
   <div class="sync-bar" id="syncBar">
-    <span id="syncBarText">Training data up to date</span>
+    <span id="syncBarText">Course data up to date</span>
     <button id="syncNowBtn" onclick="manualSync()"><span class="sync-spin"></span>Sync now</button>
   </div>
   <div class="course-header">
     <div id="courseRoleName" class="course-role-name"></div>
     <div class="course-meta">
-      <div class="course-meta-item"><strong id="courseTotalCount">0</strong> training modules</div>
+      <div class="course-meta-item"><strong id="courseTotalCount">0</strong> courses</div>
       <div class="course-meta-item"><strong id="courseCompletedCount">0</strong> completed</div>
     </div>
     <div class="progress-bar-wrap">
@@ -240,15 +240,15 @@
     <!-- Training resource area: plain link, embedded video, or nothing -->
     <div id="trainingResourceArea"></div>
     <div class="no-link-box" id="noLinkBox" style="display:none">
-      📄 This training is delivered in-person or via your manager. Review the materials below and confirm with your trainer before proceeding.
+      📄 This course is delivered in-person or via your manager. Review the materials below and confirm with your trainer before proceeding.
     </div>
     <!-- Contextual guidance blurb: what to do with the link/materials above -->
     <div class="block-guidance-blurb" id="blockGuidanceBlurb" style="display:none"></div>
     <div class="viewed-confirm" id="viewedConfirm">
-      ✅ <strong>Training acknowledged.</strong> Now complete the quiz below to advance.
+      ✅ <strong>Course acknowledged.</strong> Now complete the quiz below to advance.
     </div>
     <div id="blockActions">
-      <button class="btn btn-primary" id="btnViewed" onclick="markViewed()">✓ I've reviewed this training — start quiz</button>
+      <button class="btn btn-primary" id="btnViewed" onclick="markViewed()">✓ I've reviewed this course — start quiz</button>
     </div>
   </div>
 
@@ -261,7 +261,7 @@
   <!-- Document Upload section — shown instead of quiz for Document Upload blocks -->
   <div class="block-card quiz-section" id="uploadSection">
     <div class="quiz-title">📎 Certificate Upload</div>
-    <div class="quiz-sub">Upload your certificate or supporting documents to complete this training module.</div>
+    <div class="quiz-sub">Upload your certificate or supporting documents to complete this course.</div>
     <div id="uploadDropZone">
       <input type="file" id="uploadFileInput" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png">
       <label for="uploadFileInput" id="uploadLabel">
@@ -312,7 +312,7 @@
 <div class="screen" id="screenComplete">
   <div class="completion-card">
     <div class="completion-icon">🎉</div>
-    <div class="completion-title">Training Complete!</div>
+    <div class="completion-title">Course Complete!</div>
     <div class="completion-sub" id="completionSub"></div>
     <div class="completion-list" id="completionList"></div>
   </div>

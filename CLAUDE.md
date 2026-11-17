@@ -95,6 +95,19 @@ Within each stage group:
 - Replay: a permanent green underlined "Watch the Solve-U Walkthrough →" link under the main-page heading (`#tourLink`), plus the "Take the tour" card on the profile screen (both call `SolveTour.replay()`). The main page heading is "Welcome Back, <first name>" with a "My Courses" heading above the role cards; their styles are inline in `index.html`. `SolveTour.abort()` is called on sign-out and on a 401.
 - Steps live in the `STEPS` array: each has a `target()` returning the element(s) to spotlight; a step whose target is not visible (e.g. header hidden in embedded mode) is skipped. Its styles (`tour-*` / `tw-*`) are injected by `tour.js` itself, deliberately not in `styles.css`: the service worker serves CSS cache-first, so on the first load after a deploy new JS would otherwise run against stale CSS.
 
+## UI vocabulary: "course", not "training"
+
+Everything a trainee reads says **course**. The Notion side is still Training
+Blocks and Training Records, and so are the identifiers, API paths and comments
+in the code — `trainingData`, `/api/training-data`, `'Training Block'`. Only
+display strings were changed (2026-11-17), so the code keeps the data model's
+vocabulary and the screen keeps the user's.
+
+> The two senses of "course" now overlap: the main page calls a **role** a
+> course ("My Courses"), and each row inside one is also a course. That is
+> Torin's call — the role cards already read "3 courses due" meaning individual
+> items. If it ever needs separating, the role-level word is the one to change.
+
 ## The phone's header and menu (`js/mobile-nav.js`)
 
 Under **600px** the two-row header collapses to one: the SOLVE-U mark on the

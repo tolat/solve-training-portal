@@ -260,14 +260,14 @@
       available: () => isVisible($('#headerStage')),       // phones: it is in the menu
       target: () => [$('#headerStage')],
       title: 'Your onboarding stage',
-      text: 'This is where you are in onboarding. Trainings for later stages stay hidden until you reach them, so your list grows as you progress.',
+      text: 'This is where you are in onboarding. Courses for later stages stay hidden until you reach them, so your list grows as you progress.',
     },
     {
       id: 'sync', screen: 'roles',
       available: () => isVisible($('#syncBarRoles')),      // phones: it is in the menu
       target: () => [$('#syncBarRoles')],
       title: 'Staying up to date',
-      text: 'The portal refreshes itself every 15 minutes. If something has just changed, such as a new training, tap Sync now to pull it in right away.',
+      text: 'The portal refreshes itself every 15 minutes. If something has just changed, such as a new course, tap Sync now to pull it in right away.',
     },
     {
       id: 'overall', screen: 'roles',
@@ -288,19 +288,19 @@
         return el ? [$('.roles-section-title', el), $('.cert-tile', el)] : [];
       },
       title: 'My Certificates',
-      text: 'Every certificate Solve has issued you. Finish a training that awards one and it appears here — tap it to open or download your copy.',
+      text: 'Every certificate Solve has issued you. Finish a course that awards one and it appears here — tap it to open or download your copy.',
     },
     {
       id: 'role', screen: 'roles',
       target: () => { const c = firstGoCard(); return c ? [$('.role-card-head', c), $('.role-card-bar', c)] : []; },
       title: 'One card per role',
-      text: 'Each card is a role you hold at Solve. The bar shows how much of that role’s training you have completed, and an amber line underneath counts anything still due.',
+      text: 'Each card is a role you hold at Solve. The bar shows how much of that role’s courses you have completed, and an amber line underneath counts anything still due.',
     },
     {
       id: 'go', screen: 'roles',
       target: () => { const c = firstGoCard(); return c ? [$('.role-card-go', c)] : []; },
       title: 'Go to courses',
-      text: 'This opens the list of trainings for the role. Let’s look inside one.',
+      text: 'This opens the list of courses for the role. Let’s look inside one.',
     },
     {
       id: 'docs', screen: 'roles',
@@ -322,13 +322,13 @@
       id: 'course-phase', screen: 'course', needsCourse: true,
       target: () => [$('#moduleList .section-header.stage')],
       title: 'Phases',
-      text: 'Trainings are grouped by phase of your onboarding. The badge on the right shows how many in that phase are done.',
+      text: 'Courses are grouped by phase of your onboarding. The badge on the right shows how many in that phase are done.',
     },
     {
       id: 'course-module', screen: 'course', needsCourse: true,
       target: () => [pickRow()],
-      title: 'A training',
-      text: 'Each row is one training. Tap it to open it: read the material, then take the quiz, upload a document or sign, depending on what it asks for.',
+      title: 'A course',
+      text: 'Each row is one course. Tap it to open it: read the material, then take the quiz, upload a document or sign, depending on what it asks for.',
     },
     {
       id: 'course-status', screen: 'course', needsCourse: true,
@@ -337,7 +337,7 @@
       text: () => {
         const hasLocked = !!$('#moduleList .module-item.locked');
         return 'Red means it is still to do, either not completed yet or overdue. Green with a tick means it is done.'
-          + (hasLocked ? ' A padlock means it unlocks once the trainings before it are finished.' : '');
+          + (hasLocked ? ' A padlock means it unlocks once the courses before it are finished.' : '');
       },
     },
     {
@@ -381,7 +381,7 @@
       <div class="tw-stage tw-intro" aria-hidden="true">
         <div class="tw-item tw-kicker" style="--i:0">What is this?</div>
         <p class="tw-item tw-copy" style="--i:1">
-          Solve University is your home for training at Solve. Each role you hold has its own
+          Solve University is your home for your courses at Solve. Each role you hold has its own
           courses: read the material, pass a short quiz, upload or sign what is asked of you,
           and your progress is saved automatically. Your role’s handbook and Path live here
           too, always a tap away.

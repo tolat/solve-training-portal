@@ -246,7 +246,7 @@ async function initApp() {
 
   // Show loading
   showScreen('screenLoading');
-  document.getElementById('loadingText').textContent = 'Loading your training data…';
+  document.getElementById('loadingText').textContent = 'Loading your course data…';
 
   try {
     const cached = loadCache();
@@ -275,7 +275,7 @@ async function initApp() {
         // this device, however old, rather than leaving a dead screen. The sync bar shows its age.
         if (loadErr.message === 'session_expired' || !cached || cached.userEmail !== currentUser.email) throw loadErr;
         trainingData = cached;
-        SolveNet.showBanner('warn', "We couldn't refresh your training data, so you're seeing the copy saved on this device. We'll keep trying.", { autoHideMs: 12000 });
+        SolveNet.showBanner('warn', "We couldn't refresh your course data, so you're seeing the copy saved on this device. We'll keep trying.", { autoHideMs: 12000 });
         scheduleRecoverySync();
       }
     }
@@ -326,7 +326,7 @@ function scheduleRecoverySync() {
       clearInterval(recoveryTimer); recoveryTimer = null;
       if (document.getElementById('screenRoles')?.classList.contains('active')) renderRoles();
       updateSyncBar();
-      SolveNet.showBanner('ok', 'Back online — your training data is up to date ✓', { autoHideMs: 3000, dismissible: false });
+      SolveNet.showBanner('ok', 'Back online — your course data is up to date ✓', { autoHideMs: 3000, dismissible: false });
     } catch { /* still down — try again next minute */ }
   }, 60000);
 }
@@ -375,7 +375,7 @@ async function manualSync() {
       renderRoles();
     }
     updateSyncBar();
-    showToast('✅ Training data synced');
+    showToast('✅ Course data synced');
   } catch (err) {
     showToast('⚠️ Sync failed: ' + err.message);
   } finally {
@@ -526,8 +526,8 @@ function renderRoles() {
     grid.innerHTML = `
       <div style="text-align:center;padding:48px 24px;color:var(--gray);">
         <div style="font-size:36px;margin-bottom:12px;">🎓</div>
-        <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px;">No trainings available</div>
-        <div style="font-size:13px;">You have no training modules assigned at your current stage.</div>
+        <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px;">No courses available</div>
+        <div style="font-size:13px;">You have no courses assigned at your current stage.</div>
       </div>`;
   }
 
@@ -813,7 +813,7 @@ async function flushPendingCompletions() {
   }
   if (saved) {
     if (trainingData) saveCache(trainingData);
-    showToast('✅ Your completed training has been saved');
+    showToast('✅ Your completed course has been saved');
     if (document.getElementById('screenRoles')?.classList.contains('active')) renderRoles();
   }
   if (loadPending().length) schedulePendingFlush();
@@ -967,7 +967,7 @@ function renderCourse(blocksOverride, skipCompleteRedirect = false) {
         const statusText = `✓ Done${dateStr ? ' · ' + prettyDay(dateStr) : ''}`;
         addModuleItem(block, gi, 'completed', statusText, true, dispNum);
       } else if (locked) {
-        addModuleItem(block, gi, 'locked', '🔒 Complete previous trainings first', false, dispNum);
+        addModuleItem(block, gi, 'locked', '🔒 Complete previous courses first', false, dispNum);
       } else if (overdue) {
         addModuleItem(block, gi, 'overdue current', '⚠️ Overdue — Open', true, dispNum);
       } else {
@@ -986,7 +986,7 @@ function renderCourse(blocksOverride, skipCompleteRedirect = false) {
       banner.className = 'completion-notice';
       banner.innerHTML = `
         <span class="completion-notice-icon">🎉</span>
-        <span>All training complete! You can still click any module below to review its resources.</span>
+        <span>All courses complete! You can still click any module below to review its resources.</span>
       `;
       list.insertBefore(banner, list.firstChild);
       showScreen('screenCourse');
@@ -1035,20 +1035,20 @@ function renderGuidanceBlurb(block, { isSignature, isDocUpload, isHRDocUpload, n
     return;
   }
 
-  const materialsPhrase = hasMaterials ? ' and review the training materials below' : '';
+  const materialsPhrase = hasMaterials ? ' and review the course materials below' : '';
   // Signature + quiz blocks: the signature is a follow-up step after the quiz
   const signatureSuffix = needsQuiz ? ' After you pass the quiz, you\'ll sign the document to complete this module.' : '';
   const noLinkBox = document.getElementById('noLinkBox');
 
   if (isVideo) {
-    blurbEl.innerHTML = `📹 <strong>Watch the video above${materialsPhrase}</strong>, then click <strong>"I've reviewed this training — start quiz"</strong> when you're ready to take the quiz.${signatureSuffix}`;
+    blurbEl.innerHTML = `📹 <strong>Watch the video above${materialsPhrase}</strong>, then click <strong>"I've reviewed this course — start quiz"</strong> when you're ready to take the quiz.${signatureSuffix}`;
     blurbEl.style.display = 'block';
   } else if (hasLink) {
-    blurbEl.innerHTML = `🔗 <strong>Complete the training at the link above${materialsPhrase}</strong>, then click <strong>"I've reviewed this training — start quiz"</strong> when you're done.${signatureSuffix}`;
+    blurbEl.innerHTML = `🔗 <strong>Complete the course at the link above${materialsPhrase}</strong>, then click <strong>"I've reviewed this course — start quiz"</strong> when you're done.${signatureSuffix}`;
     blurbEl.style.display = 'block';
   } else {
     // No link — guide the user to review embedded materials below
-    blurbEl.innerHTML = '📄 <strong>Read or review the materials below</strong>, then click <strong>"I\'ve reviewed this training — start quiz"</strong> when you\'re ready.' + signatureSuffix;
+    blurbEl.innerHTML = '📄 <strong>Read or review the materials below</strong>, then click <strong>"I\'ve reviewed this course — start quiz"</strong> when you\'re ready.' + signatureSuffix;
     blurbEl.style.display = 'block';
     if (noLinkBox) noLinkBox.style.display = 'none'; // blurb replaces the generic noLinkBox for regular blocks
   }
@@ -1163,8 +1163,8 @@ function openBlock(index) {
       noLinkBox.textContent = isHRDocUpload
         ? '📋 Use the section below to upload your HR document. It will be filed securely.'
         : isDocUpload
-        ? '📎 Use the section below to upload your certificates or documents for this training.'
-        : '📄 This training is delivered in-person or via your manager. Review the materials below and confirm with your trainer before proceeding.';
+        ? '📎 Use the section below to upload your certificates or documents for this course.'
+        : '📄 This course is delivered in-person or via your manager. Review the materials below and confirm with your trainer before proceeding.';
     }
   }
 
@@ -1193,7 +1193,7 @@ function openBlock(index) {
       if (btnSubmit)   btnSubmit.textContent   = 'Submit Document';
     } else {
       if (uploadTitle) uploadTitle.textContent = '📎 Certificate Upload';
-      if (uploadSub)   uploadSub.textContent   = 'Upload your certificate or supporting documents to complete this training module.';
+      if (uploadSub)   uploadSub.textContent   = 'Upload your certificate or supporting documents to complete this course.';
       if (btnSubmit)   btnSubmit.textContent   = 'Submit Certificate';
     }
   } else {
@@ -1237,7 +1237,7 @@ function openBlock(index) {
     btnViewed.style.display = 'none';
     viewedConfirm.classList.remove('show');
   } else if (!isSignature || needsQuiz) {
-    btnViewed.textContent   = '✓ I\'ve reviewed this training — start quiz';
+    btnViewed.textContent   = '✓ I\'ve reviewed this course — start quiz';
     btnViewed.style.display = (passed || quizPassedAwaitingSignature.has(block.id)) ? 'none' : 'inline-flex';
   }
 
@@ -1245,7 +1245,7 @@ function openBlock(index) {
     if (!isDocUpload && !isSignature) {
       viewedConfirm.classList.add('show');
       // Update the confirmation text to a review-mode message (not the "complete quiz" prompt)
-      viewedConfirm.innerHTML = '📖 <strong>Reviewing completed training.</strong> Resources and materials are available below.';
+      viewedConfirm.innerHTML = '📖 <strong>Reviewing completed course.</strong> Resources and materials are available below.';
     }
     const dateStr = getActiveCompletedMap()[block.id]?.date || '';
     const completedHTML = `
@@ -1363,7 +1363,7 @@ function buildTrainingResourceHTML(url) {
     <div class="link-box">
       <div class="link-box-icon">🔗</div>
       <div class="link-box-text">
-        <div class="link-box-label">Training Resource</div>
+        <div class="link-box-label">Course Resource</div>
         <div class="link-box-url">
           <a href="${escHtml(url)}" target="_blank" rel="noopener">${escHtml(url)}</a>
         </div>
@@ -1616,7 +1616,7 @@ function loadMaterials(blockId, materialsDiv, showSpinner) {
 
     materialsDiv.innerHTML = `
       <div class="materials-section">
-        <div class="materials-title">📎 Training Materials</div>
+        <div class="materials-title">📎 Course Materials</div>
         ${Object.entries(groups).map(([label, flist]) => `
           <div class="material-group">
             <div class="material-group-label">${escHtml(label)}</div>
@@ -2337,7 +2337,7 @@ async function submitSignedDocument() {
 
     resultEl.className = 'quiz-result pass show';
     resultEl.innerHTML = `
-      <div class="quiz-result-title">🎉 Document signed — training complete!</div>
+      <div class="quiz-result-title">🎉 Document signed — course complete!</div>
       <div class="quiz-result-msg">Your signed document has been saved. This module is now marked complete.</div>
       <button class="btn btn-outline" onclick="goBack()">← Back to Course</button>
     `;
@@ -2468,7 +2468,7 @@ async function submitUpload() {
     } else {
       resultEl.className = 'quiz-result pass show';
       resultEl.innerHTML = `
-        <div class="quiz-result-title">🎉 Certificate uploaded — training complete!</div>
+        <div class="quiz-result-title">🎉 Certificate uploaded — course complete!</div>
         <div class="quiz-result-msg">Your document has been saved. This module is now marked complete.</div>
         <button class="btn btn-outline" onclick="goBack()">← Back to Course</button>
       `;
@@ -2638,7 +2638,7 @@ async function submitQuiz() {
         <div class="quiz-result-msg">Great work — this module is complete and recorded in Notion.</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
           ${isLast
-            ? `<button class="btn btn-primary" onclick="finishCourse()">🏆 Complete Training</button>`
+            ? `<button class="btn btn-primary" onclick="finishCourse()">🏆 Complete Course</button>`
             : `<button class="btn btn-primary" onclick="nextBlock()">Next Module →</button>`}
           <button class="btn btn-outline" onclick="goBack()">← Back to Overview</button>
         </div>
@@ -2650,10 +2650,10 @@ async function submitQuiz() {
       queueCompletion(block);
       resultDiv.innerHTML = `
         <div class="quiz-result-title">🎉 Passed! ${correct}/${questions.length} correct ⚠️</div>
-        <div class="quiz-result-msg">You passed, and it's saved on this device. We couldn't record it in the training system just now (${escHtml(err.message)}), so we'll keep trying automatically — you don't need to redo the quiz.</div>
+        <div class="quiz-result-msg">You passed, and it's saved on this device. We couldn't record it in the course system just now (${escHtml(err.message)}), so we'll keep trying automatically — you don't need to redo the quiz.</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
           ${isLast
-            ? `<button class="btn btn-primary" onclick="finishCourse()">🏆 Complete Training</button>`
+            ? `<button class="btn btn-primary" onclick="finishCourse()">🏆 Complete Course</button>`
             : `<button class="btn btn-primary" onclick="nextBlock()">Next Module →</button>`}
           <button class="btn btn-outline" onclick="goBack()">← Back to Overview</button>
         </div>
@@ -2665,7 +2665,7 @@ async function submitQuiz() {
   } else {
     resultDiv.innerHTML = `
       <div class="quiz-result-title">❌ ${correct}/${questions.length} correct — not passed</div>
-      <div class="quiz-result-msg">Review the training material and try again. You must answer all questions correctly to advance.</div>
+      <div class="quiz-result-msg">Review the course material and try again. You must answer all questions correctly to advance.</div>
       <button class="btn btn-danger" onclick="retryQuiz()">↩ Retry Quiz</button>
     `;
   }
@@ -2695,7 +2695,7 @@ function finishCourse() {
 // ============================================================
 function renderCompletion() {
   document.getElementById('completionSub').textContent =
-    `You've completed all ${currentBlocks.length} training modules. Well done, ${currentUser.name}!`;
+    `You've completed all ${currentBlocks.length} courses. Well done, ${currentUser.name}!`;
   const list = document.getElementById('completionList');
   list.innerHTML = currentBlocks.map(b => {
     const dateStr = getActiveCompletedMap()[b.id]?.date || '';
@@ -2724,7 +2724,7 @@ function showLoadError(message, retry) {
   btn.className = 'btn btn-primary';
   btn.style.marginTop = '16px';
   btn.textContent = 'Try again';
-  btn.onclick = () => { resetLoadingScreen(); txt.textContent = 'Loading your training data…'; retry(); };
+  btn.onclick = () => { resetLoadingScreen(); txt.textContent = 'Loading your course data…'; retry(); };
   txt.parentNode.appendChild(btn);
 }
 
@@ -3023,10 +3023,10 @@ function showToast(msg) {
       renderRoles();
       showScreen('screenRoles');
       updateSyncBar();
-      SolveNet.showBanner('warn', "We couldn't refresh your training data, so you're seeing the copy saved on this device. We'll keep trying.", { autoHideMs: 12000 });
+      SolveNet.showBanner('warn', "We couldn't refresh your course data, so you're seeing the copy saved on this device. We'll keep trying.", { autoHideMs: 12000 });
       scheduleRecoverySync();
       return;
     }
-    showLoadError(err.message || 'Could not load your training data.', () => location.reload());
+    showLoadError(err.message || 'Could not load your course data.', () => location.reload());
   }
 })();

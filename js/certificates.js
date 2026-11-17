@@ -139,7 +139,7 @@
       '<div class="ca-card" role="dialog" aria-modal="true" aria-label="Certificate earned">' +
         '<div class="ca-badge">🏅</div>' +
         '<h2 class="ca-title">Congratulations — you\'ve earned a certificate</h2>' +
-        '<p class="ca-sub">' + esc(cert.blockName || 'Training complete') + '</p>' +
+        '<p class="ca-sub">' + esc(cert.blockName || 'Course complete') + '</p>' +
         preview +
         '<div class="ca-actions">' +
           (url ? '<a class="ca-btn primary" href="' + esc(url) + '" target="_blank" rel="noopener" download>Download</a>' : '') +

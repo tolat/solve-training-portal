@@ -111,7 +111,7 @@
 
       let res = null, netErr = null, slowTok = 0;
       const slowTimer = quiet ? null : setTimeout(() => {
-        slowTok = showBanner('info', 'Still working — the training system is responding slowly…', { spinner: true, dismissible: false });
+        slowTok = showBanner('info', 'Still working — the course system is responding slowly…', { spinner: true, dismissible: false });
       }, SLOW_AFTER);
       try { res = await fetch(path, opts); } catch (e) { netErr = e; }
       clearTimeout(slowTimer);
@@ -129,8 +129,8 @@
           // 503 + notified: the server already e-mailed the team. Anything else may be the person's own connection.
           const notified = res && (await res.clone().json().then((d) => !!d.notified).catch(() => false));
           showBanner('error', notified
-            ? "We couldn't reach the training system. Our team has been notified — please try again in a few minutes."
-            : "We couldn't reach the training system. Please check your connection and try again in a moment.",
+            ? "We couldn't reach the course system. Our team has been notified — please try again in a few minutes."
+            : "We couldn't reach the course system. Please check your connection and try again in a moment.",
             { autoHideMs: 15000 });
         }
         if (netErr) throw netErr;
@@ -138,16 +138,16 @@
       }
 
       const wait = (res && retryAfterMs(res)) || waits[attempt - 1];
-      if (!quiet) showBanner('warn', `Having trouble reaching the training system — trying again (attempt ${attempt + 1} of ${tries})…`, { spinner: true });
+      if (!quiet) showBanner('warn', `Having trouble reaching the course system — trying again (attempt ${attempt + 1} of ${tries})…`, { spinner: true });
       await sleep(wait);
     }
   }
 
   /** The message to show when a request failed: the server's own words, or a plain-English fallback. */
   function friendlyError(res, data, netErr) {
-    if (netErr) return 'Could not reach the training system. Please check your connection and try again.';
+    if (netErr) return 'Could not reach the course system. Please check your connection and try again.';
     if (data && data.error) return data.error;
-    if (res && RETRYABLE.has(res.status)) return 'The training system is temporarily unavailable. Please try again in a few minutes.';
+    if (res && RETRYABLE.has(res.status)) return 'The course system is temporarily unavailable. Please try again in a few minutes.';
     return `Server error ${res ? res.status : ''}`.trim();
   }
 
