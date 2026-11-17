@@ -231,6 +231,10 @@
     const go = $('#rolesGrid .role-card-go');
     return go ? go.closest('.role-card') : null;
   };
+  // Phones collapse the header into one bar with a menu button; its presence is
+  // the signal, rather than a width, so it tracks the stylesheet not a guess.
+  const onPhone = () => isVisible($('.nav-burger'));
+
   const firstDocsCard = () =>
     [...document.querySelectorAll('#rolesGrid .role-card')].find(c => c.querySelector('.resource-tile')) || null;
 
@@ -240,19 +244,27 @@
 
   const STEPS = [
     {
+      // On a phone the header is one row and everything else lives behind the
+      // menu button, so this step becomes the menu and the two after it drop
+      // out — three spotlights on the same button would be silly.
       id: 'profile', screen: 'roles',
-      target: () => [isVisible($('#headerProfileBtn')) ? $('#headerProfileBtn') : $('#inlineProfileBar')],
-      title: 'Your profile',
-      text: 'Tap your name to see your account: your roles, your onboarding stage, and where to change your password.',
+      target: () => [onPhone() ? $('.nav-burger')
+                   : isVisible($('#headerProfileBtn')) ? $('#headerProfileBtn') : $('#inlineProfileBar')],
+      title: () => (onPhone() ? 'Your menu' : 'Your profile'),
+      text: () => onPhone()
+        ? 'Everything about your account is in here: your onboarding stage, your profile, Sync now, and Sign out.'
+        : 'Tap your name to see your account: your roles, your onboarding stage, and where to change your password.',
     },
     {
       id: 'stage', screen: 'roles',
+      available: () => isVisible($('#headerStage')),       // phones: it is in the menu
       target: () => [$('#headerStage')],
       title: 'Your onboarding stage',
       text: 'This is where you are in onboarding. Trainings for later stages stay hidden until you reach them, so your list grows as you progress.',
     },
     {
       id: 'sync', screen: 'roles',
+      available: () => isVisible($('#syncBarRoles')),      // phones: it is in the menu
       target: () => [$('#syncBarRoles')],
       title: 'Staying up to date',
       text: 'The portal refreshes itself every 15 minutes. If something has just changed, such as a new training, tap Sync now to pull it in right away.',
@@ -578,8 +590,10 @@
         await sleep(prefersReducedMotion() ? 60 : 420);
       }
     }
-    $('.tour-title', tip).textContent = step.title;
-    $('.tour-text', tip).textContent = typeof step.text === 'function' ? step.text() : step.text;
+    // Both may be functions: a step can read the live layout, which is how the
+    // first one becomes "Your menu" on a phone and "Your profile" on a desktop.
+    $('.tour-title', tip).textContent = typeof step.title === 'function' ? step.title() : step.title;
+    $('.tour-text',  tip).textContent = typeof step.text  === 'function' ? step.text()  : step.text;
     renderProgress();
     position(true);
     tip.classList.remove('swap');

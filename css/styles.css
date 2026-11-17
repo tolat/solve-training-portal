@@ -598,9 +598,9 @@
   .role-card-stats { display: flex; justify-content: space-between; font-size: 12px; color: var(--gray); margin-bottom: 8px; }
   .role-card-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
   .role-card-fill { height: 100%; background: var(--green); border-radius: 3px; transition: width 0.3s; }
-  .role-card-due { font-size: 11px; color: var(--warning); margin-top: 6px; font-weight: 600;
-                   display: flex; align-items: center; gap: 5px; }
-  .role-card-due svg { flex: 0 0 auto; }
+  /* .role-card-due lives in js/mobile-nav.js: the service worker serves this
+     file cache-first, so a rule added here is missing on the first load after
+     a deploy while the new markup is already there. */
 
   /* ── General Resource documents inside a role card ── */
   .role-card-resources {

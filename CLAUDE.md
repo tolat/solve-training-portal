@@ -34,6 +34,7 @@ solve-training-app/
 │   ├── net.js         # Resilient fetch (retry/wait), connection banner (window.SolveNet) — loads before app.js
 │   ├── app.js         # All frontend logic
 │   ├── certificates.js # Award modal + "My Certificates" section (window.SolveCerts)
+│   ├── mobile-nav.js  # Phone header + slide-out menu (window.SolveNav)
 │   └── tour.js        # First-login welcome screen + guided tour (window.SolveTour)
 ├── css/
 │   └── styles.css     # Dark theme (default) + light theme (body.logged-in)
@@ -93,6 +94,39 @@ Within each stage group:
 - Source of truth is the **`Portal Tour Completed`** checkbox on the employee's Company Directory page: `GET /api/tour-status` reads it, `POST /api/tour-complete` sets it (untick it in Notion to show someone the tour again). If the property is missing or the request fails, `tour.js` falls back to a per-browser flag (`localStorage` key `solveu_tour_seen_v1:<email>`, also written on completion); if storage is blocked too it never auto-starts. It waits while `currentUser.mustChangePassword` is true and starts after the forced password change (`doChangePassword`).
 - Replay: a permanent green underlined "Watch the Solve-U Walkthrough →" link under the main-page heading (`#tourLink`), plus the "Take the tour" card on the profile screen (both call `SolveTour.replay()`). The main page heading is "Welcome Back, <first name>" with a "My Courses" heading above the role cards; their styles are inline in `index.html`. `SolveTour.abort()` is called on sign-out and on a 401.
 - Steps live in the `STEPS` array: each has a `target()` returning the element(s) to spotlight; a step whose target is not visible (e.g. header hidden in embedded mode) is skipped. Its styles (`tour-*` / `tw-*`) are injected by `tour.js` itself, deliberately not in `styles.css`: the service worker serves CSS cache-first, so on the first load after a deploy new JS would otherwise run against stale CSS.
+
+## The phone's header and menu (`js/mobile-nav.js`)
+
+Under **600px** the two-row header collapses to one: the SOLVE-U mark on the
+left, **Back** (when there is one) and a menu button on the right. Everything
+the second row carried — the onboarding stage, the profile chip, Sign Out —
+plus **Sync now**, which used to sit on the main page, moves into a drawer that
+slides in from the right. Desktop is untouched: every rule is inside the media
+query.
+
+The drawer **reads** the stage from `#headerStage` and the last-synced line
+from `#syncBarRolesText` when it opens, rather than keeping its own copy, so
+the two cannot drift. `Profile` / `Sync now` / `Sign out` call `showProfile()`,
+`manualSync()` and `logout()` — resolved at click time, since `app.js` loads
+after this file.
+
+> 🔴 **It injects its own CSS, and so must anything whose markup and styling
+> ship together.** `css/styles.css` is served **cache-first** by the service
+> worker while JS is network-first, so on the first load after a deploy the new
+> markup meets the *previous* stylesheet. That is exactly what happened to the
+> "courses due" chip: the class was renamed in `app.js`, the rule was added to
+> `styles.css`, and on phones the chip rendered unstyled. Its rule now lives in
+> `mobile-nav.js` too. Bumping `CACHE_NAME` fixes the *next* load, not the one
+> that is happening.
+
+The header controls are shown by `app.js` with inline styles, so hiding them on
+a phone needs `!important`.
+
+The walkthrough follows: `onPhone()` is "is the menu button visible", not a
+width, so it tracks the stylesheet. On a phone the first step becomes the menu
+and the separate stage and sync steps drop out via `available()` — three
+spotlights on one button would be silly. A step's `title` may be a function as
+well as its `text`.
 
 ## Guidance Blurb (app.js — openBlock)
 When a training block is opened, a contextual blue info banner appears:
