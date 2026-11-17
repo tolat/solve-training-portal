@@ -930,9 +930,34 @@ function renderCourse(blocksOverride, skipCompleteRedirect = false) {
     return a.stageOrdering - b.stageOrdering;
   });
 
-  // A block is locked if it has a numeric Ordering value AND any lower-ordered block
-  // in the same ordered set is not yet completed.
+  // ── Work out the whole render order before drawing anything ───
+  // An "Unlock Sequentially" block is locked against everything ABOVE it on the
+  // page, across phases, so the finished order has to exist first.
+  //
+  // Within a phase: unordered blocks (no Ordering) come first, sorted by
+  // status; ordered blocks follow in their exact Ordering sequence.
+  const statusPri = b => isBlockCompleted(b.id) ? 0 : isBlockOverdue(b.id) ? 1 : 2;
+  const sections  = stageGroups.map(group => {
+    const unordered = group.blocks.filter(b => b.blockOrdering == null)
+      .sort((a, b) => statusPri(a) - statusPri(b));
+    const ordered = group.blocks.filter(b => b.blockOrdering != null)
+      .sort((a, b) => a.blockOrdering - b.blockOrdering);
+    return { group, ordered, rows: [...unordered, ...ordered] };
+  });
+  const sequence = sections.flatMap(s => s.rows);
+  const seqIndex = new Map(sequence.map((b, i) => [b.id, i]));
+
   function isBlockLocked(block, orderedBlocks) {
+    // "Unlock Sequentially": nothing above it on the page may be outstanding,
+    // including the phases before this one.
+    if (unlocksSequentially(block)) {
+      const upto = seqIndex.get(block.id) ?? 0;
+      for (let i = 0; i < upto; i++) {
+        if (!isBlockCompleted(sequence[i].id)) return true;
+      }
+    }
+    // The ordinary rule: a numeric Ordering, with a lower-ordered block in the
+    // same phase still outstanding.
     if (block.blockOrdering == null) return false;
     return orderedBlocks.some(
       b => b.blockOrdering < block.blockOrdering && !isBlockCompleted(b.id)
@@ -941,20 +966,10 @@ function renderCourse(blocksOverride, skipCompleteRedirect = false) {
 
   // ── Render one section per stage ──────────────────────────────
   let listPosition = 0; // fallback display number for blocks with no Ordering value
-  stageGroups.forEach((group, idx) => {
+  sections.forEach(({ group, ordered, rows }, idx) => {
     addStageHeader(group.stageName, idx, group.blocks);
 
-    // Split: unordered blocks (no Ordering) rendered first, sorted by status.
-    // Ordered blocks follow in their exact Ordering sequence — position is fixed.
-    const unordered = group.blocks.filter(b => b.blockOrdering == null);
-    const ordered   = group.blocks
-      .filter(b => b.blockOrdering != null)
-      .sort((a, b) => a.blockOrdering - b.blockOrdering);
-
-    const statusPri = b => isBlockCompleted(b.id) ? 0 : isBlockOverdue(b.id) ? 1 : 2;
-    unordered.sort((a, b) => statusPri(a) - statusPri(b));
-
-    for (const block of [...unordered, ...ordered]) {
+    for (const block of rows) {
       listPosition++;
       const gi        = blocks.indexOf(block);
       const completed = isBlockCompleted(block.id);
@@ -1641,6 +1656,15 @@ function isDocumentUploadBlock(block) {
   return (block?.types || []).some(t => t.toLowerCase().replace(/[\s_-]/g, '') === 'documentupload');
 }
 
+/**
+ * "Unlock Sequentially" — this block stays locked until **every** course above
+ * it on the page is complete, earlier phases included. The ordinary ordering
+ * rule only looks within the block's own phase.
+ */
+function unlocksSequentially(block) {
+  return (block?.types || []).some(t => t.toLowerCase().replace(/[\s_-]/g, '') === 'unlocksequentially');
+}
+
 function isHRDocumentUploadBlock(block) {
   return (block?.types || []).some(t => t.toLowerCase().replace(/[\s_-]/g, '') === 'hrdocumentupload');
 }
@@ -1659,7 +1683,8 @@ function blockNeedsQuizAndSignature(block) {
   // Completion Certificate only says a certificate is issued on completion — it does not change how the
   // block is completed either. Any new display-only tag must be added here, or every block carrying it
   // starts demanding a quiz and a signature.
-  const special = new Set(['signaturerequired', 'documentupload', 'hrdocumentupload', 'generalresource', 'completioncertificate']);
+  const special = new Set(['signaturerequired', 'documentupload', 'hrdocumentupload', 'generalresource',
+                           'completioncertificate', 'unlocksequentially']);
   return (block.types || []).some(t => !special.has(String(t).toLowerCase().replace(/[\s_-]/g, '')));
 }
 
