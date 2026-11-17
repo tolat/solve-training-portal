@@ -388,9 +388,19 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/signature_pad/4.1.7/signature_pad.umd.min.js"></script>
 <script src="js/quiz-data.js"></script>
 <script src="js/net.js"></script>
-<script src="js/app.js"></script>
+<!-- 🔴 certificates.js and tour.js MUST load before app.js.
+     app.js ends with boot(), which runs the moment the file executes, and on the
+     common path (stored token + a training cache under CACHE_TTL) it reaches
+     renderRoles() with no `await` in between — synchronously, while the parser is
+     still on this line. Both of those files only define a global (window.SolveCerts /
+     window.SolveTour) and their call sites are guarded with `if (window.X)`, so
+     loading them after app.js meant the first render silently skipped the
+     certificates section and the welcome screen on every cached reload; they only
+     appeared once a sync re-rendered the page. Neither file calls into app.js at
+     load time, so loading them first is safe. -->
 <script src="js/certificates.js"></script>
 <script src="js/tour.js"></script>
+<script src="js/app.js"></script>
 
 <!-- Service Worker + PWA install prompt -->
 <script>

@@ -226,6 +226,18 @@ All three read one cached list (`SolveCerts.list()`, 15 minutes). The cache is
 deliberately short because Notion's file URLs expire in about an hour, and
 `SolveCerts.invalidate()` runs on issuance so a new certificate appears at once.
 
+> 🔴 **`js/certificates.js` and `js/tour.js` must load before `js/app.js`.**
+> `app.js` ends with `boot()`, which runs the moment the file executes, and on the
+> common path — a stored token plus a training cache under `CACHE_TTL` — it reaches
+> `renderRoles()` with **no `await` in between**. The whole first render therefore
+> happens synchronously while the parser is still on that `<script>` tag. Both call
+> sites are guarded with `if (window.SolveCerts)` / `if (window.SolveTour)`, so with
+> those files loaded *after* `app.js` the guard just failed: the certificates
+> section **and** the first-login welcome were silently skipped on every cached
+> reload, and only appeared once a sync re-rendered the page (found 2026-11-17 —
+> "I have to click Sync now after a refresh for it to show up"). Loading them first
+> is safe; neither calls into `app.js` at load time.
+
 ### 🔴 A cached `hasCertificate: false` must never suppress issuance outright
 
 `issueCertificateFor` skips the Notion call when the cached block has no
