@@ -51,6 +51,16 @@
       '.cert-tile{display:flex;align-items:flex-start;gap:11px;padding:13px 14px;border-radius:12px;background:var(--card,#fff);border:1px solid rgba(0,0,0,.09);text-decoration:none;color:inherit;transition:transform .12s ease,box-shadow .12s ease;}',
       '.cert-tile:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(0,0,0,.09);}',
       '.cert-tile .ct-icon{font-size:22px;flex:0 0 auto;line-height:1.1;}',
+      // A thumbnail of the certificate itself, roughly the height the card had
+      // before it was added. Both templates are landscape (1.29 and 1.42), so
+      // the box sits between them and the canvas is centred inside it.
+      '.cert-tile .ct-thumb{flex:0 0 auto;width:72px;height:52px;border-radius:6px;overflow:hidden;background:#fff;border:1px solid rgba(0,0,0,.12);display:flex;align-items:center;justify-content:center;position:relative;}',
+      // Fit the WHOLE page inside the frame rather than filling it: the two
+      // templates have different aspects (1.29 and 1.42), so filling crops the
+      // foot off one of them. Constraining both sides letterboxes instead.
+      '.cert-tile .ct-thumb canvas{max-width:100%;max-height:100%;width:auto;height:auto;display:block;}',
+      // Shown until a page is rendered, and left showing if one never is.
+      '.cert-tile .ct-thumb .ct-icon{font-size:20px;}',
       // Spans are inline by default: without display:block the name and date
       // render on one line and run into each other.
       '.cert-tile .ct-body{min-width:0;display:block;}',
@@ -147,8 +157,15 @@
 
   function tile(item) {
     var f = (item.files && item.files[0]) || {};
+    var isPdf = /\.pdf(\?|$)/i.test(f.url || '') || /\.pdf$/i.test(f.name || '');
+    // The medal stays as the fallback inside the frame: it is what shows while
+    // the page renders, and what is left if pdf.js is unavailable or the fetch
+    // fails. A card with an empty white box would look broken.
+    var thumb = isPdf
+      ? '<span class="ct-thumb" data-cert-pdf="' + esc(f.url) + '"><span class="ct-icon">🏅</span></span>'
+      : '<span class="ct-icon">🏅</span>';
     return '<a class="cert-tile" href="' + esc(f.url || '#') + '" target="_blank" rel="noopener">' +
-             '<span class="ct-icon">🏅</span>' +
+             thumb +
              '<span class="ct-body">' +
                '<span class="ct-name">' + esc(item.name || 'Certificate') + '</span>' +
                '<span class="ct-date">' + esc(prettyDate(item.date)) + '</span>' +
@@ -216,6 +233,71 @@
     }
   }
 
+  /**
+   * Draw page one of a certificate into its card.
+   *
+   * Reuses the portal's existing pdf.js setup (`ensurePdfWorker` in app.js),
+   * which already renders the Quick Reference Documents thumbnails straight
+   * from Notion file URLs — so this needs no proxy, those URLs are fetchable
+   * cross-origin.
+   *
+   * Never throws: a missing thumbnail must not cost someone their certificates
+   * list. On failure the medal underneath stays showing, which is also what is
+   * visible while the page is being fetched — an empty white frame would read
+   * as broken.
+   */
+  async function drawThumb(frame) {
+    if (frame.dataset.certDrawn) return;
+    frame.dataset.certDrawn = '1';
+    try {
+      var pdf  = await pdfjsLib.getDocument(frame.dataset.certPdf).promise;
+      var page = await pdf.getPage(1);
+      var dpr  = window.devicePixelRatio || 1;
+      var base = page.getViewport({ scale: 1 });
+      var view = page.getViewport({ scale: ((frame.clientWidth || 72) * dpr) / base.width });
+
+      var canvas = document.createElement('canvas');
+      canvas.width  = view.width;
+      canvas.height = view.height;
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: view }).promise;
+
+      // Swapped in only once it has actually drawn, so a half-painted page is
+      // never on screen.
+      frame.innerHTML = '';
+      frame.appendChild(canvas);
+    } catch (err) {
+      console.warn('Certificate thumbnail failed:', err && err.message);
+    }
+  }
+
+  /**
+   * Draw the thumbnails, but only for cards the person can actually see.
+   *
+   * An issued certificate is around 1.2 MB — the fonts are embedded whole, see
+   * `certificates.js` — and drawing a 72px thumbnail means downloading the
+   * whole file. Someone with six certificates on a phone would otherwise pull
+   * 7 MB on every visit to the main page, for pictures mostly below the fold.
+   * So each one is fetched when its card first comes into view, and once only.
+   */
+  function renderThumbs(host) {
+    var frames = host.querySelectorAll('.ct-thumb[data-cert-pdf]');
+    if (!frames.length) return;
+    if (typeof ensurePdfWorker !== 'function' || !ensurePdfWorker()) return;
+
+    if (typeof IntersectionObserver !== 'function') {
+      Array.prototype.forEach.call(frames, drawThumb);   // old browser: just draw them
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        io.unobserve(e.target);
+        drawThumb(e.target);
+      });
+    }, { rootMargin: '200px' });                         // start just before it scrolls in
+    Array.prototype.forEach.call(frames, function (f) { io.observe(f); });
+  }
+
   async function renderSection() {
     injectStyles();
 
@@ -233,6 +315,7 @@
       host.innerHTML =
         '<h2 class="roles-section-title">My Certificates</h2>' +
         '<div class="cert-grid">' + items.map(tile).join('') + '</div>';
+      renderThumbs(host);
     } catch (err) {
       // A certificates list that cannot load must never take the main page with
       // it — the person still has courses to get on with.

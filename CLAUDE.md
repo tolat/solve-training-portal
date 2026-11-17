@@ -69,7 +69,7 @@ Detected via normalised string matching in `app.js`:
 - `"Signature Required"` → `isSignatureBlock()` — PDF e-signature flow
 - `"Completion Certificate"` → the block issues a certificate on completion. Display-only: it does **not** change how the block is completed (see `blockNeedsQuizAndSignature`'s `special` set in `app.js`). What actually triggers issuance is the block having a **`Certificate Template`** file, not the tag.
 - All others → quiz-based training (AI-generated quizzes stored in trainingBlockQuizzes DB)
-- `"General Resource"` → `hasGeneralResourceTag()` / `isResourceOnlyBlock()` in `server.js`. The block's **Guidance**, **Associated forms** and **Files & media** files, plus its **Training link**, are listed in a "Documents" grid on its role's card on the main page (loaded through `POST /api/resource-files`, rendered by `loadRoleResources()` in `app.js`). Combine it with other tags and the block is still a training AND appears in the grid. In practice each role has two **General Resource-only** blocks: `<Role> Path` and `<Handbook name> (complete)` (the whole handbook as one PDF), both linked to the role's Training Profile(s). A block whose **only** tag is General Resource is not a training: it is removed from `blocks`, the role's `blockIds`, the completion counts and "Other Assigned Trainings", and `regenerateQuizForBlock` skips it, so it just gets a tile on the main page.
+- `"General Resource"` → `hasGeneralResourceTag()` / `isResourceOnlyBlock()` in `server.js`. The block's **Guidance**, **Associated forms** and **Files & media** files, plus its **Training link**, are listed in a **"Quick Reference Documents"** grid on its role's card on the main page (loaded through `POST /api/resource-files`, rendered by `loadRoleResources()` in `app.js`). Combine it with other tags and the block is still a training AND appears in the grid. In practice each role has two **General Resource-only** blocks: `<Role> Path` and `<Handbook name> (complete)` (the whole handbook as one PDF), both linked to the role's Training Profile(s). A block whose **only** tag is General Resource is not a training: it is removed from `blocks`, the role's `blockIds`, the completion counts and "Other Assigned Trainings", and `regenerateQuizForBlock` skips it, so it just gets a tile on the main page.
   - **Never give a General Resource-only block a Pipeline Stage, and do not press Sync Block on it.** Training records are created by Make ("Sync Missing Trainings Universal" 4748085 → the Employee/Contractor/Dealer "Load Missing Trainings" loaders) only for blocks that sit in a person's onboarding-stage chain, which is built from Pipeline Stages. Stage-less resource blocks therefore never get records (verified 2026-10-28: all 26 have no stage and no records). Giving one a stage would start creating Overdue records for everyone in its profiles. The portal also ignores resource-only blocks even if a record existed.
 
 **Note**: The `Type` multi-select is what drives behaviour. The separate `Role Type` field is NOT used.
@@ -235,6 +235,19 @@ days later still resolves the pattern.
 All three read one cached list (`SolveCerts.list()`, 15 minutes). The cache is
 deliberately short because Notion's file URLs expire in about an hour, and
 `SolveCerts.invalidate()` runs on issuance so a new certificate appears at once.
+
+Each card carries a thumbnail of page one of the certificate itself, drawn with
+the portal's existing pdf.js setup (`ensurePdfWorker` in `app.js`) straight from
+the Notion file URL — no proxy, those URLs are fetchable cross-origin, which the
+Quick Reference Documents thumbnails already relied on. The medal shows while it
+loads and stays if it fails; an empty white frame would read as broken.
+
+> **The thumbnails load only as their cards come into view** (IntersectionObserver,
+> 200px margin, once each). An issued certificate is ~1.2 MB — the fonts are
+> embedded whole — so drawing a 72px picture means downloading the whole file.
+> Six certificates would otherwise pull 7 MB on every visit to the main page,
+> mostly for cards below the fold. Shrinking the certificates themselves is the
+> better fix and is listed under Known Issues.
 
 Each card is labelled with **what the certificate says**, not the block it came
 from — the block is "Upload Signed Onboarding Path" and the certificate is
@@ -504,3 +517,4 @@ async function notionFetch(endpoint, method = 'GET', body = null)
 1. Old training records may still hold dead links from before this fix: `https://solve-training-portal-production.up.railway.app/uploads/...` (5 records) and `http://localhost:...` (3 records). The files are gone; they need to be re-uploaded by hand.
 2. Webhook and quiz-regeneration endpoints (`/api/webhook/notion*`, `/api/regenerate-quiz/:id`, `/api/regenerate-missing-quizzes`, `/api/webhook/signature-fields`) are unauthenticated, and `express.static(__dirname)` publishes the app's own source files (never put reports or notes inside this folder). Both are known and not yet fixed. (`/api/debug/user` is now protected by `DEBUG_KEY`.)
 3. Every employee's default password is the hard-coded string in `/api/login` until they change it; the portal forces a change on first login.
+4. **An issued certificate is ~1.2 MB**, nearly all of it the Allura and Inter faces embedded whole. That is required in the *template*, where the text is not yet known (a subset would punch holes through the first Renée or Muñoz — see Typography trap 3), but by the time a certificate is **issued** the text is set and flattened, so subsetting there should be safe and would cut the file by an order of magnitude. Worth doing: it is downloaded in full for the main page's thumbnails, for the award modal's preview and on every download. Test it against the accented sample before trusting it — the existing font tests measure rendered width against the face's metrics and would catch a broken subset.

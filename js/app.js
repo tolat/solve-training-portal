@@ -618,7 +618,7 @@ function renderRoleResources(box, role, expanded) {
   const shown = expanded ? tiles : tiles.slice(0, RESOURCE_TILES_COLLAPSED);
   const more  = tiles.length - shown.length;
   box.innerHTML = `
-    <div class="materials-title">📚 Documents</div>
+    <div class="materials-title">📚 Quick Reference Documents</div>
     <div class="resource-grid">${shown.map(resourceCardHtml).join('')}</div>
     ${more > 0 ? `<button type="button" class="resource-more-btn">Show all ${tiles.length} documents</button>` : ''}
     ${expanded && tiles.length > RESOURCE_TILES_COLLAPSED ? `<button type="button" class="resource-more-btn">Show fewer</button>` : ''}
@@ -640,7 +640,7 @@ async function loadRoleResources(roles) {
     if (!box) return;
     // The grid area must never trigger the card's own click (open the role)
     box.onclick = (e) => e.stopPropagation();
-    if (!box.innerHTML) box.innerHTML = '<div class="materials-title">📚 Documents</div><p class="materials-loading">Loading documents…</p>';
+    if (!box.innerHTML) box.innerHTML = '<div class="materials-title">📚 Quick Reference Documents</div><p class="materials-loading">Loading documents…</p>';
   });
 
   const ids   = [...new Set(withDocs.flatMap(r => r.resources.map(x => x.id)))];

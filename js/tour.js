@@ -282,7 +282,7 @@
         const c = firstDocsCard();
         return c ? [$('.role-card-resources .materials-title', c), $('.role-card-resources .resource-tile', c)] : [];
       },
-      title: 'Documents',
+      title: 'Quick Reference Documents',
       text: 'Your role’s handbook, Path and any forms live here. Tap a tile to open it, any time you need to look something up.',
     },
     {
