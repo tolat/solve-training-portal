@@ -403,6 +403,15 @@ function timeSince(ts) {
 // ============================================================
 // ROLES SCREEN
 // ============================================================
+// Outstanding trainings are a to-do list, not an alarm: a calendar in the
+// theme's amber, not a red warning triangle. Inline rather than an emoji so it
+// takes the chip's colour (emoji ignore `color`) and matches at any size.
+const CALENDAR_ICON =
+  '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" ' +
+  'stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false">' +
+  '<rect x="2" y="3.5" width="12" height="10.5" rx="2"/>' +
+  '<path d="M2 7h12M5.5 1.8v3M10.5 1.8v3"/></svg>';
+
 function renderRoles() {
   if (!trainingData) return;
   const { roles, completedMap, blocks } = trainingData;
@@ -486,7 +495,7 @@ function renderRoles() {
         <span>${pct}%</span>
       </div>
       <div class="role-card-bar"><div class="role-card-fill" style="width:${pct}%"></div></div>
-      ${overdue ? `<div class="role-card-overdue">⚠️ ${overdue} overdue</div>` : ''}` : ''}
+      ${overdue ? `<div class="role-card-due">${CALENDAR_ICON}${overdue} course${overdue === 1 ? '' : 's'} due</div>` : ''}` : ''}
       ${resources.length ? `<div class="role-card-resources" data-role-id="${escHtml(role.id)}"></div>` : ''}
     `;
     if (total) card.onclick = () => openRole(role.id, role.name);

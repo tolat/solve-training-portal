@@ -264,10 +264,25 @@
       text: 'The total number of modules you have completed across every role you hold.',
     },
     {
+      // Only once they have earned one: a spotlight on an empty space, or on a
+      // section hidden because the list came back empty, is worse than no step.
+      id: 'certificates', screen: 'roles',
+      available: () => {
+        const el = document.getElementById('certSection');
+        return !!el && el.style.display !== 'none' && !!el.querySelector('.cert-tile');
+      },
+      target: () => {
+        const el = document.getElementById('certSection');
+        return el ? [$('.roles-section-title', el), $('.cert-tile', el)] : [];
+      },
+      title: 'My Certificates',
+      text: 'Every certificate Solve has issued you. Finish a training that awards one and it appears here — tap it to open or download your copy.',
+    },
+    {
       id: 'role', screen: 'roles',
       target: () => { const c = firstGoCard(); return c ? [$('.role-card-head', c), $('.role-card-bar', c)] : []; },
       title: 'One card per role',
-      text: 'Each card is a role you hold at Solve. The bar shows how much of that role’s training you have completed, and a red line counts anything overdue.',
+      text: 'Each card is a role you hold at Solve. The bar shows how much of that role’s training you have completed, and an amber line underneath counts anything still due.',
     },
     {
       id: 'go', screen: 'roles',

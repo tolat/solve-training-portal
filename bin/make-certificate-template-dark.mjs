@@ -65,14 +65,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PDFDocument, PDFName, rgb } from 'pdf-lib';
-import fontkit from '@pdf-lib/fontkit';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const src  = path.join(ROOT, 'assets', 'certificate-dark-base.pdf');
 const out  = path.join(ROOT, 'assets', 'certificate-template-dark.pdf');
 
 const doc = await PDFDocument.load(fs.readFileSync(src));
-doc.registerFontkit(fontkit);
 
 const page = doc.getPage(0);
 const { width: W, height: H } = page.getSize();
@@ -95,15 +93,22 @@ const FOOT_RULE  = 109.6;
 const BODY   = rgb(0.934, 0.947, 0.900);   // "has successfully completed all requirements for"
 const FOOT   = rgb(0.893, 0.907, 0.848);   // "KANE HAMMONTREE, CEO"
 
-// ── Fonts ────────────────────────────────────────────────────
-// Only the template's own appearance. `certificates.js` re-renders every field
-// in the face server.js maps to that field's role, so what is bound here is
-// what you see opening the template directly, not what a trainee receives.
-
-const face = async f => doc.embedFont(fs.readFileSync(path.join(ROOT, 'assets', 'fonts', f)), { subset: false });
-const script  = await face('Allura-Regular.ttf');
-const semi    = await face('Inter-SemiBold.ttf');
-const regular = await face('Inter-Regular.ttf');
+// ── Fonts: deliberately none ─────────────────────────────────
+//
+// The fields keep pdf-lib's standard Helvetica in their /DA. Nothing renders
+// in it: `certificates.js` embeds the real faces itself at issuance, calls
+// `updateAppearances(font)` on every field and then flattens, so the only
+// thing the template's /DA contributes to the finished certificate is the
+// SIZE and the COLOUR.
+//
+// Embedding Allura and Inter here as well cost ~420 KB in the template and
+// every certificate made from it — carried along by pdf-lib's object copy and
+// never drawn with, on top of the subsets issuance adds. Dropping them took an
+// issued certificate from 1.25 MB to ~300 KB, which matters because the whole
+// file is downloaded for each thumbnail on the main page.
+//
+// The trade: open the template itself and the empty fields read as Helvetica.
+// It is an internal artefact that only ever gets filled through the pipeline.
 
 const form = doc.getForm();
 
@@ -128,14 +133,13 @@ const colour = (field, c) => {
   field.acroField.setDefaultAppearance(`${red} ${green} ${blue} rg ${tf}`);
 };
 
-const field = (name, { x, y, width, height, size, font, color }) => {
+const field = (name, { x, y, width, height, size, color }) => {
   const f = form.createTextField(name);
   f.addToPage(page, { x, y, width, height, borderWidth: 0, backgroundColor: undefined });
   f.setAlignment(0);                 // left, matching the labels under each rule
   transparent(f);
-  f.updateAppearances(font);         // binds the face; also writes a fresh DA
-  f.setFontSize(size);               // ...which drops the size, so set it after
-  colour(f, color);                  // ...and the colour, so stamp it last
+  f.setFontSize(size);               // size first...
+  colour(f, color);                  // ...then the colour, which keeps the /Tf
   return f;
 };
 
@@ -144,24 +148,24 @@ const field = (name, { x, y, width, height, size, font, color }) => {
 // Size 0 = fit to the box, for both of these. See trap 3.
 field('name', {
   x: LEFT, y: NAME_RULE + 4, width: LONG_W, height: 38,
-  size: 0, font: script, color: BODY,
+  size: 0, color: BODY,
 });
 
 field('training', {
   x: LEFT, y: PROG_RULE + 2, width: LONG_W, height: 20,
-  size: 0, font: semi, color: BODY,
+  size: 0, color: BODY,
 });
 
 field('date', {
   x: LEFT, y: FOOT_RULE + 2.5, width: SHORT_W, height: 18,
-  size: 10.5, font: regular, color: FOOT,
+  size: 10.5, color: FOOT,
 });
 
 // The middle foot rule is the signature line and is left alone.
 
 field('certificate_no', {
   x: CERTNO_X, y: FOOT_RULE + 2.5, width: SHORT_W, height: 18,
-  size: 10.5, font: regular, color: FOOT,
+  size: 10.5, color: FOOT,
 });
 
 // ── Save ─────────────────────────────────────────────────────

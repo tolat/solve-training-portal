@@ -598,7 +598,9 @@
   .role-card-stats { display: flex; justify-content: space-between; font-size: 12px; color: var(--gray); margin-bottom: 8px; }
   .role-card-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
   .role-card-fill { height: 100%; background: var(--green); border-radius: 3px; transition: width 0.3s; }
-  .role-card-overdue { font-size: 11px; color: var(--danger); margin-top: 6px; font-weight: 600; }
+  .role-card-due { font-size: 11px; color: var(--warning); margin-top: 6px; font-weight: 600;
+                   display: flex; align-items: center; gap: 5px; }
+  .role-card-due svg { flex: 0 0 auto; }
 
   /* ── General Resource documents inside a role card ── */
   .role-card-resources {

@@ -553,3 +553,42 @@ test('a file name that is not ours yields nothing, so the caller can fall back',
     assert.strictEqual(titleFromCertificateFile(bad), null, `${JSON.stringify(bad)} should not yield a title`);
   }
 });
+
+test('the training and date survive the real pipeline, not just the name', async () => {
+  if (!FS.existsSync(TEMPLATE) || !FS.existsSync(FIELD_FONT)) return;
+
+  // 🔴 The two font tests above both exercise the NAME field, and the name is
+  // set in Allura. That left the Inter fields — the training, the date and the
+  // serial — completely unguarded, and on 2026-11-17 switching the issuance
+  // fonts to `{ subset: true }` shredded exactly those: "Lead Installer
+  // Certification" rendered as "a  all r C r f ca" and "17 November 2026" as
+  // "6", while the name came out perfect and all 43 tests passed.
+  //
+  // Checking the string comes back WHOLE is what catches a dropped glyph; a
+  // width check alone would not, since a shorter string is simply narrower.
+  const TRAINING = 'Lead Installer Certification';
+
+  const out = await withFieldFont().fill(FS.readFileSync(TEMPLATE), {
+    personName: 'Renée Muñoz', dateISO: '2026-11-17', trainingName: TRAINING,
+  });
+
+  const training = await textItem(out.bytes, TRAINING);
+  assert.ok(training, `"${TRAINING}" is not intact in the rendered certificate — glyphs were dropped`);
+
+  const date = await textItem(out.bytes, '17 November 2026');
+  assert.ok(date, 'the completion date is not intact in the rendered certificate');
+
+  // And it is really Inter, not Helvetica fallen back to.
+  const probe = await PDFLib.PDFDocument.create();
+  probe.registerFontkit(require('@pdf-lib/fontkit'));
+  const inter     = await probe.embedFont(FS.readFileSync(PATH.join(__dirname, '..', 'assets', 'fonts', 'Inter-SemiBold.ttf')), { subset: false });
+  const helvetica = await probe.embedFont(PDFLib.StandardFonts.Helvetica);
+  const TRAINING_PT = 17;             // must match trainingField.setFontSize()
+  const wantInter = inter.widthOfTextAtSize(TRAINING, TRAINING_PT);
+  const wantHelv  = helvetica.widthOfTextAtSize(TRAINING, TRAINING_PT);
+  const offBy = f => Math.abs(training.width - f) / f;
+  assert.ok(offBy(wantInter) < 0.02,
+    `training measured ${training.width.toFixed(1)}pt; Inter sets it at ${wantInter.toFixed(1)}pt`);
+  assert.ok(offBy(wantHelv) > 0.02,
+    `training measured ${training.width.toFixed(1)}pt, indistinguishable from Helvetica (${wantHelv.toFixed(1)}pt)`);
+});

@@ -215,8 +215,21 @@ function createCertificates({
       if (!bytes) continue;
       if (!cache.has(bytes)) {
         try {
-          // Never subset: these render text nobody has typed yet, and a subset
-          // would punch holes through the first Renée or Muñoz.
+          // 🔴 Never subset, not even here where the text IS known.
+          //
+          // It looks safe: the name, title, date and serial are all set before
+          // the save, so a subset should carry exactly the glyphs drawn. It is
+          // not. Tried on 2026-11-17 and the Inter fields came out shredded —
+          // "Lead Installer Certification" rendered as "a  all r C r f ca" and
+          // "17 November 2026" as "6", while Allura (the name) was fine. The
+          // appearance streams are built by `updateAppearances` and flattened,
+          // which evidently does not register those glyphs with pdf-lib's
+          // subsetter the way `drawText` does.
+          //
+          // It fails SILENTLY — no error, a valid PDF, and the existing font
+          // tests passed because both of them exercise the name field. The
+          // guard is now `the training and date survive the real pipeline`
+          // in test/certificates.test.js.
           cache.set(bytes, await pdfDoc.embedFont(bytes, { subset: false }));
         } catch (e) {
           log.warn(`⚠️   Certificate: could not embed the ${role} font, falling back: ${e.message}`);

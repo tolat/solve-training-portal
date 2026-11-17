@@ -370,6 +370,34 @@ operator, so the two do not fight.
 > file renders correctly everywhere it has been opened, and it predates the
 > dark template.
 
+### 🔴 Two ways NOT to shrink a certificate
+
+Both were tried on 2026-11-17, both produced a **valid PDF whose text layer is
+perfect and whose glyphs are missing**, and both passed the entire test suite.
+
+**1. `embedFont(bytes, { subset: true })` at issuance.** 1.25 MB → 277 KB, and
+the Inter fields come out shredded: "Lead Installer Certification" renders as
+`a  all r C r f ca`, "17 November 2026" as `6`, the serial as nothing. Allura
+(the name) is fine. The appearances are built by `updateAppearances` and then
+flattened, which evidently does not register those glyphs with pdf-lib's
+subsetter the way `drawText` does.
+
+**2. Pre-subsetting the font FILES with `pyftsubset` (Latin + Latin-Ext) and
+embedding those whole.** Inter 325 KB → 98 KB, issued file 458 KB, and almost
+everything renders — but the hyphen's advance is wrong, so `SU-3344-5566`
+prints as `SU-  3344-  5566`. The same class of fault as the Great Vibes `é`.
+
+> ⚠️ **Neither is detectable from the text layer.** `pdfjs.getTextContent()`
+> returns the right string, at the right width, for a page that draws nothing —
+> so a test that extracts text or measures item widths passes. Both failures
+> were found by **rasterising** (poppler and macOS CoreGraphics agree) and
+> looking. Any future attempt has to be checked the same way; there is no
+> canvas in this project, so it cannot be automated here.
+
+What did work was the template no longer embedding faces it never draws with
+(see the dark generator's "Fonts: deliberately none"): 1.25 MB → 843 KB, with
+no change to the rendered output at all.
+
 ### Design
 
 The artwork is a supplied base plate, **`assets/certificate-base.png`** —
@@ -517,4 +545,4 @@ async function notionFetch(endpoint, method = 'GET', body = null)
 1. Old training records may still hold dead links from before this fix: `https://solve-training-portal-production.up.railway.app/uploads/...` (5 records) and `http://localhost:...` (3 records). The files are gone; they need to be re-uploaded by hand.
 2. Webhook and quiz-regeneration endpoints (`/api/webhook/notion*`, `/api/regenerate-quiz/:id`, `/api/regenerate-missing-quizzes`, `/api/webhook/signature-fields`) are unauthenticated, and `express.static(__dirname)` publishes the app's own source files (never put reports or notes inside this folder). Both are known and not yet fixed. (`/api/debug/user` is now protected by `DEBUG_KEY`.)
 3. Every employee's default password is the hard-coded string in `/api/login` until they change it; the portal forces a change on first login.
-4. **An issued certificate is ~1.2 MB**, nearly all of it the Allura and Inter faces embedded whole. That is required in the *template*, where the text is not yet known (a subset would punch holes through the first Renée or Muñoz — see Typography trap 3), but by the time a certificate is **issued** the text is set and flattened, so subsetting there should be safe and would cut the file by an order of magnitude. Worth doing: it is downloaded in full for the main page's thumbnails, for the award modal's preview and on every download. Test it against the accented sample before trusting it — the existing font tests measure rendered width against the face's metrics and would catch a broken subset.
+4. **An issued certificate is ~840 KB** (was 1.25 MB until the dark template stopped embedding fonts it never draws with). The rest is the plate, ~263 KB, and the Allura and Inter faces embedded whole. It is downloaded in full for every thumbnail on the main page, so shrinking it further is worth something — but see "Two ways NOT to shrink a certificate" below before trying.
