@@ -328,11 +328,24 @@ centred on page one. A designer can supply any PDF: name the fields `name`,
 `training`, `date`, `certificate_no` and they are filled precisely; omit them
 and it still works.
 
-The dark one only *adds fields*; it draws nothing. Its coordinates were
+The dark one adds the fields and **Kane's signature**, and draws nothing else. Its coordinates were
 measured off a 150 dpi render by scanning for the plate's own rules, and its
 ink colours were sampled from the plate's own text, so a filled certificate
 matches the design that was handed over. None of the light template's
 coordinates carry over — the page is a different size.
+
+**The signature** is `assets/kane-signature.png`, drawn above the middle foot
+rule — fitted to the rule rather than placed at a fixed size, so re-cropping or
+re-scanning it moves nothing. It is optional: with no file the rule stays empty
+and the template still builds.
+
+> It is **white ink on transparent**, which is what this plate needs — a
+> signature scanned black-on-white would be invisible on it, the same trap as
+> the SOLVE-U wordmark on the light certificate, in reverse. That also makes it
+> look like an empty image in any preview that composites onto white, which is
+> exactly what happened when it was first sent: check the pixels, not the
+> preview. The shipped copy is trimmed to the ink and resized to 800px wide
+> (~440 dpi at its printed 131pt), because it rides inside every certificate.
 
 **`CERTIFICATE No.`** is the last 8 hex characters of the Training Record's
 Notion id, as `SU-XXXX-XXXX` (`certificateNumber()`). Stable across re-issues
