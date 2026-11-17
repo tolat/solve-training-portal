@@ -83,6 +83,7 @@ if (Math.round(W) !== 792 || Math.round(H) !== 612) {
 const LEFT       = 72.5;          // every rule starts here
 const LONG_W     = 450.7;         // name and programme rules
 const SHORT_W    = 138.7;         // the three foot rules
+const SIG_X      = 240.5;         // second foot rule — the signature line
 const CERTNO_X   = 408.5;         // third foot rule
 const NAME_RULE  = 258.7;
 const PROG_RULE  = 172.3;
@@ -161,7 +162,38 @@ field('date', {
   size: 10.5, color: FOOT,
 });
 
-// The middle foot rule is the signature line and is left alone.
+// ── Kane's signature, above the middle foot rule ─────────────
+//
+// Optional: no file, no signature, and the rule stays empty exactly as it was.
+// That keeps the template buildable on a checkout that does not carry it.
+//
+// 🔴 It has to be LIGHT ink. This plate is dark, and a signature scanned as
+// black-on-white or black-on-transparent is invisible on it — the same trap as
+// the SOLVE-U wordmark on the light certificate, in the opposite direction.
+// `assets/kane-signature.png` is therefore the recoloured copy: same strokes,
+// same alpha, repainted to the plate's off-white. Keep the original elsewhere.
+//
+// Fitted to the rule rather than placed at a fixed size, so re-cropping or
+// re-scanning it does not move anything: scaled to sit inside the rule's width
+// and the clear space above it, then centred on the rule and set just above it.
+
+const SIG_FILE = path.join(ROOT, 'assets', 'kane-signature.png');
+if (fs.existsSync(SIG_FILE)) {
+  const sig     = await doc.embedPng(fs.readFileSync(SIG_FILE));
+  const maxW    = SHORT_W - 8;          // a little inset from the rule's ends
+  const maxH    = 34;                   // the clear space above the rule
+  const scale   = Math.min(maxW / sig.width, maxH / sig.height);
+  const w       = sig.width  * scale;
+  const h       = sig.height * scale;
+  page.drawImage(sig, {
+    x: SIG_X + (SHORT_W - w) / 2,       // centred on the signature rule
+    y: FOOT_RULE + 3,                   // sitting on it, not crossing it
+    width: w, height: h,
+  });
+  console.log(`   signature: ${sig.width}x${sig.height}px drawn at ${w.toFixed(0)}x${h.toFixed(0)}pt`);
+} else {
+  console.log('   signature: assets/kane-signature.png not present — rule left empty');
+}
 
 field('certificate_no', {
   x: CERTNO_X, y: FOOT_RULE + 2.5, width: SHORT_W, height: 18,
