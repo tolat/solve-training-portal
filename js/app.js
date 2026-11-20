@@ -1318,7 +1318,7 @@ function openBlock(index) {
       document.getElementById('uploadResult').className = 'quiz-result pass show';
       document.getElementById('uploadResult').innerHTML = completedHTML;
     } else {
-      renderQuiz(block, true);
+      showQuiz(block, true);
       quizSection.classList.add('show');
       uploadSection.classList.remove('show');
       quizResult.className = 'quiz-result pass show';
@@ -1752,7 +1752,7 @@ function markViewed() {
     document.getElementById('uploadSection').classList.add('show');
     document.getElementById('quizSection').classList.remove('show');
   } else {
-    renderQuiz(block, false);
+    showQuiz(block, false);
     document.getElementById('quizSection').classList.add('show');
     document.getElementById('uploadSection').classList.remove('show');
     document.getElementById('quizResult').style.display = 'none';
@@ -2570,28 +2570,70 @@ function resetQuiz() {
   document.getElementById('quizResult').style.display = 'none';
 }
 
+// Blocks the server has said (404) have no quiz at all. Only for those is the generic fallback legitimate:
+// a quiz that has merely not loaded yet, or failed to load, must never turn into a 2-question "quiz" that a
+// person can pass (or that a completed block shows in review).
+const noServerQuiz = {};
+
+function hasQuiz(block) {
+  const key = block.id.replace(/-/g, '');
+  return !!(dynamicQuizzes[key] || QUIZ_MAP[key] || noServerQuiz[key]);
+}
+
 function getQuiz(block) {
   const key = block.id.replace(/-/g, '');
-  // Dynamic (AI-generated) quizzes take priority over the static QUIZ_MAP,
-  // with genericQuiz as the final fallback.
-  return dynamicQuizzes[key] || QUIZ_MAP[key] || genericQuiz(block.name);
+  // Dynamic (AI-generated) quizzes take priority over the static QUIZ_MAP;
+  // genericQuiz only when the server confirmed there is no quiz for the block.
+  return dynamicQuizzes[key] || QUIZ_MAP[key] || (noServerQuiz[key] ? genericQuiz(block.name) : null);
+}
+
+// Draw a block's quiz once it has actually loaded. Opening an already-passed block used to draw the review
+// straight away, before the fetch finished, so it showed the generic 2-question quiz instead of the real one.
+async function showQuiz(block, readonly) {
+  if (!hasQuiz(block)) {
+    const container = document.getElementById('quizQuestions');
+    container.innerHTML = '<p class="materials-loading">Loading quiz…</p>';
+    document.getElementById('btnSubmitQuiz').style.display = 'none';
+    const status = await prefetchQuizForBlock(block.id);
+    if (currentBlocks[currentBlockIndex]?.id !== block.id) return;   // they moved on while it loaded
+    if (!hasQuiz(block) || status === 'error') {
+      if (!hasQuiz(block)) {
+        container.innerHTML = '<p class="materials-loading" style="color:var(--danger)">⚠ Could not load the quiz. <button type="button" class="resource-more-btn" id="quizRetryBtn">Try again</button></p>';
+        container.querySelector('#quizRetryBtn').onclick = () => showQuiz(block, readonly);
+        return;
+      }
+    }
+  }
+  renderQuiz(block, readonly);
 }
 
 // Lazy-loads the quiz for a single block and merges it into dynamicQuizzes.
 // Called in openBlock() so the quiz is ready before the user taps "Start Quiz".
-async function prefetchQuizForBlock(blockId) {
+// Resolves 'ok' | 'none' (server says no quiz exists) | 'error' (could not find out). Requests for the
+// same block share one in-flight fetch.
+const quizFetches = {};
+function prefetchQuizForBlock(blockId) {
   const key = blockId.replace(/-/g, '');
-  if (dynamicQuizzes[key]) return; // already cached this session
-  try {
-    const data = await apiFetch(`/api/quizzes/${key}`);
-    if (data && typeof data === 'object') Object.assign(dynamicQuizzes, data);
-  } catch {
-    // 404 = no AI quiz yet; static fallback will be used — that's fine
-  }
+  if (dynamicQuizzes[key]) return Promise.resolve('ok'); // already cached this session
+  if (quizFetches[key]) return quizFetches[key];
+  quizFetches[key] = (async () => {
+    try {
+      const data = await apiFetch(`/api/quizzes/${key}`);
+      if (data && typeof data === 'object' && data[key]) { Object.assign(dynamicQuizzes, data); return 'ok'; }
+      return 'error';
+    } catch (err) {
+      if (err.status === 404) { noServerQuiz[key] = true; return 'none'; }   // no AI quiz yet: the static / generic one is right
+      return 'error';
+    } finally {
+      delete quizFetches[key];
+    }
+  })();
+  return quizFetches[key];
 }
 
 function renderQuiz(block, readonly) {
   const questions = getQuiz(block);
+  if (!questions) return;   // callers go through showQuiz(), which waits for the quiz
   const container = document.getElementById('quizQuestions');
   container.innerHTML = '';
   quizState = { selected: {} };
@@ -2631,6 +2673,7 @@ function selectOption(qi, oi) {
 async function submitQuiz() {
   const block     = currentBlocks[currentBlockIndex];
   const questions = getQuiz(block);
+  if (!questions) { showToast('⚠️ The quiz has not loaded yet — please wait a moment.'); return; }
   let allAnswered = true;
   let correct     = 0;
 
@@ -2740,7 +2783,7 @@ async function submitQuiz() {
 
 function retryQuiz() {
   const block = currentBlocks[currentBlockIndex];
-  renderQuiz(block, false);
+  showQuiz(block, false);
   document.getElementById('quizResult').style.display = 'none';
   document.getElementById('quizSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }

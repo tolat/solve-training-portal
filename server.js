@@ -664,6 +664,9 @@ async function getSessionAsync(token) {
 
 let generatedQuizzes = {};  // blockIdNoDashes → questions array (in-memory cache)
 let quizPageIds       = {};  // blockIdNoDashes → Notion page ID (for updates)
+// False until the quizzes have been read from Notion. Until then an unknown block must answer 503 (retry),
+// never 404 ("no quiz exists"): the browser treats 404 as "use the generic 2-question quiz".
+let quizzesLoaded     = false;
 
 async function loadGeneratedQuizzes() {
   try {
@@ -679,9 +682,11 @@ async function loadGeneratedQuizzes() {
         count++;
       } catch {}
     }
+    quizzesLoaded = true;
     console.log(`📚  Loaded quizzes from Notion for ${count} block(s)`);
   } catch (e) {
     console.error('⚠️   Could not load quizzes from Notion:', e.message);
+    if (!quizzesLoaded) setTimeout(() => loadGeneratedQuizzes(), 30000).unref?.();
   }
 }
 
@@ -2555,6 +2560,7 @@ app.get('/api/my-certificates', requireAuth, async (req, res) => {
 // Returns all AI-generated quizzes so the frontend can merge them
 // with the static quiz-data.js fallbacks.
 app.get('/api/quizzes', requireAuth, (req, res) => {
+  if (!quizzesLoaded) return res.status(503).set('Retry-After', '5').json({ error: 'Quizzes are still loading — try again in a moment.', retryable: true });
   res.json(generatedQuizzes);
 });
 
@@ -2564,6 +2570,7 @@ app.get('/api/quizzes', requireAuth, (req, res) => {
 app.get('/api/quizzes/:blockId', requireAuth, (req, res) => {
   const key = req.params.blockId.replace(/-/g, '');
   const quiz = generatedQuizzes[key];
+  if (!quiz && !quizzesLoaded) return res.status(503).set('Retry-After', '5').json({ error: 'Quizzes are still loading — try again in a moment.', retryable: true });
   if (!quiz) return res.status(404).json({ error: 'No quiz for this block' });
   res.json({ [key]: quiz });
 });
