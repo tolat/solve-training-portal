@@ -25,9 +25,8 @@
  *
  * ── Why it reads the header rather than holding its own state ──
  *
- * The stage and the last-synced time are already maintained by `app.js` in
- * `#headerStage` and `#syncBarRolesText`. The drawer copies them when it opens,
- * so there is nothing to keep in step and no way for the two to disagree.
+ * The bottom bar mirrors state `app.js` already keeps (`#headerBack`, `#headerSyncBtn`,
+ * the active screen) instead of holding its own, so the two cannot disagree.
  */
 (function () {
   'use strict';
@@ -84,7 +83,6 @@
       '  #headerProfileBtn{display:none !important;}',
       '  .header-controls .header-stage{display:none !important;}',
       '  .header-controls #btnLogout{display:none !important;}',
-      '  #syncBarRoles{display:none !important;}',
       '  .nav-burger{display:inline-flex;}',
       '  .header-back{height:36px;padding:0 16px;border-radius:999px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);color:rgba(255,255,255,.92);}',
       '  .header-back:active{background:rgba(255,255,255,.14);}',
@@ -165,7 +163,7 @@
     // The stage and the last-synced line are read from the header and the sync
     // bar rather than kept here, so they cannot drift out of step.
     var stage  = text('headerStage');
-    var synced = text('syncBarRolesText');
+    var synced = '';
     var who    = text('headerUser') || 'Signed in';
 
     d.innerHTML =
@@ -238,6 +236,9 @@
       '  #tabBar .tab-btn[disabled]{opacity:.3;pointer-events:none;}',
       '  #tabBar .tab-btn.on{background:rgba(78,202,90,.14);color:#fff;}',
       '  #tabBar .tab-btn.syncing svg{animation:spin .8s linear infinite;}',
+      '  /* content scrolling under the bar fades out gradually instead of being cut off by it */',
+      '  body.logged-in::after{content:"";position:fixed;left:0;right:0;bottom:0;height:calc(120px + env(safe-area-inset-bottom));z-index:8990;pointer-events:none;',
+      '    background:linear-gradient(to bottom,rgba(242,245,242,0) 0%,rgba(242,245,242,.82) 55%,#f2f5f2 82%);}',
       '  /* room for the bar, and the page starts below the status bar */',
       '  body.logged-in{padding-bottom:calc(86px + env(safe-area-inset-bottom));padding-top:env(safe-area-inset-top);}',
       '  .toast{bottom:calc(96px + env(safe-area-inset-bottom)) !important;}',

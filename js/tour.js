@@ -276,11 +276,11 @@
     },
     {
       id: 'sync', screen: 'roles',
-      available: () => isVisible($('#headerSyncBtn')) || isVisible($('#syncBarRoles')) || isVisible($('#tabSync')),   // phones: it is in the menu
-      target: () => [isVisible($('#headerSyncBtn')) ? $('#headerSyncBtn') : isVisible($('#tabSync')) ? $('#tabSync') : $('#syncBarRoles')],
+      available: () => isVisible($('#headerSyncBtn')) || isVisible($('#tabSync')),
+      target: () => [isVisible($('#headerSyncBtn')) ? $('#headerSyncBtn') : $('#tabSync')],
       title: 'Staying up to date',
       text: () => 'The portal refreshes itself every 15 minutes. If something has just changed, such as a new course, tap '
-        + (isVisible($('#headerSyncBtn')) ? 'Sync' : 'Sync now') + ' to pull it in right away.',
+        + 'Sync in the navigation bar to pull it in right away.',
     },
     {
       id: 'overall', screen: 'roles',

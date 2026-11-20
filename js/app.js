@@ -335,11 +335,8 @@ function scheduleRecoverySync() {
 // SYNC
 // ============================================================
 async function manualSync() {
-  const btn      = document.getElementById('syncNowBtn');
-  const btnRoles = document.getElementById('syncNowBtnRoles');
+  // The only Sync control is in the navbar now (desktop header button; the phone bar mirrors its state)
   const btnHead  = document.getElementById('headerSyncBtn');
-  if (btn)      { btn.classList.add('syncing');      btn.disabled      = true; }
-  if (btnRoles) { btnRoles.classList.add('syncing'); btnRoles.disabled = true; }
   if (btnHead)  { btnHead.classList.add('syncing');  btnHead.disabled  = true; }
   try {
     // Anything completed while the back end was down goes first, so the refresh below can't hide it
@@ -381,8 +378,6 @@ async function manualSync() {
   } catch (err) {
     showToast('⚠️ Sync failed: ' + err.message);
   } finally {
-    if (btn)      { btn.classList.remove('syncing');      btn.disabled      = false; }
-    if (btnRoles) { btnRoles.classList.remove('syncing'); btnRoles.disabled = false; }
     if (btnHead)  { btnHead.classList.remove('syncing');  btnHead.disabled  = false; }
   }
 }
@@ -390,14 +385,13 @@ async function manualSync() {
 function updateSyncBar() {
   if (!trainingData) return;
   const ago = timeSince(trainingData.syncedAt);
-  document.getElementById('syncBarText').textContent = `Last synced: ${ago}`;
-  const rolesText = document.getElementById('syncBarRolesText');
-  if (rolesText) rolesText.textContent = `Last synced: ${ago}`;
-  // Desktop navbar: the sync bars are hidden there, so the time lives beside the button
+  // Desktop navbar: the time lives beside the Sync button; on phones it is the bar button's tooltip
   const headText = document.getElementById('headerSyncText');
   if (headText) headText.textContent = `Synced ${ago}`;
   const headBtn = document.getElementById('headerSyncBtn');
   if (headBtn) headBtn.title = `Sync course data (last synced ${ago})`;
+  const tabSync = document.getElementById('tabSync');
+  if (tabSync) tabSync.title = `Sync (last synced ${ago})`;
 }
 
 /**

@@ -1018,8 +1018,7 @@
     /* Back + Sign Out: matching ghost pills, with a divider before the pair */
     .header-btn-group { padding-left: 14px; border-left: 1px solid rgba(255,255,255,0.12); }
 
-    /* Sync lives in the navbar on desktop; the on-page sync bars are redundant there */
-    #syncBarRoles, #syncBar { display: none; }
+    /* Sync lives in the navbar */
     .header-sync-text { display: inline; font-size: 12px; color: rgba(255,255,255,0.5); white-space: nowrap; margin-right: 2px; }
     .header-sync {
       display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px 0 13px;
