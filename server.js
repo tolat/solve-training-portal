@@ -17,6 +17,7 @@ const path       = require('path');
 const fs         = require('fs');
 const nodemailer = require('nodemailer');
 const resilience = require('./resilience');
+const { webhookGuard } = require('./webhook-guard');
 const multer     = require('multer');
 require('dotenv').config();
 
@@ -549,7 +550,21 @@ function refreshCacheShared(maxAgeMs = 5 * 60 * 1000) {
 // Background refreshes (24h timer, Notion webhooks) must not leave the cache stale because Notion
 // had a bad minute: after notionFetch's own retries fail, wait and try the whole refresh again.
 // The old cache stays in use meanwhile (refreshCache only swaps it in at the very end).
+// Notion fires several automations per edit (a bulk edit fires hundreds), each posting to a webhook that calls this.
+// Requests that arrive while a refresh is running collapse into ONE catch-up refresh afterwards, so the cache still
+// ends up current but a burst costs two refreshes instead of one per request.
+let reliableRefresh = null, reliableRefreshAgain = false;
 async function refreshCacheReliably(source) {
+  if (reliableRefresh) { reliableRefreshAgain = true; return reliableRefresh; }
+  reliableRefresh = (async () => {
+    try { await refreshCacheWithRetries(source); }
+    finally { reliableRefresh = null; }
+    if (reliableRefreshAgain) { reliableRefreshAgain = false; return refreshCacheReliably(`${source} (catch-up)`); }
+  })();
+  return reliableRefresh;
+}
+
+async function refreshCacheWithRetries(source) {
   const waits = [20000, 60000, 180000];
   for (let i = 0; ; i++) {
     try {
@@ -1150,7 +1165,46 @@ Rules:
   return questions;
 }
 
-async function regenerateQuizForBlock(blockId) {
+// ── Guard rails for quiz regeneration ─────────────────────────
+// Each run is a full Opus call over the block's PDFs (real money), and callers (Notion fires several automations per
+// edit) can ask for the same block many times. So: (1) only valid Notion ids; (2) one run per block at a time -
+// requests that arrive during a run collapse into ONE more run afterwards, so the quiz still reflects the latest
+// edit; (3) an hourly cap (QUIZ_REGEN_PER_HOUR, default 60) that e-mails when it trips. `bypassCap` is for the
+// authenticated bulk endpoint.
+const quizRuns = new Map();       // block key -> { promise, again }
+const quizRunTimes = [];          // start times of runs in the last hour
+let quizCapAlertedAt = 0;
+async function regenerateQuizForBlock(blockId, { bypassCap = false } = {}) {
+  const key = String(blockId || '').replace(/-/g, '').toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(key)) { console.warn(`⚠️   Ignoring quiz regeneration for an invalid block id`); return; }
+
+  const running = quizRuns.get(key);
+  if (running) { running.again = true; return running.promise; }
+
+  const now = Date.now();
+  while (quizRunTimes.length && now - quizRunTimes[0] > 3600 * 1000) quizRunTimes.shift();
+  const cap = Number(process.env.QUIZ_REGEN_PER_HOUR) || 60;
+  if (!bypassCap && quizRunTimes.length >= cap) {
+    console.warn(`🚫  Quiz regeneration skipped for ${key}: hourly cap of ${cap} reached`);
+    if (now - quizCapAlertedAt > 3600 * 1000) {
+      quizCapAlertedAt = now;
+      resilience.reportError('Quiz regeneration hourly cap reached', new Error(`More than ${cap} quiz regenerations in an hour — further requests are being skipped until the hour rolls over. A bulk edit in Notion, or someone calling the webhook, is the usual cause.`)).catch(() => {});
+    }
+    return;
+  }
+  quizRunTimes.push(now);
+
+  const entry = { again: false };
+  entry.promise = (async () => {
+    try { await regenerateQuizForBlockNow(blockId); }
+    finally { quizRuns.delete(key); }
+    if (entry.again) return regenerateQuizForBlock(blockId, { bypassCap });
+  })();
+  quizRuns.set(key, entry);
+  return entry.promise;
+}
+
+async function regenerateQuizForBlockNow(blockId) {
   // Normalise to no-dashes for both cache lookup and storage key
   const key   = blockId.replace(/-/g, '');
   const dashId = blockId.includes('-') ? blockId
@@ -1247,6 +1301,11 @@ app.get('/:file', (req, res, next) => {
 
 // Serve uploaded certificate files
 // (No /uploads route: files are stored in Notion, and multer's temp copies are deleted after upload.)
+
+// Notion automations call the four /api/webhook/* endpoints. They are in 'log' mode (never blocked, but a call
+// without a valid secret is logged) until every automation sends the secret; set WEBHOOK_ENFORCE_NOTION=1 to
+// start rejecting calls that don't. Make's /api/regenerate-quiz and the bulk endpoint enforce from day one.
+const notionWebhookGuard = webhookGuard(() => (process.env.WEBHOOK_ENFORCE_NOTION === '1' ? 'enforce' : 'log'));
 
 // Auth middleware
 function requireAuth(req, res, next) {
@@ -2455,7 +2514,7 @@ app.get('/api/quizzes/:blockId', requireAuth, (req, res) => {
 //
 // The endpoint immediately returns 200 and processes in the background
 // so Notion's 10-second webhook timeout is never hit.
-app.post('/api/webhook/notion', async (req, res) => {
+app.post('/api/webhook/notion', notionWebhookGuard, async (req, res) => {
   // Acknowledge immediately — Notion has a short timeout
   res.json({ ok: true, message: 'Received — processing in background' });
 
@@ -2470,13 +2529,10 @@ app.post('/api/webhook/notion', async (req, res) => {
     if (blockId) {
       await regenerateQuizForBlock(blockId);
     } else {
-      // No specific block — regenerate quizzes for ALL blocks that have
-      // content (notes or page children), up to a reasonable limit
-      console.log('🤖  No specific blockId — regenerating quizzes for all blocks...');
-      const blockIds = Object.keys(cache.blocks);
-      for (const id of blockIds) {
-        await regenerateQuizForBlock(id);
-      }
+      // A request with no block used to regenerate EVERY block's quiz (hundreds of Opus calls) for anyone who
+      // posted to this address. It now only refreshes the cache; bulk regeneration is the authenticated
+      // /api/regenerate-missing-quizzes.
+      console.log('🔔  Notion webhook with no block id — cache refreshed, no quizzes regenerated');
     }
   } catch (err) {
     console.error('❌  Webhook processing error:', err.message);
@@ -2486,7 +2542,7 @@ app.post('/api/webhook/notion', async (req, res) => {
 // ─── POST /api/regenerate-quiz/:blockId ───────────────────────
 // Manual trigger — useful when setting up or testing quiz generation.
 // Protected by the same WEBHOOK_SECRET.
-app.post('/api/regenerate-quiz/:blockId', async (req, res) => {
+app.post('/api/regenerate-quiz/:blockId', webhookGuard('enforce'), async (req, res) => {
   const { blockId } = req.params;
 
   // Ensure cache is fresh
@@ -2503,7 +2559,7 @@ app.post('/api/regenerate-quiz/:blockId', async (req, res) => {
 // Regenerates quizzes only for blocks that don't already have one in
 // quizzes-generated.json. Safe to call at any time — won't overwrite
 // existing generated quizzes.
-app.post('/api/regenerate-missing-quizzes', async (req, res) => {
+app.post('/api/regenerate-missing-quizzes', webhookGuard('strict'), async (req, res) => {
   if (!process.env.ANTHROPIC_API_KEY) {
     return res.status(503).json({ error: 'ANTHROPIC_API_KEY is not set — quiz generation disabled.' });
   }
@@ -2523,7 +2579,7 @@ app.post('/api/regenerate-missing-quizzes', async (req, res) => {
   (async () => {
     console.log(`🤖  regenerate-missing-quizzes: ${missing.length} blocks to generate`);
     for (const blockId of missing) {
-      await regenerateQuizForBlock(blockId).catch(e =>
+      await regenerateQuizForBlock(blockId, { bypassCap: true }).catch(e =>
         console.warn(`⚠️  Quiz generation failed for ${blockId}:`, e.message)
       );
     }
@@ -2538,7 +2594,7 @@ app.post('/api/regenerate-missing-quizzes', async (req, res) => {
 // Setup in Notion:
 //   Trigger : "Page added" (or "Page updated") on the Roles database
 //   Action  : Send HTTP request → POST https://<your-domain>/api/webhook/notion/role
-app.post('/api/webhook/notion/role', async (req, res) => {
+app.post('/api/webhook/notion/role', notionWebhookGuard, async (req, res) => {
   res.json({ ok: true, message: 'Received — refreshing cache in background' });
   console.log('🔔  Notion webhook: new/updated Role — refreshing cache');
   try {
@@ -2556,7 +2612,7 @@ app.post('/api/webhook/notion/role', async (req, res) => {
 // Setup in Notion:
 //   Trigger : "Page added" (or "Page updated") on the Training Profiles database
 //   Action  : Send HTTP request → POST https://<your-domain>/api/webhook/notion/profile
-app.post('/api/webhook/notion/profile', async (req, res) => {
+app.post('/api/webhook/notion/profile', notionWebhookGuard, async (req, res) => {
   res.json({ ok: true, message: 'Received — refreshing cache in background' });
   console.log('🔔  Notion webhook: new/updated Training Profile — refreshing cache');
   try {
@@ -2775,7 +2831,7 @@ app.delete('/api/block/:blockId/signing-cache', requireAuth, (req, res) => {
 // Fired by Notion automation on any Training Block page update.
 // Block ID comes from the "Record ID" field in the automation payload.
 // Only runs field detection if the block's Type includes "Signature Required".
-app.post('/api/webhook/signature-fields', async (req, res) => {
+app.post('/api/webhook/signature-fields', notionWebhookGuard, async (req, res) => {
   res.json({ ok: true, message: 'Received' });
 
   // Notion automations send the page ID in a field called "Record ID"
