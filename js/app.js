@@ -653,7 +653,13 @@ function injectSkeletonStyles() {
       background-size: 400% 100%; animation: solveSkel 1.4s ease infinite;
     }
     @keyframes solveSkel { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
-    @media (prefers-reduced-motion: reduce) { .skel-thumb, .skel-line { animation: none; } }`;
+    /* document cover: shimmer until the image / first PDF page has actually painted */
+    .material-card-thumb.thumb-loading {
+      background: linear-gradient(90deg, rgba(128,128,128,.12) 25%, rgba(128,128,128,.24) 37%, rgba(128,128,128,.12) 63%);
+      background-size: 400% 100%; animation: solveSkel 1.4s ease infinite;
+    }
+    .material-card-thumb.thumb-loading .material-card-ext-badge { opacity: .55; }
+    @media (prefers-reduced-motion: reduce) { .skel-thumb, .skel-line, .material-card-thumb.thumb-loading { animation: none; } }`;
   document.head.appendChild(st);
 }
 
@@ -1548,6 +1554,7 @@ function materialHoverOverlay(label) {
 }
 
 function materialCardHtml(f) {
+  injectSkeletonStyles();
   const ext  = getFileExt(f.name || f.url || '');
   const url  = escHtml(f.url);
   const name = escHtml(f.name);
@@ -1555,8 +1562,8 @@ function materialCardHtml(f) {
   if (MATERIAL_IMAGE_EXTS.includes(ext)) {
     return `
       <a class="material-card" href="${url}" target="_blank" rel="noopener" title="${name}">
-        <div class="material-card-thumb">
-          <img src="${url}" alt="${name}" loading="lazy">
+        <div class="material-card-thumb thumb-loading">
+          <img src="${url}" alt="${name}" loading="lazy" onload="this.parentNode.classList.remove('thumb-loading')" onerror="this.parentNode.classList.remove('thumb-loading')">
           ${materialHoverOverlay('Open ↗')}
         </div>
       </a>`;
@@ -1564,7 +1571,7 @@ function materialCardHtml(f) {
   if (ext === 'pdf') {
     return `
       <a class="material-card" href="${url}" target="_blank" rel="noopener" title="${name}">
-        <div class="material-card-thumb" data-pdf-url="${url}">
+        <div class="material-card-thumb thumb-loading" data-pdf-url="${url}">
           <canvas></canvas>
           <span class="material-card-icon" style="display:none">📕</span>
           <span class="material-card-ext-badge">PDF</span>
@@ -1626,6 +1633,7 @@ async function renderPdfThumbnails(container) {
       canvas.width = viewport.width;
       canvas.height = viewport.height;
       await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      thumbEl.classList.remove('thumb-loading');
     } catch (e) {
       console.error('PDF thumbnail render failed for', url, e);
       showMaterialThumbFallback(thumbEl);
@@ -1634,6 +1642,7 @@ async function renderPdfThumbnails(container) {
 }
 
 function showMaterialThumbFallback(thumbEl) {
+  thumbEl.classList.remove('thumb-loading');
   thumbEl.querySelector('canvas')?.remove();
   const iconEl = thumbEl.querySelector('.material-card-icon');
   if (iconEl) iconEl.style.display = '';
