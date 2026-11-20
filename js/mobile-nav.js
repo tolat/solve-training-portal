@@ -208,24 +208,95 @@
     if (burger) burger.setAttribute('aria-expanded', 'true');
   }
 
-  // ── The button in the header ────────────────────────────────
+  // ── The bottom bar (phones) ─────────────────────────────────
+  // Back / Sync / Profile with the wordmark, fixed to the bottom where a thumb reaches. The top header is
+  // hidden on phones, so the page's own background runs up under the status bar ("forehead") unbroken.
+  var TAB = {
+    back:    '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+    sync:    ICON.sync.replace('width="18" height="18"', 'width="22" height="22"'),
+    profile: ICON.person.replace('width="18" height="18"', 'width="22" height="22"'),
+  };
+
+  function injectBarStyles() {
+    if (document.getElementById('solve-tabbar-styles')) return;
+    var el = document.createElement('style');
+    el.id = 'solve-tabbar-styles';
+    el.textContent = [
+      '#tabBar{display:none;}',
+      '@media ' + MOBILE + '{',
+      '  #appHeader{display:none !important;}',
+      '  body.logged-in #tabBar{display:flex;position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));z-index:9000;',
+      '    align-items:center;gap:2px;padding:6px 8px 6px 14px;border-radius:24px;',
+      '    background:linear-gradient(180deg,rgba(16,38,26,.97) 0%,rgba(9,22,12,.97) 100%);border:1px solid rgba(78,202,90,.22);',
+      '    box-shadow:0 8px 28px rgba(0,0,0,.28),0 1px 0 rgba(255,255,255,.04) inset;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);}',
+      '  #tabBar .tab-logo{height:22px;width:auto;flex:0 0 auto;margin-right:auto;display:block;}',
+      '  #tabBar .tab-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:62px;height:50px;padding:0 6px;border:0;border-radius:16px;',
+      '    background:transparent;color:rgba(255,255,255,.78);font:600 10.5px/1 -apple-system,"Segoe UI",sans-serif;letter-spacing:.2px;cursor:pointer;appearance:none;-webkit-appearance:none;',
+      '    -webkit-tap-highlight-color:transparent;transition:background .15s,color .15s,opacity .15s;}',
+      '  #tabBar .tab-btn svg{display:block;color:#7fe38a;}',
+      '  #tabBar .tab-btn:active{background:rgba(78,202,90,.16);color:#fff;}',
+      '  #tabBar .tab-btn[disabled]{opacity:.3;pointer-events:none;}',
+      '  #tabBar .tab-btn.on{background:rgba(78,202,90,.14);color:#fff;}',
+      '  #tabBar .tab-btn.syncing svg{animation:spin .8s linear infinite;}',
+      '  /* room for the bar, and the page starts below the status bar */',
+      '  body.logged-in{padding-bottom:calc(86px + env(safe-area-inset-bottom));padding-top:env(safe-area-inset-top);}',
+      '  .toast{bottom:calc(96px + env(safe-area-inset-bottom)) !important;}',
+      '  #pwaInstallBtn{bottom:calc(96px + env(safe-area-inset-bottom)) !important;}',
+      '  .sign-nav{top:calc(env(safe-area-inset-top) + 8px) !important;}',
+      '  #btnProfileSignOut{display:flex !important;}',
+      '}',
+    ].join('\n');
+    document.head.appendChild(el);
+  }
+
+  function setThemeColor() {
+    // The browser paints its own chrome (the "forehead") from this: match the page it sits above.
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (!m) return;
+    m.setAttribute('content', document.body.classList.contains('logged-in') ? '#f2f5f2' : '#0b1a0e');
+  }
 
   function mount() {
     injectStyles();
-    if (document.querySelector('.nav-burger')) return;
-    var host = document.querySelector('#appHeader .header-controls');
-    if (!host) return;
+    injectBarStyles();
+    setThemeColor();
+    new MutationObserver(setThemeColor).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    if (document.getElementById('tabBar')) return;
 
-    var b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'nav-burger';
-    b.setAttribute('aria-label', 'Menu');
-    b.setAttribute('aria-expanded', 'false');
-    b.innerHTML = ICON.burger;
-    b.addEventListener('click', function () {
-      document.getElementById('navDrawer') ? close() : open();
+    var bar = document.createElement('nav');
+    bar.id = 'tabBar';
+    bar.setAttribute('aria-label', 'Main');
+    bar.innerHTML =
+      '<img class="tab-logo" src="solve_logo.png?v=3" alt="Solve University">' +
+      '<button type="button" class="tab-btn" id="tabBack"    aria-label="Back">'    + TAB.back    + 'Back</button>' +
+      '<button type="button" class="tab-btn" id="tabSync"    aria-label="Sync">'    + TAB.sync    + 'Sync</button>' +
+      '<button type="button" class="tab-btn" id="tabProfile" aria-label="Profile">' + TAB.profile + 'Profile</button>';
+    document.body.appendChild(bar);
+
+    bar.addEventListener('click', function (e) {
+      var b = e.target.closest('.tab-btn');
+      if (!b || b.disabled) return;
+      if (b.id === 'tabBack'    && typeof goBack     === 'function') goBack();
+      if (b.id === 'tabSync'    && typeof manualSync === 'function') manualSync();
+      if (b.id === 'tabProfile' && typeof showProfile === 'function') showProfile();
     });
-    host.appendChild(b);
+
+    // Mirror state the app already keeps rather than holding our own: Back is on only when the
+    // header's Back is, Sync spins while the header's Sync spins, Profile lights on the profile screen.
+    var back = document.getElementById('headerBack'), sync = document.getElementById('headerSyncBtn');
+    var tb = document.getElementById('tabBack'), ts = document.getElementById('tabSync'), tp = document.getElementById('tabProfile');
+    function refresh() {
+      var hasBack = !!back && getComputedStyle(back).display !== 'none';
+      tb.disabled = !hasBack;
+      if (sync) ts.classList.toggle('syncing', sync.classList.contains('syncing'));
+      var prof = document.getElementById('screenProfile');
+      tp.classList.toggle('on', !!prof && prof.classList.contains('active'));
+    }
+    var mo = new MutationObserver(refresh);
+    if (back) mo.observe(back, { attributes: true, attributeFilter: ['style'] });
+    if (sync) mo.observe(sync, { attributes: true, attributeFilter: ['class'] });
+    document.querySelectorAll('.screen').forEach(function (sc) { mo.observe(sc, { attributes: true, attributeFilter: ['class'] }); });
+    refresh();
   }
 
   if (document.readyState === 'loading') {

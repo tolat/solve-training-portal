@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <!-- No pinch / double-tap zoom: zooming breaks the app's fixed layout, sticky bars and overlays. Three layers because
      browsers differ: the viewport above (Android / Chrome; also stops iOS zooming into a focused input), the CSS rule
      below (double-tap zoom, incl. iOS), and the gesture events (iOS Safari ignores user-scalable for pinch). -->
@@ -16,10 +16,10 @@
 
 <!-- PWA -->
 <link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#1a7a4a">
+<meta name="theme-color" content="#0b1a0e">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Solve University">
 <link rel="apple-touch-icon" href="solve_icon.png">
 
@@ -384,6 +384,8 @@
       <input class="form-input" type="password" id="pwConfirm" placeholder="Repeat new password" autocomplete="new-password">
     </div>
     <button class="btn btn-primary" id="btnChangePassword" onclick="doChangePassword()" style="margin-top:4px;">Update Password</button>
+    <!-- Phones only (the bottom bar has no Sign out) -->
+    <button class="btn btn-outline" id="btnProfileSignOut" type="button" onclick="confirmSignOut()" style="display:none;margin-top:12px;width:100%;justify-content:center;">Sign out</button>
   </div>
 
 </div>

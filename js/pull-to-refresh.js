@@ -39,7 +39,7 @@
   var MAX       = 160;   // the asymptote of the rubber band, px
   var THRESHOLD = 96;    // past this, releasing refreshes — a deliberate stroke
   var RESTING   = 96;    // where the spinner sits while it works
-  var TOP_GAP   = 56;    // the phone header's height: the spinner clears it
+  var TOP_GAP   = 20;    // no top header on phones any more (the nav is at the bottom): just clear the status bar
   var HIDE      = 48;    // parked above the viewport (the disc plus its shadow)
 
   var startY = 0, dist = 0, tracking = false, armed = false, busy = false;
@@ -108,7 +108,7 @@
 
   /** Anything over the page, or a screen where stealing the gesture would hurt. */
   function blocked() {
-    if (document.getElementById('navDrawer')) return true;
+    if (document.getElementById('navDrawer') || document.getElementById('signOutConfirm')) return true;
     if (document.getElementById('certAwardOverlay')) return true;
     if (document.querySelector('.tour-layer.show, .tw-intro.in')) return true;
     if (document.querySelector('#screenSign.active')) return true;

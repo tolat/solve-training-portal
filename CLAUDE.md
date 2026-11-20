@@ -140,29 +140,35 @@ vocabulary and the screen keeps the user's.
 > Torin's call — the role cards already read "3 courses due" meaning individual
 > items. If it ever needs separating, the role-level word is the one to change.
 
-## The phone's header and menu (`js/mobile-nav.js`)
+## The phone's bottom bar (`js/mobile-nav.js`)
 
-Under **600px** the two-row header collapses to one: the SOLVE-U mark on the
-left, **Back** (when there is one) and a menu button on the right. Everything
-the second row carried — the onboarding stage, the profile chip, Sign Out —
-plus **Sync now**, which used to sit on the main page, moves into a drawer that
-slides in from the right. Desktop is untouched: every rule is inside the media
-query.
+Under **600px** the top header is **hidden** and a floating bar sits at the
+bottom, where a thumb reaches: the SOLVE-U wordmark on the left and **Back**,
+**Sync** and **Profile** on the right. **Sign out** lives at the bottom of the
+Profile screen (`#btnProfileSignOut`, asks first via `confirmSignOut()`); the
+onboarding stage is on the Profile screen too. Desktop keeps its own navbar:
+every phone rule is inside the media query. The old slide-out drawer code is
+still in the file but nothing opens it.
 
-The drawer **reads** the stage from `#headerStage` and the last-synced line
-from `#syncBarRolesText` when it opens, rather than keeping its own copy, so
-the two cannot drift. `Profile` / `Sync now` / `Sign out` call `showProfile()`,
-`manualSync()` and `logout()` — resolved at click time, since `app.js` loads
-after this file.
+The bar **mirrors state the app already keeps** instead of holding its own:
+Back is disabled when `#headerBack` is hidden, Sync spins while `#headerSyncBtn`
+has `.syncing`, Profile lights while `#screenProfile` is active (MutationObservers).
+Clicks call `goBack()` / `manualSync()` / `showProfile()` at click time, since
+`app.js` loads after this file. The page gets `padding-bottom` for the bar and
+`padding-top: env(safe-area-inset-top)`; the toast, install button and signature
+"next" bar are moved to clear it.
+
+**The "forehead" (status bar / notch area) matches the page.** With the dark top
+header gone the page background runs up under it. `index.html` has
+`viewport-fit=cover`, status-bar style `default` (light bar, dark text) and a
+`theme-color` meta that `mobile-nav.js` flips between `#f2f5f2` (signed in, light)
+and `#0b1a0e` (login, dark) as `body.logged-in` changes.
 
 > 🔴 **It injects its own CSS, and so must anything whose markup and styling
-> ship together.** `css/styles.css` is served **cache-first** by the service
-> worker while JS is network-first, so on the first load after a deploy the new
-> markup meets the *previous* stylesheet. That is exactly what happened to the
-> "courses due" chip: the class was renamed in `app.js`, the rule was added to
-> `styles.css`, and on phones the chip rendered unstyled. Its rule now lives in
-> `mobile-nav.js` too. Bumping `CACHE_NAME` fixes the *next* load, not the one
-> that is happening.
+> ship together.** The stylesheet used to be served cache-first, so on the first
+> load after a deploy new markup met the *previous* stylesheet. It is
+> network-first now (see "Service worker"), but a phone still running an older
+> worker can show the old CSS once, so phone-only rules live here too.
 
 The header controls are shown by `app.js` with inline styles, so hiding them on
 a phone needs `!important`.

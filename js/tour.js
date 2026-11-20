@@ -233,7 +233,7 @@
   };
   // Phones collapse the header into one bar with a menu button; its presence is
   // the signal, rather than a width, so it tracks the stylesheet not a guess.
-  const onPhone = () => isVisible($('.nav-burger'));
+  const onPhone = () => isVisible($('#tabBar'));
 
   const firstDocsCard = () =>
     [...document.querySelectorAll('#rolesGrid .role-card')].find(c => c.querySelector('.resource-tile')) || null;
@@ -260,11 +260,11 @@
       // menu button, so this step becomes the menu and the two after it drop
       // out — three spotlights on the same button would be silly.
       id: 'profile', screen: 'roles',
-      target: () => [onPhone() ? $('.nav-burger')
+      target: () => [onPhone() ? $('#tabBar')
                    : isVisible($('#headerProfileBtn')) ? $('#headerProfileBtn') : $('#inlineProfileBar')],
-      title: () => (onPhone() ? 'Your menu' : 'Your profile'),
+      title: () => (onPhone() ? 'Your navigation bar' : 'Your profile'),
       text: () => onPhone()
-        ? 'Everything about your account is in here: your onboarding stage, your profile, Sync now, and Sign out.'
+        ? 'Back, Sync and your Profile live here, always within thumb reach. Your profile also has your onboarding stage and Sign out.'
         : 'Tap your name to see your account: your roles, your onboarding stage, and where to change your password.',
     },
     {
@@ -276,8 +276,8 @@
     },
     {
       id: 'sync', screen: 'roles',
-      available: () => isVisible($('#headerSyncBtn')) || isVisible($('#syncBarRoles')),   // phones: it is in the menu
-      target: () => [isVisible($('#headerSyncBtn')) ? $('#headerSyncBtn') : $('#syncBarRoles')],
+      available: () => isVisible($('#headerSyncBtn')) || isVisible($('#syncBarRoles')) || isVisible($('#tabSync')),   // phones: it is in the menu
+      target: () => [isVisible($('#headerSyncBtn')) ? $('#headerSyncBtn') : isVisible($('#tabSync')) ? $('#tabSync') : $('#syncBarRoles')],
       title: 'Staying up to date',
       text: () => 'The portal refreshes itself every 15 minutes. If something has just changed, such as a new course, tap '
         + (isVisible($('#headerSyncBtn')) ? 'Sync' : 'Sync now') + ' to pull it in right away.',
