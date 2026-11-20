@@ -1931,6 +1931,9 @@ app.get('/api/training-data', requireAuth, async (req, res) => {
       syncedAt: cache.ts,
       userPageId,
       onboardingStage,
+      // lets a browser that holds a valid sign-in but no saved copy (cleared storage) rebuild who is signed in
+      name: req.session.name || null,
+      email: req.session.email || null,
       roles,
       _debug_blockCount: blocks.length,
       _debug_contractorPageIds: contractorPageIds,

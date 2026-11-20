@@ -635,6 +635,35 @@ function resourceCardHtml(tile) {
     .replace('class="material-card material-card-clickable"', 'class="material-card material-card-clickable resource-tile"');
 }
 
+// Placeholder tiles shown while the document list loads: same grid, same tile shape, so nothing jumps
+// when the real ones arrive. Styles are injected here (not styles.css) because the service worker serves
+// the stylesheet cache-first: new markup would otherwise meet the previous deploy's CSS.
+function injectSkeletonStyles() {
+  if (document.getElementById('solveSkeletonStyles')) return;
+  const st = document.createElement('style');
+  st.id = 'solveSkeletonStyles';
+  st.textContent = `
+    .skel-tile { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--white, #fff); min-width: 0; }
+    .skel-thumb { aspect-ratio: 4 / 3; width: 100%; }
+    .skel-label { padding: 10px; border-top: 1px solid var(--border); }
+    .skel-line { height: 9px; border-radius: 5px; margin-bottom: 7px; }
+    .skel-line:last-child { width: 60%; margin-bottom: 0; }
+    .skel-thumb, .skel-line {
+      background: linear-gradient(90deg, rgba(128,128,128,.12) 25%, rgba(128,128,128,.24) 37%, rgba(128,128,128,.12) 63%);
+      background-size: 400% 100%; animation: solveSkel 1.4s ease infinite;
+    }
+    @keyframes solveSkel { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+    @media (prefers-reduced-motion: reduce) { .skel-thumb, .skel-line { animation: none; } }`;
+  document.head.appendChild(st);
+}
+
+function resourceSkeletonHtml(role) {
+  injectSkeletonStyles();
+  const n = Math.min(RESOURCE_TILES_COLLAPSED, Math.max(2, (role.resources || []).length));
+  const tile = '<div class="skel-tile"><div class="skel-thumb"></div><div class="skel-label"><div class="skel-line"></div><div class="skel-line"></div></div></div>';
+  return `<div class="resource-grid" role="status" aria-label="Loading documents">${tile.repeat(n)}</div>`;
+}
+
 function renderRoleResources(box, role, expanded) {
   const tiles = resourceTilesFor(role);
   if (!tiles.length) {
@@ -669,7 +698,7 @@ async function loadRoleResources(roles) {
     if (!box) return;
     // The grid area must never trigger the card's own click (open the role)
     box.onclick = (e) => e.stopPropagation();
-    if (!box.innerHTML) box.innerHTML = '<div class="materials-title">📚 Quick Reference Documents</div><p class="materials-loading">Loading documents…</p>';
+    if (!box.innerHTML) box.innerHTML = `<div class="materials-title">📚 Quick Reference Documents</div>${resourceSkeletonHtml(role)}`;
   });
 
   const ids   = [...new Set(withDocs.flatMap(r => r.resources.map(x => x.id)))];
@@ -3022,7 +3051,10 @@ function showToast(msg) {
       showStageBadge(currentUser.onboardingStage);
     } else {
       const data = await apiFetch('/api/training-data');
-      trainingData = { ...data, userEmail: currentUser?.email, name: currentUser?.name, roles: data.roles || [] };
+      // A sign-in with no saved copy on the device (storage cleared) has no user yet: take it from the response
+      if (!currentUser) currentUser = { name: data.name || data.email || '', email: data.email || '', onboardingStage: null };
+      document.getElementById('headerUser').textContent = currentUser.name;
+      trainingData = { ...data, userEmail: currentUser.email, name: currentUser.name, roles: data.roles || [] };
       if (data.onboardingStage) {
         currentUser.onboardingStage = data.onboardingStage;
         showStageBadge(data.onboardingStage);

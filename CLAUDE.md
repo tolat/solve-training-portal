@@ -99,6 +99,10 @@ Within each stage group:
 - Replay: a permanent green underlined "Watch the Solve-U Walkthrough →" link under the main-page heading (`#tourLink`), plus the "Take the tour" card on the profile screen (both call `SolveTour.replay()`). The main page heading is "Welcome Back, <first name>" with a "My Courses" heading above the role cards; their styles are inline in `index.html`. `SolveTour.abort()` is called on sign-out and on a 401.
 - Steps live in the `STEPS` array: each has a `target()` returning the element(s) to spotlight; a step whose target is not visible (e.g. header hidden in embedded mode) is skipped. Its styles (`tour-*` / `tw-*`) are injected by `tour.js` itself, deliberately not in `styles.css`: the service worker serves CSS cache-first, so on the first load after a deploy new JS would otherwise run against stale CSS.
 
+**Quick Reference Documents show skeleton tiles while loading** (`resourceSkeletonHtml` in `app.js`; same grid and tile shape as the real ones so nothing jumps; styles injected by `injectSkeletonStyles`, not `styles.css`, for the cache-first reason above).
+
+> 🔴 **Phone course rows must never be wider than their row.** `.module-status` in `mobile-nav.js` has `margin-left: 46px`, so its flex-basis has to be `calc(100% - 46px)`, not `100%`: with `100%` it overflowed by 46px and the whole role courses page scrolled sideways (found 2026-11-20). When hunting a sideways scroll, compare `documentElement.scrollWidth` with `clientWidth` at 375px and list elements whose `getBoundingClientRect().right` exceeds it.
+
 ## Pull down to refresh (`js/pull-to-refresh.js`)
 
 Phones only. Drag past the top and a spinner comes down with the finger; let go

@@ -93,7 +93,9 @@
       // beside the badge and drops to the next line — which is what put the
       // number circle on its own row above the locked handbook parts.
       '  .module-info{min-width:0;}',
-      '  .module-status{flex:1 0 100%;margin-left:46px;}',   // 32px badge + 14px gap
+      // The indent is part of the row's width: a 100% basis plus a 46px margin
+      // is 46px more than the row, which pushed the whole page sideways.
+      '  .module-status{flex:1 0 calc(100% - 46px);margin-left:46px;}',   // 32px badge + 14px gap
       '}',
     ].join('\n');
     document.head.appendChild(el);
