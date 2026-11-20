@@ -499,7 +499,7 @@
     font-size: 13px; font-weight: 500;
     opacity: 0; transition: opacity 0.3s;
     pointer-events: none; z-index: 999;
-    white-space: nowrap;
+    width: max-content; max-width: calc(100vw - 32px); text-align: center;
   }
   .toast.show { opacity: 1; }
 

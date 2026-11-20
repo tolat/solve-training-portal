@@ -92,6 +92,9 @@
       // title's own width, and with flex-wrap on, a long title no longer fits
       // beside the badge and drops to the next line — which is what put the
       // number circle on its own row above the locked handbook parts.
+      // The toast is `white-space: nowrap`, so a long message ("You can watch the
+      // walkthrough again any time...") ran off both edges of a phone.
+      '  .toast{white-space:normal;width:max-content;max-width:calc(100vw - 32px);box-sizing:border-box;text-align:center;line-height:1.4;}',
       '  .module-info{min-width:0;}',
       // The indent is part of the row's width: a 100% basis plus a 46px margin
       // is 46px more than the row, which pushed the whole page sideways.
