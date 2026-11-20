@@ -18,6 +18,7 @@ const fs         = require('fs');
 const nodemailer = require('nodemailer');
 const resilience = require('./resilience');
 const { webhookGuard } = require('./webhook-guard');
+const { signToken, verifyToken } = require('./session-token');
 const multer     = require('multer');
 require('dotenv').config();
 
@@ -588,9 +589,16 @@ async function refreshCacheWithRetries(source) {
 const sessions = new Map();
 const SESSION_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+// With SESSION_SECRET set a token is a signed `v1.<payload>.<mac>` (session-token.js) that survives restarts and
+// deploys: after one, getSessionAsync() verifies it and re-reads the person from Notion. Without it, tokens are random
+// strings that live only in this table (everyone is signed out by every deploy), as before.
 function createSession(data) {
-  const token = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, { ...data, expiresAt: Date.now() + SESSION_TTL });
+  const exp = Date.now() + SESSION_TTL;
+  const key = process.env.SESSION_SECRET;
+  const token = key
+    ? signToken({ p: data.pageId, e: data.email || '', exp, j: crypto.randomBytes(6).toString('hex') }, key)
+    : crypto.randomBytes(32).toString('hex');
+  sessions.set(token, { ...data, expiresAt: exp });
   // Cleanup old sessions occasionally
   if (sessions.size > 500) {
     for (const [k, v] of sessions) if (v.expiresAt < Date.now()) sessions.delete(k);
@@ -603,6 +611,49 @@ function getSession(token) {
   const s = sessions.get(token);
   if (!s || s.expiresAt < Date.now()) { sessions.delete(token); return null; }
   return s;
+}
+
+// A genuine, unexpired signed token that this process has no session for (it restarted): rebuild the session from the
+// person's Company Directory page. Returns null for a bad / expired / revoked token or someone no longer in the
+// directory; THROWS if Notion could not be reached (the caller must not treat that as "signed out").
+const revokedTokens = new Set();     // logged out since this process started (so they cannot be revived)
+const rehydrating   = new Map();     // token -> in-flight promise: one Notion read however many requests arrive at once
+async function getSessionAsync(token) {
+  const live = getSession(token);
+  if (live) return live;
+  const key = process.env.SESSION_SECRET;
+  if (!key || revokedTokens.has(token)) return null;
+  const payload = verifyToken(token, key);
+  if (!payload || !NOTION_ID_RE.test(String(payload.p))) return null;
+  if (rehydrating.has(token)) return rehydrating.get(token);
+
+  const job = (async () => {
+    let page;
+    try {
+      page = await notionFetchFiltered(`/pages/${payload.p}`, 'GET', null, PROPS.directoryUser);
+    } catch (e) {
+      if (/Notion API (400|403|404)/.test(e.message)) return null;   // no such person any more
+      throw e;                                                       // Notion unreachable: not the person's fault
+    }
+    if (!page || page.archived || page.in_trash) return null;
+    const email = (emailVal(prop(page, 'Email')) || '').toLowerCase().trim();
+    if (payload.e && email && payload.e.toLowerCase() !== email) return null;   // their address changed: sign in again
+    const data = {
+      pageId: page.id,
+      name: titleTxt(prop(page, 'Name')),
+      email: email || payload.e || '',
+      roleIds: relIds(prop(page, 'Roles')),
+      onboardingStage: prop(page, 'Ordered Onboarding Stage')?.select?.name || null,
+      contractorPageIds: relIds(prop(page, 'Contractor Pages')),
+      dealerOrgPageIds: relIds(prop(page, 'Dealer Organizations')),
+    };
+    const s = { ...data, expiresAt: payload.exp };
+    sessions.set(token, s);
+    console.log(`♻️   Session restored after restart: ${data.name}`);
+    return s;
+  })().finally(() => rehydrating.delete(token));
+  rehydrating.set(token, job);
+  return job;
 }
 
 // ─── Generated quiz store ─────────────────────────────────────
@@ -1308,9 +1359,17 @@ app.get('/:file', (req, res, next) => {
 const notionWebhookGuard = webhookGuard(() => (process.env.WEBHOOK_ENFORCE_NOTION === '1' ? 'enforce' : 'log'));
 
 // Auth middleware
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-  const session = getSession(token);
+  let session = getSession(token);
+  if (!session) {
+    try { session = await getSessionAsync(token); }
+    catch (e) {
+      // Notion hiccup while restoring a session after a restart: ask the app to retry, never sign the person out
+      console.warn('⚠️   Could not restore a session (Notion unavailable):', e.message);
+      return res.status(503).set('Retry-After', '5').json({ error: 'The training system is reconnecting. Please try again in a moment.', retryable: true });
+    }
+  }
   if (!session) return res.status(401).json({ error: 'Not authenticated' });
   req.session = session;
   resilience.setContextUser(session);
@@ -1366,6 +1425,8 @@ app.post('/api/login', async (req, res) => {
 app.post('/api/logout', requireAuth, (req, res) => {
   const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   sessions.delete(token);
+  revokedTokens.add(token);
+  if (revokedTokens.size > 5000) revokedTokens.delete(revokedTokens.values().next().value);
   res.json({ ok: true });
 });
 

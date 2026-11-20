@@ -14,7 +14,7 @@ Node.js/Express training portal for SOLVE Energy, deployed on Railway. Employees
 
 ## Environment Variables (set in Railway)
 - `NOTION_TOKEN` — Notion integration token
-- `SESSION_SECRET` — express-session secret
+- `SESSION_SECRET` — signs sign-in tokens so people stay signed in across deploys (see "Sign-in tokens survive deploys"); changing it signs everyone out
 - `APP_URL` — public Railway URL (must be set for file URLs to work correctly)
 - `PORT` — set by Railway automatically
 - `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` — mail server (password-recovery e-mails **and failure alerts**). Gmail needs an app password. If unset, alerts are only logged.
@@ -201,6 +201,15 @@ HR document uploads use Notion's File Upload API (NOT external URLs):
 - Do NOT set `Content-Type` header manually on the send step — fetch sets it with boundary automatically
 
 **Certificate uploads (`/api/upload-certificate`) and signed documents (`/api/sign-document`) use the same flow** (`uploadFileToNotion` / `uploadBytesToNotion` + `notionFileRef`): the file is stored by Notion and the training record's `Certificates` property references it as a `file_upload`. Nothing is kept on the server's disk (multer's temp copy is deleted after upload) and there is no `/uploads` route. Do not go back to linking files by the portal's own URL: Railway's disk is wiped on every deploy and those links die (5 records already lost their files this way in Oct 2026). Re-uploading replaces the record's `Certificates` list.
+
+## Sign-in tokens survive deploys (`session-token.js`, `getSessionAsync` in `server.js`)
+With **`SESSION_SECRET`** (Railway) set, a token is `v1.<payload>.<HMAC-SHA256>`; the payload is only `{p: Notion page id, e: e-mail, exp, j}`. After a restart the in-memory session table is empty, so `requireAuth` calls `getSessionAsync`: it verifies the signature and expiry, re-reads the person's Company Directory page (one Notion call, shared by concurrent requests via `rehydrating`) and rebuilds `{pageId, name, email, roleIds, onboardingStage, contractorPageIds, dealerOrgPageIds}`. Results:
+- **Genuine token, person still in the directory with the same e-mail** → signed in as if nothing happened (log line `Session restored after restart`).
+- **Tampered / wrong key / expired / malformed / person removed or archived / e-mail changed** → 401 (the app returns to the login screen).
+- **Notion unreachable during the restore** → **503 `retryable`**, never 401: the app's retry layer waits and tries again, so a Notion hiccup right after a deploy does not sign anyone out.
+- **Changing `SESSION_SECRET` signs everybody out** (the emergency switch). Logout adds the token to an in-memory revoked list, so it cannot be revived until the process restarts (a token revoked before a restart works again until it expires, at most 7 days: accepted).
+- **`SESSION_SECRET` unset** → random tokens, in-memory only, exactly the old behaviour (every deploy signs everyone out). Never lose the variable: set it once in Railway and leave it.
+- After a deploy every returning user costs one Notion read on their first request; the shared 2.7/s pacing queue absorbs that.
 
 ## Session Data (req.session)
 ```js
@@ -639,7 +648,7 @@ Notion allows ~3 calls/second for the whole integration, shared by every user; t
 - **`filter_properties`**: reads ask Notion for only the properties the portal uses (`PROPS` in `server.js`). The Company Directory page has ~160 properties incl. formulas and Roles took 3.9 s unfiltered vs 0.4 s filtered. **Keep `PROPS` in step with the code that reads each row** — a property that is read but not listed comes back missing. A listed property that was renamed/removed in Notion makes Notion answer 400; `notionFetchFiltered` then reads unfiltered and e-mails a warning (nothing breaks, it just gets slower). Not filtered: the contractor/dealer page and record reads in `/api/training-data`, `/api/complete`, uploads.
 - **Uploads**: at most `MAX_CONCURRENT_UPLOADS` (4) files are in memory / on their way to Notion at once (`withUploadSlot`); 60 people uploading a 5 MB photo together peaked at 1.1 GB before, ~240 MB now. Temp files get a random suffix so two same-named uploads in the same millisecond can't share a path.
 - `issueCertificateFor` returns early (no Notion call) when the cached block has no `Certificate Template`; the tour flag is cached on the session once true.
-- Railway: one replica, limit 24 GB RAM / 24 vCPU. Sessions are in memory, so any restart or deploy logs everyone out: don't deploy during a live training session, and avoid editing Training Blocks in Notion then (the webhook does a full refresh + quiz regeneration).
+- Railway: one replica, limit 24 GB RAM / 24 vCPU. **With `SESSION_SECRET` set, a deploy no longer signs anyone out** (see "Sign-in tokens" below). Without it sessions are in memory only and every deploy signs everyone out. Avoid editing Training Blocks in Notion during a live training session (the webhook does a refresh + quiz regeneration).
 
 ## notionFetch Helper
 ```js
