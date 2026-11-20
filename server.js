@@ -2899,7 +2899,11 @@ app.post('/api/webhook/signature-fields', notionWebhookGuard, async (req, res) =
   res.json({ ok: true, message: 'Received' });
 
   // Notion automations send the page ID in a field called "Record ID"
-  const blockId = req.body?.['Record ID'] || req.body?.id || req.body?.blockId || null;
+  // The automation's standard payload (apiVersion 2026-03-11) carries the page as `data.id`; the older custom
+  // body used "Record ID". `/api/webhook/notion` already read `data.id`, this one did not, so every call said
+  // "no Record ID" and signing-field detection never ran (seen 2026-11-20).
+  const rawId = req.body?.['Record ID'] || req.body?.id || req.body?.blockId || req.body?.data?.id || null;
+  const blockId = typeof rawId === 'string' ? rawId : null;
   if (!blockId) {
     console.log('🔔  signature-fields webhook: no Record ID in payload');
     return;
