@@ -45,32 +45,38 @@
       '.role-card-due{font-size:11px;color:var(--warning);margin-top:6px;font-weight:600;display:flex;align-items:center;gap:5px;}',
       '.role-card-due svg{flex:0 0 auto;}',
 
-      '.nav-burger{display:none;width:38px;height:38px;align-items:center;justify-content:center;padding:0;border-radius:8px;background:rgba(78,202,90,.1);border:1px solid rgba(78,202,90,.25);color:var(--green,#4eca5a);cursor:pointer;appearance:none;-webkit-appearance:none;flex:0 0 auto;}',
-      '.nav-burger:active{background:rgba(78,202,90,.22);}',
+      '.nav-burger{display:none;width:40px;height:40px;align-items:center;justify-content:center;padding:0;border-radius:999px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);color:#7fe38a;cursor:pointer;appearance:none;-webkit-appearance:none;flex:0 0 auto;transition:background .18s,border-color .18s;}',
+      '.nav-burger:active,.nav-burger[aria-expanded="true"]{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.3);}',
 
-      '#navDrawerBack{position:fixed;inset:0;z-index:10090;background:rgba(6,14,8,.55);opacity:0;transition:opacity .22s ease;}',
+      '#navDrawerBack{position:fixed;inset:0;z-index:10090;background:rgba(6,14,8,.6);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);opacity:0;transition:opacity .22s ease;}',
       '#navDrawerBack.in{opacity:1;}',
-      '#navDrawer{position:fixed;top:0;right:0;bottom:0;z-index:10091;width:min(82vw,320px);background:#0b1a0e;color:#fff;',
+      '#navDrawer{position:fixed;top:0;right:0;bottom:0;z-index:10091;width:min(82vw,320px);background:linear-gradient(180deg,#10261a 0%,#0a190e 100%);color:#fff;border-radius:22px 0 0 22px;border-left:1px solid rgba(78,202,90,.2);',
         'box-shadow:-10px 0 40px rgba(0,0,0,.5);transform:translateX(100%);transition:transform .24s cubic-bezier(.2,.7,.3,1);',
         'display:flex;flex-direction:column;padding:calc(14px + env(safe-area-inset-top)) 0 calc(14px + env(safe-area-inset-bottom));overscroll-behavior:contain;}',
       '#navDrawer.in{transform:translateX(0);}',
-      '#navDrawer .nav-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:4px 16px 14px;border-bottom:1px solid rgba(78,202,90,.16);}',
+      '#navDrawer .nav-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 16px 16px;border-bottom:1px solid rgba(255,255,255,.08);}',
+      '#navDrawer .nav-person{display:flex;align-items:center;gap:12px;min-width:0;}',
+      '#navDrawer .nav-avatar{flex:0 0 auto;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;',
+        'background:linear-gradient(100deg,#3aae4a,#5ad768);color:#0b1a0e;font:800 18px -apple-system,"Segoe UI",sans-serif;box-shadow:0 2px 8px rgba(40,160,60,.35);}',
       '#navDrawer .nav-who{min-width:0;}',
-      '#navDrawer .nav-name{font:700 15px -apple-system,"Segoe UI",sans-serif;margin-bottom:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
-      '#navDrawer .nav-stage{display:inline-block;font:700 11px -apple-system,"Segoe UI",sans-serif;text-transform:uppercase;letter-spacing:.5px;',
-        'padding:4px 10px;border-radius:20px;background:rgba(78,202,90,.15);color:var(--green,#4eca5a);border:1px solid rgba(78,202,90,.3);}',
-      '#navDrawer .nav-close{flex:0 0 auto;width:32px;height:32px;border-radius:8px;background:transparent;border:0;color:rgba(255,255,255,.65);font-size:22px;line-height:1;cursor:pointer;}',
-      '#navDrawer .nav-items{padding:10px 10px 0;display:flex;flex-direction:column;gap:2px;}',
-      '#navDrawer .nav-item{display:flex;align-items:center;gap:12px;width:100%;padding:13px 12px;border:0;border-radius:10px;background:transparent;',
-        'color:#fff;font:600 15px -apple-system,"Segoe UI",sans-serif;text-align:left;cursor:pointer;appearance:none;-webkit-appearance:none;}',
-      '#navDrawer .nav-item:active{background:rgba(78,202,90,.14);}',
-      '#navDrawer .nav-item svg{flex:0 0 auto;opacity:.8;}',
-      '#navDrawer .nav-item.danger{color:#ff9a8f;}',
+      '#navDrawer .nav-name{font:700 15px -apple-system,"Segoe UI",sans-serif;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+      '#navDrawer .nav-stage{display:inline-flex;align-items:center;gap:7px;font:700 11px -apple-system,"Segoe UI",sans-serif;text-transform:uppercase;letter-spacing:.6px;',
+        'padding:4px 11px 4px 9px;border-radius:999px;background:rgba(78,202,90,.10);color:#7fe38a;border:1px solid rgba(78,202,90,.28);}',
+      '#navDrawer .nav-stage:before{content:"";width:6px;height:6px;border-radius:50%;background:#5ad768;box-shadow:0 0 0 3px rgba(90,215,104,.18),0 0 7px rgba(90,215,104,.6);}',
+      '#navDrawer .nav-close{flex:0 0 auto;width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);color:rgba(255,255,255,.75);font-size:20px;line-height:1;cursor:pointer;}',
+      '#navDrawer .nav-items{padding:14px 12px 0;display:flex;flex-direction:column;gap:8px;}',
+      '#navDrawer .nav-item{display:flex;align-items:center;gap:12px;width:100%;padding:14px 16px;border:1px solid rgba(255,255,255,.12);border-radius:16px;background:rgba(255,255,255,.05);',
+        'color:#fff;font:600 15px -apple-system,"Segoe UI",sans-serif;text-align:left;cursor:pointer;appearance:none;-webkit-appearance:none;transition:background .15s,border-color .15s;}',
+      '#navDrawer .nav-item:active{background:rgba(78,202,90,.16);border-color:rgba(78,202,90,.4);}',
+      '#navDrawer .nav-item svg{flex:0 0 auto;opacity:.9;color:#7fe38a;}',
+      '#navDrawer .nav-item.danger{color:#ffb4ab;background:rgba(248,113,113,.07);border-color:rgba(248,113,113,.28);margin-top:6px;}',
+      '#navDrawer .nav-item.danger svg{color:#ff9a8f;}',
+      '#navDrawer .nav-item.danger:active{background:rgba(248,113,113,.18);}',
       '#navDrawer .nav-synced{margin-top:auto;padding:14px 22px 2px;font:500 12px -apple-system,"Segoe UI",sans-serif;color:rgba(255,255,255,.45);}',
 
       // ── The single-row header, phones only ──
       '@media ' + MOBILE + '{',
-      '  #appHeader{flex-direction:row;align-items:center;}',
+      '  #appHeader{flex-direction:row;align-items:center;background:linear-gradient(180deg,rgba(14,32,18,.95) 0%,rgba(9,22,12,.93) 100%);box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 4px 18px rgba(0,0,0,.28);}',
       '  .header-main{height:56px;padding:0 14px;flex:1;min-width:0;}',
       '  .header-controls{height:56px;padding:0 12px 0 0;border-top:none;background:none;gap:8px;justify-content:flex-end;}',
       // These three are shown by app.js with an inline style, so overriding
@@ -80,7 +86,8 @@
       '  .header-controls #btnLogout{display:none !important;}',
       '  #syncBarRoles{display:none !important;}',
       '  .nav-burger{display:inline-flex;}',
-      '  .header-back{height:34px;}',
+      '  .header-back{height:36px;padding:0 16px;border-radius:999px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);color:rgba(255,255,255,.92);}',
+      '  .header-back:active{background:rgba(255,255,255,.14);}',
 
       // ── Course rows ──
       // The status sits to the right of the title on a desktop. On a phone that
@@ -159,12 +166,16 @@
     // bar rather than kept here, so they cannot drift out of step.
     var stage  = text('headerStage');
     var synced = text('syncBarRolesText');
+    var who    = text('headerUser') || 'Signed in';
 
     d.innerHTML =
       '<div class="nav-head">' +
-        '<div class="nav-who">' +
-          '<div class="nav-name">' + esc(text('headerUser') || 'Signed in') + '</div>' +
-          (stage ? '<span class="nav-stage">' + esc(stage) + '</span>' : '') +
+        '<div class="nav-person">' +
+          '<div class="nav-avatar" aria-hidden="true">' + esc((who.charAt(0) || '?').toUpperCase()) + '</div>' +
+          '<div class="nav-who">' +
+            '<div class="nav-name">' + esc(who) + '</div>' +
+            (stage ? '<span class="nav-stage">' + esc(stage) + '</span>' : '') +
+          '</div>' +
         '</div>' +
         '<button type="button" class="nav-close" aria-label="Close menu">&times;</button>' +
       '</div>' +
@@ -184,7 +195,7 @@
       // Resolved at click time: app.js defines these and may load after us.
       if (act === 'profile' && typeof showProfile === 'function') showProfile();
       if (act === 'sync'    && typeof manualSync  === 'function') manualSync();
-      if (act === 'out'     && typeof logout      === 'function') logout();
+      if (act === 'out') { if (typeof confirmSignOut === 'function') confirmSignOut(); else if (typeof logout === 'function') logout(); }
     });
 
     document.body.appendChild(back);

@@ -749,46 +749,24 @@
 
   /* ─── PWA Install Button ─── */
   #pwaInstallBtn {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    border: none;
-    padding: 0;
-    cursor: pointer;
-    background: transparent;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
-    /* Use visibility+opacity instead of display:none so Safari transitions work */
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    position: fixed; bottom: 24px; right: 24px;
+    height: 46px; padding: 0 20px 0 16px; gap: 9px;
+    border: none; border-radius: 999px; cursor: pointer;
+    background: var(--btn-grad, linear-gradient(100deg, #3aae4a 0%, #5ad768 100%));
+    color: #0b1a0e; font: 700 14px/1 inherit; font-family: inherit; letter-spacing: 0.1px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.28), 0 4px 14px rgba(40,160,60,0.30);
+    display: flex; align-items: center; justify-content: center;
     z-index: 9999;
-    visibility: hidden;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.25s ease, visibility 0.25s ease, transform 0.18s ease, box-shadow 0.18s ease;
+    /* visibility + opacity rather than display:none so Safari transitions work */
+    visibility: hidden; opacity: 0; pointer-events: none;
+    transition: opacity 0.25s ease, visibility 0.25s ease, background 0.2s, box-shadow 0.2s;
   }
-  #pwaInstallBtn.pwa-visible {
-    visibility: visible;
-    opacity: 1;
-    pointer-events: auto;
-  }
-  #pwaInstallBtn:hover {
-    transform: scale(1.08);
-    box-shadow: 0 6px 22px rgba(0,0,0,0.45);
-  }
-  #pwaInstallBtn:active {
-    transform: scale(0.96);
-  }
-  #pwaInstallBtn img {
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    display: block;
-    pointer-events: none;
-  }
+  body.logged-in #pwaInstallBtn { color: #fff; text-shadow: 0 1px 1px rgba(0,0,0,0.18); }
+  #pwaInstallBtn svg { flex-shrink: 0; display: block; }
+  #pwaInstallBtn.pwa-visible { visibility: visible; opacity: 1; pointer-events: auto; }
+  #pwaInstallBtn:hover { background: var(--btn-grad-hover, linear-gradient(100deg, #46bd56 0%, #6ee47b 100%)); box-shadow: 0 2px 4px rgba(0,0,0,0.28), 0 6px 18px rgba(40,160,60,0.38); }
+  #pwaInstallBtn:focus-visible { outline: 3px solid rgba(58,174,74,0.45); outline-offset: 2px; }
+  @media (max-width: 600px) { #pwaInstallBtn { bottom: 16px; right: 16px; height: 44px; } }
 
 
   /* ─── Header profile button ─── */
@@ -932,3 +910,138 @@
   .sign-synthetic-page p { font-size: 12px; color: var(--gray); margin-bottom: 32px; }
   .sign-synthetic-field { margin-bottom: 28px; }
   .sign-synthetic-field label { display: block; font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+
+  /* ════════════════════════════════════════════════════════════
+     UI polish (Nov 2026): softer corners, a touch of depth, and
+     buttons whose green drifts from left to right instead of
+     sitting flat. Later in the file on purpose, so it wins over
+     the base rules above without editing each of them.
+     ════════════════════════════════════════════════════════════ */
+  :root {
+    --btn-grad:        linear-gradient(100deg, #3aae4a 0%, #5ad768 100%);
+    --btn-grad-hover:  linear-gradient(100deg, #46bd56 0%, #6ee47b 100%);
+    --btn-shadow:      0 1px 2px rgba(0,0,0,0.28), 0 3px 8px rgba(40,160,60,0.22);
+    --btn-shadow-up:   0 2px 4px rgba(0,0,0,0.28), 0 6px 14px rgba(40,160,60,0.30);
+    --card-shadow:     0 1px 2px rgba(0,0,0,0.30), 0 4px 14px rgba(0,0,0,0.18);
+    --r-btn: 14px; --r-card: 16px; --r-field: 12px;
+  }
+  body.logged-in {
+    --btn-grad:        linear-gradient(100deg, #228a37 0%, #38b24f 100%);
+    --btn-grad-hover:  linear-gradient(100deg, #2a9a41 0%, #42c059 100%);
+    --btn-shadow:      0 1px 2px rgba(10,50,20,0.20), 0 3px 8px rgba(34,138,55,0.20);
+    --btn-shadow-up:   0 2px 4px rgba(10,50,20,0.22), 0 6px 14px rgba(34,138,55,0.28);
+    --card-shadow:     0 1px 2px rgba(20,40,25,0.06), 0 4px 16px rgba(20,40,25,0.07);
+  }
+
+  /* Buttons */
+  .btn, .btn-login, .header-back, .sync-bar button { -webkit-tap-highlight-color: transparent; }
+  .btn, .btn-login { border-radius: var(--r-btn); }
+  .btn { padding: 12px 24px; letter-spacing: 0.1px; }
+  .btn-primary, .btn-login {
+    background: var(--btn-grad); color: #0b1a0e;
+    box-shadow: var(--btn-shadow);
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+  body.logged-in .btn-primary, body.logged-in .btn-login { color: #fff; text-shadow: 0 1px 1px rgba(0,0,0,0.18); }
+  .btn-primary:hover:not(:disabled), .btn-login:hover:not(:disabled) {
+    background: var(--btn-grad-hover); box-shadow: var(--btn-shadow-up);
+  }
+  .btn-primary:active:not(:disabled), .btn-login:active:not(:disabled) { box-shadow: var(--btn-shadow); }
+  .btn-outline { box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .btn-outline:hover { box-shadow: 0 2px 8px rgba(40,160,60,0.18); }
+  .btn-gray, .btn-danger { box-shadow: 0 1px 2px rgba(0,0,0,0.10); }
+  .btn-danger { background: linear-gradient(100deg, #cf3a3a 0%, #e25a5a 100%); }
+  .btn:focus-visible, .btn-login:focus-visible, .form-input:focus-visible, .option-btn:focus-visible {
+    outline: 3px solid rgba(58,174,74,0.45); outline-offset: 2px;
+  }
+  .header-back { border-radius: 999px; }
+  .resource-more-btn:hover { text-decoration: none; opacity: 0.8; }
+
+  /* Cards and rows */
+  .role-card { border-radius: var(--r-card); box-shadow: var(--card-shadow); }
+  /* No lifting on hover: the border and shadow already say "clickable" */
+  .role-card:hover, .module-item:hover:not(.locked), .material-card:hover { transform: none; }
+  .module-item { border-radius: 14px; box-shadow: 0 1px 2px rgba(20,40,25,0.05); }
+  .material-card, .question-card, .sync-bar, .sign-nav { border-radius: 14px; }
+  .sync-bar { box-shadow: 0 1px 2px rgba(20,40,25,0.05); }
+  .material-card { box-shadow: 0 1px 2px rgba(20,40,25,0.06); }
+  .toast { border-radius: 14px; box-shadow: 0 6px 20px rgba(0,0,0,0.28); }
+
+  /* Fields and quiz options */
+  .form-input { border-radius: var(--r-field); transition: border-color 0.15s, box-shadow 0.15s; }
+  .form-input:focus { border-color: var(--green); box-shadow: 0 0 0 4px rgba(58,174,74,0.15); }
+  .option-btn { border-radius: var(--r-field); }
+
+  /* Progress bars: same left-to-right drift as the buttons */
+  .progress-bar-fill, .role-card-fill { background: var(--btn-grad); }
+  .role-card-bar { height: 7px; border-radius: 99px; }
+  .role-card-fill { border-radius: 99px; }
+
+  .header-sync, .header-sync-text { display: none; }
+  @media (max-width: 900px) { .header-sync-text { display: none !important; } }
+
+  /* ── Desktop navbar (601px and up; the phone header is mobile-nav.js's) ── */
+  @media (min-width: 601px) {
+    #appHeader {
+      background: linear-gradient(180deg, rgba(14,32,18,0.94) 0%, rgba(9,22,12,0.92) 100%);
+      border-bottom: 1px solid rgba(78,202,90,0.22);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 4px 20px rgba(0,0,0,0.28);
+    }
+    .header-main { padding: 0 20px 0 28px; }
+    .header-controls { gap: 14px; padding: 0 28px 0 0; }
+    .header-btn-group { gap: 10px; }
+
+    /* Profile: avatar chip (the markup carries inline styles, hence !important) */
+    #headerProfileBtn {
+      height: 38px; padding: 0 16px 0 12px !important; margin-left: 20px !important;
+      background: rgba(255,255,255,0.07) !important;
+      border: 1px solid rgba(255,255,255,0.16) !important;
+      border-radius: 999px !important;
+      font-size: 13px !important; font-weight: 600 !important; letter-spacing: 0.1px;
+      transition: background 0.18s, border-color 0.18s, box-shadow 0.18s;
+    }
+    #headerProfileBtn:hover { background: rgba(255,255,255,0.13) !important; border-color: rgba(255,255,255,0.3) !important; box-shadow: 0 2px 10px rgba(0,0,0,0.25); }
+    #headerProfileBtn svg { opacity: 1 !important; color: var(--green); }
+
+    /* Stage: a status pill with a live dot, not a button */
+    .header-stage {
+      height: 36px; padding: 0 14px 0 12px; gap: 8px;
+      border-radius: 999px; font-size: 11px; letter-spacing: 0.7px;
+      background: rgba(78,202,90,0.10); border: 1px solid rgba(78,202,90,0.28); color: #7fe38a;
+      cursor: default;
+    }
+    .header-stage::before {
+      content: ''; width: 7px; height: 7px; border-radius: 50%; background: #5ad768;
+      box-shadow: 0 0 0 3px rgba(90,215,104,0.18), 0 0 8px rgba(90,215,104,0.6);
+    }
+
+    /* Back + Sign Out: matching ghost pills, with a divider before the pair */
+    .header-btn-group { padding-left: 14px; border-left: 1px solid rgba(255,255,255,0.12); }
+
+    /* Sync lives in the navbar on desktop; the on-page sync bars are redundant there */
+    #syncBarRoles, #syncBar { display: none; }
+    .header-sync-text { display: inline; font-size: 12px; color: rgba(255,255,255,0.5); white-space: nowrap; margin-right: 2px; }
+    .header-sync {
+      display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px 0 13px;
+      border-radius: 999px; font: 600 13px/1 inherit; font-family: inherit; white-space: nowrap; cursor: pointer;
+      background: rgba(78,202,90,0.10); border: 1px solid rgba(78,202,90,0.30); color: #7fe38a;
+      transition: background 0.18s, border-color 0.18s, box-shadow 0.18s;
+    }
+    .header-sync:hover:not(:disabled) { background: rgba(78,202,90,0.20); border-color: rgba(78,202,90,0.5); color: #a6f0ae; box-shadow: 0 2px 10px rgba(0,0,0,0.25); }
+    .header-sync:disabled { opacity: 0.7; cursor: progress; }
+    .header-sync svg { flex-shrink: 0; }
+    .header-sync.syncing svg { animation: spin 0.8s linear infinite; }
+    .header-sync:focus-visible { outline: 3px solid rgba(90,215,104,0.5); outline-offset: 2px; }
+    .header-back, .header-btn {
+      height: 36px; padding: 0 18px; border-radius: 999px;
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.16);
+      color: rgba(255,255,255,0.92); font-weight: 600;
+      transition: background 0.18s, border-color 0.18s, color 0.18s, box-shadow 0.18s;
+    }
+    .header-back:hover, .header-btn:hover {
+      background: rgba(255,255,255,0.13); border-color: rgba(255,255,255,0.32); color: #fff;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+    }
+    .header-btn:hover { background: rgba(248,113,113,0.16); border-color: rgba(248,113,113,0.45); color: #ffb4ab; }
+    .header-back:focus-visible, .header-btn:focus-visible, #headerProfileBtn:focus-visible { outline: 3px solid rgba(90,215,104,0.5); outline-offset: 2px; }
+  }

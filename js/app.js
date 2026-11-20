@@ -337,8 +337,10 @@ function scheduleRecoverySync() {
 async function manualSync() {
   const btn      = document.getElementById('syncNowBtn');
   const btnRoles = document.getElementById('syncNowBtnRoles');
+  const btnHead  = document.getElementById('headerSyncBtn');
   if (btn)      { btn.classList.add('syncing');      btn.disabled      = true; }
   if (btnRoles) { btnRoles.classList.add('syncing'); btnRoles.disabled = true; }
+  if (btnHead)  { btnHead.classList.add('syncing');  btnHead.disabled  = true; }
   try {
     // Anything completed while the back end was down goes first, so the refresh below can't hide it
     await flushPendingCompletions();
@@ -381,6 +383,7 @@ async function manualSync() {
   } finally {
     if (btn)      { btn.classList.remove('syncing');      btn.disabled      = false; }
     if (btnRoles) { btnRoles.classList.remove('syncing'); btnRoles.disabled = false; }
+    if (btnHead)  { btnHead.classList.remove('syncing');  btnHead.disabled  = false; }
   }
 }
 
@@ -390,6 +393,11 @@ function updateSyncBar() {
   document.getElementById('syncBarText').textContent = `Last synced: ${ago}`;
   const rolesText = document.getElementById('syncBarRolesText');
   if (rolesText) rolesText.textContent = `Last synced: ${ago}`;
+  // Desktop navbar: the sync bars are hidden there, so the time lives beside the button
+  const headText = document.getElementById('headerSyncText');
+  if (headText) headText.textContent = `Synced ${ago}`;
+  const headBtn = document.getElementById('headerSyncBtn');
+  if (headBtn) headBtn.title = `Sync course data (last synced ${ago})`;
 }
 
 /**
@@ -2924,6 +2932,65 @@ async function doChangePassword() {
 // ============================================================
 // LOGOUT
 // ============================================================
+// Ask before signing out: the button sits next to Back and one stray tap used to end the session.
+// Markup and styles are built here (not index.html / styles.css) for the cache-first stylesheet reason.
+function confirmSignOut() {
+  if (document.getElementById('signOutConfirm')) return;
+  if (!document.getElementById('signOutConfirmStyles')) {
+    const st = document.createElement('style');
+    st.id = 'signOutConfirmStyles';
+    st.textContent = `
+      #signOutConfirm { position: fixed; inset: 0; z-index: 10100; display: flex; align-items: center; justify-content: center;
+        padding: 20px; background: rgba(6,14,8,0.55); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+        opacity: 0; transition: opacity .18s ease; }
+      #signOutConfirm.in { opacity: 1; }
+      #signOutConfirm .so-card { width: min(380px, 100%); background: #fff; color: #152219; border-radius: 22px; padding: 26px 24px 20px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.35); transform: translateY(8px) scale(.98); transition: transform .2s ease; text-align: center; }
+      #signOutConfirm.in .so-card { transform: none; }
+      #signOutConfirm .so-icon { width: 52px; height: 52px; margin: 0 auto 14px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+        background: rgba(198,40,40,0.09); color: #c62828; }
+      #signOutConfirm h3 { margin: 0 0 6px; font-size: 18px; font-weight: 800; }
+      #signOutConfirm p { margin: 0 0 20px; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,0.65); }
+      #signOutConfirm .so-actions { display: flex; gap: 10px; }
+      #signOutConfirm button { flex: 1; height: 46px; border-radius: 14px; font: 700 14px/1 inherit; font-family: inherit; cursor: pointer; }
+      #signOutConfirm .so-cancel { background: #fff; color: #152219; border: 1px solid rgba(0,0,0,0.16); }
+      #signOutConfirm .so-cancel:hover { background: rgba(0,0,0,0.04); }
+      #signOutConfirm .so-go { border: none; color: #fff; background: linear-gradient(100deg, #c62828 0%, #e05252 100%);
+        box-shadow: 0 1px 2px rgba(60,10,10,0.25), 0 3px 8px rgba(198,40,40,0.22); }
+      #signOutConfirm .so-go:hover { background: linear-gradient(100deg, #d03232 0%, #e86262 100%); }
+      #signOutConfirm button:focus-visible { outline: 3px solid rgba(58,174,74,0.45); outline-offset: 2px; }
+      @media (prefers-reduced-motion: reduce) { #signOutConfirm, #signOutConfirm .so-card { transition: none; } }`;
+    document.head.appendChild(st);
+  }
+  const wrap = document.createElement('div');
+  wrap.id = 'signOutConfirm';
+  wrap.setAttribute('role', 'alertdialog');
+  wrap.setAttribute('aria-modal', 'true');
+  wrap.setAttribute('aria-labelledby', 'soTitle');
+  wrap.innerHTML = `
+    <div class="so-card">
+      <div class="so-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5"/><path d="M16 16l4-4-4-4M20 12H10"/></svg></div>
+      <h3 id="soTitle">Sign out?</h3>
+      <p>You will need your password to get back in.</p>
+      <div class="so-actions">
+        <button type="button" class="so-cancel">Stay signed in</button>
+        <button type="button" class="so-go">Sign out</button>
+      </div>
+    </div>`;
+  const close = () => {
+    document.removeEventListener('keydown', onKey, true);
+    wrap.classList.remove('in');
+    setTimeout(() => wrap.remove(), 200);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+  wrap.querySelector('.so-cancel').addEventListener('click', close);
+  wrap.querySelector('.so-go').addEventListener('click', () => { close(); logout(); });
+  document.addEventListener('keydown', onKey, true);
+  document.body.appendChild(wrap);
+  requestAnimationFrame(() => { wrap.classList.add('in'); wrap.querySelector('.so-cancel').focus(); });
+}
+
 async function logout() {
   if (window.SolveTour) SolveTour.abort();
   try { await apiFetch('/api/logout', 'POST'); } catch {}

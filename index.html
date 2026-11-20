@@ -126,8 +126,13 @@
   <div class="header-controls">
     <span class="header-stage" id="headerStage"></span>
     <div class="header-btn-group">
+      <span class="header-sync-text" id="headerSyncText"></span>
+      <button type="button" class="header-sync" id="headerSyncBtn" onclick="manualSync()" title="Sync course data" aria-label="Sync course data">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+        <span>Sync</span>
+      </button>
       <button class="header-back" id="headerBack" onclick="goBack()">← Back</button>
-      <button class="header-btn" id="btnLogout" onclick="logout()">Sign Out</button>
+      <button class="header-btn" id="btnLogout" onclick="confirmSignOut()">Sign Out</button>
     </div>
   </div>
 </div>
@@ -387,8 +392,9 @@
 <div class="toast" id="toast"></div>
 
 <!-- ─── PWA Install Button ──────────────────────────────── -->
-<button id="pwaInstallBtn" title="Install app" aria-label="Install Solve University app">
-  <img src="pwa_download.png" alt="Install">
+<button id="pwaInstallBtn" type="button" title="Install app" aria-label="Install Solve University app">
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>
+  <span>Install app</span>
 </button>
 
 

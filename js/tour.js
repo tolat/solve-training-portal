@@ -70,11 +70,11 @@
   .tw-actions { display: flex; flex-direction: column; align-items: center; gap: 10px; }
   .tw-btn {
     font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer;
-    border-radius: 10px; padding: 14px 24px; width: min(340px, 100%); border: 2px solid transparent;
+    border-radius: 14px; padding: 14px 24px; width: min(340px, 100%); border: 2px solid transparent;
     transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
   }
-  .tw-btn-primary { background: #4eca5a; color: #0b1a0e; }
-  .tw-btn-primary:hover { background: #5dd96a; box-shadow: 0 0 24px rgba(78,202,90,0.4); transform: translateY(-1px); }
+  .tw-btn-primary { background: linear-gradient(100deg, #3aae4a 0%, #5ad768 100%); color: #0b1a0e; box-shadow: 0 1px 2px rgba(0,0,0,0.28), 0 3px 8px rgba(40,160,60,0.22); }
+  .tw-btn-primary:hover { background: linear-gradient(100deg, #46bd56 0%, #6ee47b 100%); box-shadow: 0 0 24px rgba(78,202,90,0.4); }
   .tw-btn-ghost { background: transparent; color: rgba(255,255,255,0.78); border-color: rgba(255,255,255,0.25); }
   .tw-btn-ghost:hover { color: #fff; border-color: rgba(255,255,255,0.55); }
   .tw-btn:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
@@ -127,10 +127,10 @@
   .tour-spacer { flex: 1; }
   .tour-btn {
     font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
-    border-radius: 8px; padding: 9px 16px; border: 1px solid transparent;
+    border-radius: 12px; padding: 9px 16px; border: 1px solid transparent;
   }
-  .tour-btn-primary { background: #2a9640; color: #fff; }
-  .tour-btn-primary:hover { background: #217832; }
+  .tour-btn-primary { background: linear-gradient(100deg, #228a37 0%, #38b24f 100%); color: #fff; box-shadow: 0 1px 2px rgba(10,50,20,0.20), 0 3px 8px rgba(34,138,55,0.20); }
+  .tour-btn-primary:hover { background: linear-gradient(100deg, #2a9a41 0%, #42c059 100%); }
   .tour-btn-ghost { background: transparent; color: #152219; border-color: rgba(0,0,0,0.18); }
   .tour-btn-ghost:hover { background: rgba(0,0,0,0.04); }
   .tour-btn-link { background: none; color: rgba(21,34,25,0.55); padding-left: 0; padding-right: 4px; font-weight: 600; }
@@ -244,6 +244,18 @@
 
   const STEPS = [
     {
+      // Only on the web, only where the browser offers it: index.html reveals the button when it
+      // can install (Chrome/Android prompt, iOS Safari always) and never inside the installed app,
+      // so "is it visible" is exactly "should the tour mention it".
+      id: 'install', screen: 'roles',
+      available: () => isVisible($('#pwaInstallBtn')),
+      target: () => [$('#pwaInstallBtn')],
+      title: 'Install Solve-U as an app',
+      text: () => /iphone|ipad|ipod/i.test(navigator.userAgent)
+        ? 'Tap Install app for the steps to add Solve-U to your Home Screen. It then opens full screen, like any other app.'
+        : 'Install Solve-U on this device and it opens in its own window, straight from your desktop or home screen. Tap Install app, then confirm.',
+    },
+    {
       // On a phone the header is one row and everything else lives behind the
       // menu button, so this step becomes the menu and the two after it drop
       // out — three spotlights on the same button would be silly.
@@ -264,10 +276,11 @@
     },
     {
       id: 'sync', screen: 'roles',
-      available: () => isVisible($('#syncBarRoles')),      // phones: it is in the menu
-      target: () => [$('#syncBarRoles')],
+      available: () => isVisible($('#headerSyncBtn')) || isVisible($('#syncBarRoles')),   // phones: it is in the menu
+      target: () => [isVisible($('#headerSyncBtn')) ? $('#headerSyncBtn') : $('#syncBarRoles')],
       title: 'Staying up to date',
-      text: 'The portal refreshes itself every 15 minutes. If something has just changed, such as a new course, tap Sync now to pull it in right away.',
+      text: () => 'The portal refreshes itself every 15 minutes. If something has just changed, such as a new course, tap '
+        + (isVisible($('#headerSyncBtn')) ? 'Sync' : 'Sync now') + ' to pull it in right away.',
     },
     {
       id: 'overall', screen: 'roles',
