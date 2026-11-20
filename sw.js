@@ -1,16 +1,15 @@
 /**
  * Solve Energy Training Portal — Service Worker
  * Strategy:
- *   • HTML + JS files → Network-first (always get updates, fall back to cache offline)
- *   • Images + CSS    → Cache-first (fast loads, rarely change)
+ *   • HTML + JS + CSS → Network-first (always get updates, fall back to cache offline)
+ *   • Images          → Cache-first (fast loads, rarely change)
  *   • API calls       → Network-first (fresh data when online, fallback offline message)
  */
 
-const CACHE_NAME = 'solve-training-v28';
+const CACHE_NAME = 'solve-training-v29';
 
 // Truly static assets that rarely change — served cache-first
 const STATIC_ASSETS = [
-  '/css/styles.css',
   '/solve_logo.png',
   '/solve_icon.png',
   '/pwa_download.png',
@@ -18,8 +17,11 @@ const STATIC_ASSETS = [
 ];
 
 // Files that update with each deploy — always network-first
+// (the stylesheet is here since Nov 2026: cache-first meant new markup met the previous deploy's CSS on the first
+// load after every deploy, e.g. the navbar Sync button showing unstyled on phones)
 const NETWORK_FIRST_ASSETS = [
   '/',
+  '/css/styles.css',
   '/index.html',
   '/js/app.js',
   '/js/net.js',
@@ -35,7 +37,8 @@ self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
       console.log('[SW] Pre-caching static assets');
-      return cache.addAll([...STATIC_ASSETS, ...NETWORK_FIRST_ASSETS]);
+      // `reload` skips the browser's own HTTP cache, so the pre-cache can't capture an old copy of a file
+      return cache.addAll([...STATIC_ASSETS, ...NETWORK_FIRST_ASSETS].map(u => new Request(u, { cache: 'reload' })));
     })
   );
   self.skipWaiting();
@@ -79,12 +82,12 @@ self.addEventListener('fetch', event => {
 
   // HTML + JS → network-first (so deploys are picked up immediately)
   const isAppFile = NETWORK_FIRST_ASSETS.some(p => url.pathname === p || url.pathname === p + '/');
-  if (isAppFile || url.pathname.endsWith('.html') || url.pathname.endsWith('.js')) {
+  if (isAppFile || url.pathname.endsWith('.html') || url.pathname.endsWith('.js') || url.pathname.endsWith('.css')) {
     event.respondWith(networkFirstStatic(request));
     return;
   }
 
-  // Images, CSS, fonts → cache-first
+  // Images, fonts → cache-first
   event.respondWith(cacheFirst(request));
 });
 

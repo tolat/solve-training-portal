@@ -251,6 +251,7 @@ With **`SESSION_SECRET`** (Railway) set, a token is `v1.<payload>.<HMAC-SHA256>`
 - **Inline styles in `index.html` `<style>` tag** are used for some components to avoid CSS file caching/deployment issues (e.g. `.block-guidance-blurb`)
 
 ## Service worker (sw.js) and uploads
+- **CSS is network-first** (Nov 2026), like JS and HTML. It used to be cache-first, so the first load after a deploy paired new markup with the previous stylesheet (the desktop Sync button appeared raw on phones). The first load on a phone still running the *old* worker can show the old CSS once, so a new element that a stale stylesheet could not hide should carry the `hidden` attribute until the new CSS un-hides it (see `#headerSyncBtn`), or be styled from JS.
 - The service worker only handles **GET** requests (`if (request.method !== 'GET') return;`). It must never intercept writes: re-sending a request body from the service worker truncates large multipart uploads on iOS Safari (server log: `Error: Unexpected end of form`, client: "Server error 500"), which broke photo uploads on iPhones (Nov 2026). JSON writes happened to work, multipart did not. Bump `CACHE_NAME` whenever sw.js or cached CSS/images change; phones pick the new worker up on their next load of the app.
 - `server.js` ends with a JSON **error handler** (multer/body-parser errors → a clear message: file too large 413, interrupted upload 400, otherwise "Something went wrong"), and deletes any half-written temp file recorded in `req._tmpUploads`.
 
