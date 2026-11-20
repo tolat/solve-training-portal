@@ -1234,8 +1234,16 @@ app.get('/manifest.json', (req, res) => {
   res.sendFile(path.join(__dirname, 'manifest.json'));
 });
 
-// Serve frontend
-app.use(express.static(__dirname));
+// Serve the frontend: ONLY what the browser needs. This used to be `express.static(__dirname)`, which
+// published the whole project folder (server.js, CLAUDE.md, package.json, tests, assets/, signing-fields.json...).
+// Anything new the browser must load goes in css/, js/ or PUBLIC_ROOT_FILES below.
+const PUBLIC_ROOT_FILES = new Set(['index.html', 'solve_logo.png', 'solve_icon.png', 'pwa_download.png', 'favicon.ico']);
+app.use('/css', express.static(path.join(__dirname, 'css')));
+app.use('/js',  express.static(path.join(__dirname, 'js')));
+app.get('/:file', (req, res, next) => {
+  if (PUBLIC_ROOT_FILES.has(req.params.file)) return res.sendFile(path.join(__dirname, req.params.file));
+  next();
+});
 
 // Serve uploaded certificate files
 // (No /uploads route: files are stored in Notion, and multer's temp copies are deleted after upload.)
@@ -2944,6 +2952,10 @@ app.get('/api/health', (req, res) => {
 
 // ─── Catch-all: serve frontend ────────────────────────────────
 app.get('*', (req, res) => {
+  // Unknown API paths and anything that looks like a file are a real 404, not the app page with a 200
+  // (which also makes vulnerability scanners think /.env or /server.js exist).
+  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
+  if (path.extname(req.path) || /(^|\/)\./.test(req.path)) return res.status(404).type('text/plain').send('Not found'); // files and dot-paths (/.env, /.git/...)
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
