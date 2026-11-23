@@ -288,6 +288,7 @@ async function initApp() {
 
     // First-ever visit on this browser: welcome screen + walkthrough (js/tour.js)
     if (window.SolveTour) setTimeout(() => SolveTour.maybeStart(), 500);
+    maybeShowMemoPopup();   // after the welcome/walkthrough, if there are memos to read
 
     // Auto-sync every 15 minutes (plus 0-5 minutes of random jitter) while the app is open.
     // The jitter matters: a group that logs in together would otherwise sync at the same second,
@@ -434,6 +435,23 @@ const CALENDAR_ICON =
   '<rect x="2" y="3.5" width="12" height="10.5" rx="2"/>' +
   '<path d="M2 7h12M5.5 1.8v3M10.5 1.8v3"/></svg>';
 
+// Whether a block shows for a role at this person's stage. One definition, used by the role cards and by
+// the pending-memos popup, so the popup can never list something the person could not open.
+function blockVisibleForRole(b, role, completedMap, empOrdering) {
+  if (b.isContractorBlock || b.isDealerBlock) return true;
+  if (role.importContractorTrainings) {
+    return b.hasContractorStage || b.contractorStageOrdering < 999;
+  } else if (role.isDealerRole) {
+    return b.hasDealerStage || b.dealerStageOrdering < 999;
+  } else {
+    if (completedMap[b.id]) return true; // always show blocks with an existing training record
+    if (b.stageOrdering === 999 && b.hasEmployeeStage) return true;
+    if (!b.hasEmployeeStage) return false;
+    if (empOrdering < 999 && b.stageOrdering > empOrdering) return false;
+    return true;
+  }
+}
+
 function renderRoles() {
   if (!trainingData) return;
   const { roles, completedMap, blocks } = trainingData;
@@ -455,18 +473,7 @@ function renderRoles() {
   // - importContractorTrainings roles: show only blocks with a Contractor stage
   // - Regular employee roles: show only blocks with an Employee stage (within progression)
   function isVisibleForRole(b, role) {
-    if (b.isContractorBlock || b.isDealerBlock) return true;
-    if (role.importContractorTrainings) {
-      return b.hasContractorStage || b.contractorStageOrdering < 999;
-    } else if (role.isDealerRole) {
-      return b.hasDealerStage || b.dealerStageOrdering < 999;
-    } else {
-      if (completedMap[b.id]) return true; // always show blocks with an existing training record
-      if (b.stageOrdering === 999 && b.hasEmployeeStage) return true;
-      if (!b.hasEmployeeStage) return false;
-      if (empOrdering < 999 && b.stageOrdering > empOrdering) return false;
-      return true;
-    }
+    return blockVisibleForRole(b, role, completedMap, empOrdering);
   }
 
   // Global count across all roles (deduplicated).
@@ -1092,15 +1099,19 @@ function renderGuidanceBlurb(block, { isSignature, isDocUpload, isHRDocUpload, n
   const signatureSuffix = needsQuiz ? ' After you pass the quiz, you\'ll sign the document to complete this module.' : '';
   const noLinkBox = document.getElementById('noLinkBox');
 
+  // Confirmation Only has no quiz: its one button says "I have read this and confirm" (see openBlock)
+  const confirmOnly = isConfirmationOnlyBlock(block);
+  const btnQuoted   = confirmOnly ? '"I have read this and confirm"' : '"I\'ve reviewed this course — start quiz"';
+
   if (isVideo) {
-    blurbEl.innerHTML = `📹 <strong>Watch the video above${materialsPhrase}</strong>, then click <strong>"I've reviewed this course — start quiz"</strong> when you're ready to take the quiz.${signatureSuffix}`;
+    blurbEl.innerHTML = `📹 <strong>Watch the video above${materialsPhrase}</strong>, then click <strong>${btnQuoted}</strong> ${confirmOnly ? 'when you\'re done.' : 'when you\'re ready to take the quiz.'}${signatureSuffix}`;
     blurbEl.style.display = 'block';
   } else if (hasLink) {
-    blurbEl.innerHTML = `🔗 <strong>Complete the course at the link above${materialsPhrase}</strong>, then click <strong>"I've reviewed this course — start quiz"</strong> when you're done.${signatureSuffix}`;
+    blurbEl.innerHTML = `🔗 <strong>Complete the course at the link above${materialsPhrase}</strong>, then click <strong>${btnQuoted}</strong> when you're done.${signatureSuffix}`;
     blurbEl.style.display = 'block';
   } else {
     // No link — guide the user to review embedded materials below
-    blurbEl.innerHTML = '📄 <strong>Read or review the materials below</strong>, then click <strong>"I\'ve reviewed this course — start quiz"</strong> when you\'re ready.' + signatureSuffix;
+    blurbEl.innerHTML = `📄 <strong>Read or review the materials below</strong>, then click <strong>${btnQuoted}</strong> when you're ${confirmOnly ? 'done' : 'ready'}.` + signatureSuffix;
     blurbEl.style.display = 'block';
     if (noLinkBox) noLinkBox.style.display = 'none'; // blurb replaces the generic noLinkBox for regular blocks
   }
@@ -1333,6 +1344,8 @@ function openBlock(index) {
     }
   } else {
     viewedConfirm.classList.remove('show'); // clear any notice left over from the previous block
+    // ...and its text: the banner is shared, and a previous block (e.g. a Confirmation Only one) may have rewritten it
+    viewedConfirm.innerHTML = '✅ <strong>Course acknowledged.</strong> Now complete the quiz below to advance.';
     quizSection.classList.remove('show');
     quizResult.className    = 'quiz-result';
     quizResult.style.display = 'none';
@@ -1712,6 +1725,133 @@ function unlocksSequentially(block) {
   return (block?.types || []).some(t => t.toLowerCase().replace(/[\s_-]/g, '') === 'unlocksequentially');
 }
 
+/** "Memo" — a briefing everyone assigned to it must read. Pending ones are listed in a popup at sign-in. */
+function isMemoBlock(block) {
+  return (block?.types || []).some(t => t.toLowerCase().replace(/[\s_-]/g, '') === 'memo');
+}
+
+/**
+ * Memo-tagged blocks this person can see and has not completed. A block that appears under several roles
+ * counts as done if it is done under any of them; it opens under the first role that lists it.
+ */
+function findPendingMemos() {
+  if (!trainingData) return [];
+  const { roles = [], completedMap = {}, blocks = [] } = trainingData;
+  const empOrdering = trainingData.employeeStageOrdering ?? 999;
+  const byId = new Map();
+  roles.forEach(role => {
+    const roleMap = role.completedMap || completedMap;
+    (role.blockIds || []).map(id => blocks.find(b => b.id === id)).filter(Boolean).forEach(b => {
+      if (!isMemoBlock(b) || !blockVisibleForRole(b, role, completedMap, empOrdering)) return;
+      const entry = byId.get(b.id) || { block: b, roleId: role.id, roleName: role.name, done: false };
+      if (roleMap[b.id]?.status === 'OK') entry.done = true;
+      byId.set(b.id, entry);
+    });
+  });
+  return [...byId.values()].filter(e => !e.done);
+}
+
+// Open a memo from the popup: same state openRole() sets up, then straight into the block, so Back lands
+// on that role's course list.
+function openMemoBlock(blockId, roleId) {
+  const role = trainingData?.roles?.find(r => r.id === roleId);
+  if (!role) return;
+  currentRoleId = role.id;
+  const set = new Set(role.blockIds);
+  currentBlocks = trainingData.blocks.filter(b => set.has(b.id));
+  const idx = currentBlocks.findIndex(b => b.id === blockId);
+  if (idx < 0) return;
+  document.getElementById('headerBack').style.display = 'inline-flex';
+  renderCourse(currentBlocks, true);
+  openBlock(idx);
+}
+
+// ── "Pending memos" popup ────────────────────────────────────
+// Shown once per sign-in (not on every sync), after the welcome / walkthrough has finished, listing the memos
+// the person has not completed. Closing it just hides it until the next sign-in.
+let memoPopupHandled = false;
+function maybeShowMemoPopup() {
+  if (memoPopupHandled) return;
+  let waited = 0;
+  const attempt = () => {
+    if (!authToken || !trainingData || memoPopupHandled) return;
+    // Never on top of the forced password change, the welcome screen, the walkthrough or another dialog
+    if ((currentUser?.mustChangePassword || document.querySelector('.tour-welcome, .tour-layer, #signOutConfirm, #pendingMemos')) && waited++ < 300) {
+      return setTimeout(attempt, 1000);
+    }
+    memoPopupHandled = true;
+    const list = findPendingMemos();
+    if (list.length) showPendingMemos(list);
+  };
+  setTimeout(attempt, 1200);
+}
+
+function showPendingMemos(list) {
+  if (document.getElementById('pendingMemos')) return;
+  if (!document.getElementById('pendingMemosStyles')) {
+    const st = document.createElement('style');
+    st.id = 'pendingMemosStyles';
+    st.textContent = `
+      #pendingMemos { position: fixed; inset: 0; z-index: 10100; display: flex; align-items: center; justify-content: center;
+        padding: 20px; background: rgba(6,14,8,0.55); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+        opacity: 0; transition: opacity .18s ease; }
+      #pendingMemos.in { opacity: 1; }
+      #pendingMemos .pm-card { width: min(440px, 100%); max-height: min(560px, 86vh); display: flex; flex-direction: column;
+        background: #fff; color: #152219; border-radius: 22px; padding: 24px 22px 18px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.35); transform: translateY(8px) scale(.98); transition: transform .2s ease; }
+      #pendingMemos.in .pm-card { transform: none; }
+      #pendingMemos .pm-icon { width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+        background: rgba(244,217,22,0.22); color: #8a7400; margin-bottom: 12px; flex: 0 0 auto; }
+      #pendingMemos h3 { margin: 0 0 4px; font-size: 19px; font-weight: 800; flex: 0 0 auto; }
+      #pendingMemos .pm-sub { margin: 0 0 14px; font-size: 14px; line-height: 1.45; color: rgba(21,34,25,0.65); flex: 0 0 auto; }
+      /* the list scrolls, so it clips whatever sticks out of it; the padding leaves room for the focus ring */
+      #pendingMemos .pm-list { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin: -6px -6px 0; padding: 6px; }
+      #pendingMemos .pm-item { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; cursor: pointer;
+        padding: 13px 14px; border-radius: 14px; border: 1px solid rgba(0,0,0,0.12); background: #f4f7f4; color: #152219;
+        font: 600 14px/1.35 inherit; font-family: inherit; transition: background .15s, border-color .15s; }
+      #pendingMemos .pm-item:hover { background: rgba(42,150,64,0.10); border-color: rgba(42,150,64,0.45); }
+      #pendingMemos .pm-item span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+      #pendingMemos .pm-go { flex: 0 0 auto; font-size: 12px; font-weight: 700; color: #2a9640; white-space: nowrap; }
+      #pendingMemos .pm-later { margin-top: 12px; align-self: stretch; height: 44px; border-radius: 14px; flex: 0 0 auto;
+        background: #fff; color: #152219; border: 1px solid rgba(0,0,0,0.16); font: 700 14px/1 inherit; font-family: inherit; cursor: pointer; }
+      #pendingMemos .pm-later:hover { background: rgba(0,0,0,0.04); }
+      #pendingMemos button:focus-visible { outline: 3px solid rgba(58,174,74,0.45); outline-offset: 2px; }
+      @media (prefers-reduced-motion: reduce) { #pendingMemos, #pendingMemos .pm-card { transition: none; } }`;
+    document.head.appendChild(st);
+  }
+  const n = list.length;
+  const wrap = document.createElement('div');
+  wrap.id = 'pendingMemos';
+  wrap.setAttribute('role', 'dialog');
+  wrap.setAttribute('aria-modal', 'true');
+  wrap.setAttribute('aria-labelledby', 'pmTitle');
+  wrap.innerHTML = `
+    <div class="pm-card">
+      <div class="pm-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg></div>
+      <h3 id="pmTitle">Pending memos</h3>
+      <p class="pm-sub">${n === 1 ? 'You have 1 memo' : `You have ${n} memos`} to review. Tap one to read it.</p>
+      <div class="pm-list">
+        ${list.map((e, i) => `<button type="button" class="pm-item" data-i="${i}"><span>${escHtml(e.block.name)}</span><span class="pm-go">Review →</span></button>`).join('')}
+      </div>
+      <button type="button" class="pm-later">Remind me later</button>
+    </div>`;
+  const close = () => {
+    document.removeEventListener('keydown', onKey, true);
+    wrap.classList.remove('in');
+    setTimeout(() => wrap.remove(), 200);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+  wrap.addEventListener('click', (e) => {
+    if (e.target === wrap) return close();
+    const item = e.target.closest('.pm-item');
+    if (item) { const entry = list[Number(item.dataset.i)]; close(); openMemoBlock(entry.block.id, entry.roleId); }
+  });
+  wrap.querySelector('.pm-later').addEventListener('click', close);
+  document.addEventListener('keydown', onKey, true);
+  document.body.appendChild(wrap);
+  requestAnimationFrame(() => { wrap.classList.add('in'); wrap.querySelector('.pm-item')?.focus(); });
+}
+
 /**
  * "Confirmation Only" — no quiz. The trainee reads the material and presses one button ("I have read this
  * and confirm"), which records the completion exactly like a passed quiz does (POST /api/complete).
@@ -1739,7 +1879,7 @@ function blockNeedsQuizAndSignature(block) {
   // block is completed either. Any new display-only tag must be added here, or every block carrying it
   // starts demanding a quiz and a signature.
   const special = new Set(['signaturerequired', 'documentupload', 'hrdocumentupload', 'generalresource',
-                           'completioncertificate', 'unlocksequentially', 'confirmationonly']);
+                           'completioncertificate', 'unlocksequentially', 'confirmationonly', 'memo']);
   return (block.types || []).some(t => !special.has(String(t).toLowerCase().replace(/[\s_-]/g, '')));
 }
 
@@ -3083,6 +3223,8 @@ function confirmSignOut() {
 
 async function logout() {
   if (window.SolveTour) SolveTour.abort();
+  memoPopupHandled = false;   // the next person to sign in on this page gets their own popup
+  document.getElementById('pendingMemos')?.remove();
   try { await apiFetch('/api/logout', 'POST'); } catch {}
   if (materialsTimer) { clearInterval(materialsTimer); materialsTimer = null; }
   if (autoSyncTimer)  { clearTimeout(autoSyncTimer);   autoSyncTimer  = null; }
@@ -3235,6 +3377,7 @@ function showToast(msg) {
     // Resumed session (e.g. reopening the installed app): the welcome is still due until
     // they have skipped or finished the tour
     if (window.SolveTour) setTimeout(() => SolveTour.maybeStart(), 500);
+    maybeShowMemoPopup();
   } catch (err) {
     // An expired/invalid token is handled inside apiFetch (it returns them to the login screen)
     if (err.message === 'session_expired') return;
