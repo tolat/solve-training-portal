@@ -149,7 +149,7 @@ const PROPS = {
   trainingRecord: ['Training Block', 'Date Completed', 'Status'],
   role:           ['Name', 'Training Profiles', 'Department', 'Import Contractor Trainings'],
   profile:        ['Name'],   // block membership comes from the Training Blocks side (Notion cuts relations at 25)
-  block:          ['Name', 'Training link', 'Notes', 'Policy No.', 'Type', 'Certificate Template', 'Certificate Title', 'Ordering', 'Pipeline Stages', 'Training Profiles'],
+  block:          ['Name', 'Training link', 'Notes', 'Policy No.', 'Type', 'Certificate Template', 'Certificate Title', 'Ordering', 'Pipeline Stages', 'Training Profiles', 'Quiz Questions'],
   stage:          ['Stage', 'Ordering', 'Ordered Pipeline Stage', 'Stage Type'],
 };
 const filterQS = (props) => props && props.length
@@ -400,6 +400,10 @@ const emailVal = (p) => p?.email || null;
 // no record, no quiz and no entry in the course list, just a spot on that grid.
 const normType = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const hasGeneralResourceTag = (types = []) => types.some(t => normType(t) === 'general resource');
+// "Confirmation Only": no quiz. The trainee reads the material and presses one button to confirm; that completes it.
+const isConfirmationOnlyBlock = (b) => !!b && (b.types || []).some(t => normType(t) === 'confirmation only');
+// "Quiz Questions" on a block: how many questions the AI quiz must have. Empty = the generator's own judgment (5-15).
+const quizQuestionCount = (n) => (Number.isFinite(n) && n >= 1) ? Math.min(30, Math.round(n)) : null;
 const isResourceOnlyBlock   = (b) => !!b && (b.types || []).length > 0 && (b.types || []).every(t => normType(t) === 'general resource');
 
 // ─── Training data cache ──────────────────────────────────────
@@ -496,6 +500,7 @@ async function refreshCache() {
       // the file URL — Notion's file URLs are presigned and expire within the hour.
       hasCertificate: (prop(p, 'Certificate Template')?.files || []).length > 0,
       certificateTitle: prop(p, 'Certificate Title')?.select?.name || null,
+      quizQuestions: quizQuestionCount(prop(p, 'Quiz Questions')?.number),
       blockOrdering: prop(p, 'Ordering')?.number ?? null,
       stageOrdering,
       stageName,
@@ -1125,7 +1130,7 @@ async function generateQuizForBlock(block) {
 
 Training Module: ${block.name}${block.policyNo ? `\nPolicy Number: ${block.policyNo}` : ''}${block.notes ? `\nNotes: ${block.notes}` : ''}${trainingLinkContext}${pageText ? `\nTraining Content:\n${pageText}` : ''}
 
-Generate between 5 and 15 multiple-choice quiz questions that test real understanding of this training material. Use your judgment on how many to generate based on the complexity and depth of the material — simple or sparse modules warrant 5 questions, dense or multi-topic modules warrant up to 15. Base your questions on the attached files and any content provided above. Make them practical and scenario-based where possible — not just definition recall. If detailed content is not provided, generate questions based on what a reasonable training on this topic at a solar/roofing company in BC would cover.
+${block.quizQuestions ? `Generate exactly ${block.quizQuestions} multiple-choice quiz question${block.quizQuestions === 1 ? '' : 's'} that test real understanding of this training material. The count is fixed: return ${block.quizQuestions}, no more and no fewer.` : `Generate between 5 and 15 multiple-choice quiz questions that test real understanding of this training material. Use your judgment on how many to generate based on the complexity and depth of the material — simple or sparse modules warrant 5 questions, dense or multi-topic modules warrant up to 15.`} Base your questions on the attached files and any content provided above. Make them practical and scenario-based where possible — not just definition recall. If detailed content is not provided, generate questions based on what a reasonable training on this topic at a solar/roofing company in BC would cover.
 
 Return ONLY a valid JSON array, no markdown fences, no explanation:
 [
@@ -1289,6 +1294,7 @@ async function regenerateQuizForBlockNow(blockId) {
           notes:        richText(prop(p, 'Notes')),
           policyNo:     prop(p, 'Policy No.')?.select?.name || null,
           types:        prop(p, 'Type')?.multi_select?.map(s => s.name) || [],
+          quizQuestions: quizQuestionCount(prop(p, 'Quiz Questions')?.number),
           stageOrdering: minStageOrdering,
           stageName:    'Other',
           stageIds,
@@ -1310,6 +1316,11 @@ async function regenerateQuizForBlockNow(blockId) {
 
   if (isResourceOnlyBlock(block)) {
     console.log(`⏭️   Skipping quiz for "${block.name}" — General Resource only, not a training`);
+    return;
+  }
+
+  if (isConfirmationOnlyBlock(block)) {
+    console.log(`⏭️   Skipping quiz for "${block.name}" — Confirmation Only (no quiz; the trainee just confirms)`);
     return;
   }
 
@@ -2641,7 +2652,7 @@ app.post('/api/regenerate-missing-quizzes', webhookGuard('strict'), async (req, 
   const allBlockIds = Object.keys(cache.blocks);
   const missing     = allBlockIds.filter(id => {
     const key = id.replace(/-/g, '');
-    return !generatedQuizzes[key];
+    return !generatedQuizzes[key] && !isConfirmationOnlyBlock(cache.blocks[id]) && !isResourceOnlyBlock(cache.blocks[id]);
   });
 
   res.json({ ok: true, message: `Queuing quiz generation for ${missing.length} block(s) in background.`, total: allBlockIds.length, missing: missing.length });

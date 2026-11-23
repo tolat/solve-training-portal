@@ -1140,7 +1140,7 @@ function openBlock(index) {
   const passed  = isBlockCompleted(block.id);
 
   // Lazily fetch this block's AI quiz in the background so it's ready if the user taps "Start Quiz"
-  if ((!isSignatureBlock(block) || blockNeedsQuizAndSignature(block)) && !isDocumentUploadBlock(block) && !isHRDocumentUploadBlock(block)) {
+  if ((!isSignatureBlock(block) || blockNeedsQuizAndSignature(block)) && !isDocumentUploadBlock(block) && !isHRDocumentUploadBlock(block) && !isConfirmationOnlyBlock(block)) {
     prefetchQuizForBlock(block.id);
   }
 
@@ -1289,7 +1289,7 @@ function openBlock(index) {
     btnViewed.style.display = 'none';
     viewedConfirm.classList.remove('show');
   } else if (!isSignature || needsQuiz) {
-    btnViewed.textContent   = '✓ I\'ve reviewed this course — start quiz';
+    btnViewed.textContent   = isConfirmationOnlyBlock(block) ? '✓ I have read this and confirm' : '✓ I\'ve reviewed this course — start quiz';
     btnViewed.style.display = (passed || quizPassedAwaitingSignature.has(block.id)) ? 'none' : 'inline-flex';
   }
 
@@ -1317,6 +1317,13 @@ function openBlock(index) {
       quizSection.classList.remove('show');
       document.getElementById('uploadResult').className = 'quiz-result pass show';
       document.getElementById('uploadResult').innerHTML = completedHTML;
+    } else if (isConfirmationOnlyBlock(block)) {
+      // No quiz to review: just say it was confirmed.
+      viewedConfirm.classList.add('show');
+      viewedConfirm.innerHTML = `✅ <strong>Confirmed${dateStr ? ' — ' + prettyDay(dateStr) : ''}.</strong> You've already completed this course. The materials above are here whenever you need them.
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;"><button class="btn btn-outline" onclick="goBack()">← Back to Course</button></div>`;
+      quizSection.classList.remove('show');
+      uploadSection.classList.remove('show');
     } else {
       showQuiz(block, true);
       quizSection.classList.add('show');
@@ -1705,6 +1712,14 @@ function unlocksSequentially(block) {
   return (block?.types || []).some(t => t.toLowerCase().replace(/[\s_-]/g, '') === 'unlocksequentially');
 }
 
+/**
+ * "Confirmation Only" — no quiz. The trainee reads the material and presses one button ("I have read this
+ * and confirm"), which records the completion exactly like a passed quiz does (POST /api/complete).
+ */
+function isConfirmationOnlyBlock(block) {
+  return (block?.types || []).some(t => t.toLowerCase().replace(/[\s_-]/g, '') === 'confirmationonly');
+}
+
 function isHRDocumentUploadBlock(block) {
   return (block?.types || []).some(t => t.toLowerCase().replace(/[\s_-]/g, '') === 'hrdocumentupload');
 }
@@ -1724,7 +1739,7 @@ function blockNeedsQuizAndSignature(block) {
   // block is completed either. Any new display-only tag must be added here, or every block carrying it
   // starts demanding a quiz and a signature.
   const special = new Set(['signaturerequired', 'documentupload', 'hrdocumentupload', 'generalresource',
-                           'completioncertificate', 'unlocksequentially']);
+                           'completioncertificate', 'unlocksequentially', 'confirmationonly']);
   return (block.types || []).some(t => !special.has(String(t).toLowerCase().replace(/[\s_-]/g, '')));
 }
 
@@ -1741,10 +1756,48 @@ function isVideoLink(url) {
   return false;
 }
 
+// Confirmation Only: the button completes the course. Same completion path as a passed quiz, including the
+// queue that keeps the completion on this device and retries if the server is unreachable.
+const confirmingBlocks = new Set();
+async function confirmBlockRead(block) {
+  if (confirmingBlocks.has(block.id)) return;   // a double tap must not record twice
+  confirmingBlocks.add(block.id);
+  const box    = document.getElementById('viewedConfirm');
+  const isLast = currentBlockIndex === currentBlocks.length - 1;
+  const today  = new Date().toISOString().split('T')[0];
+  const buttons = `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
+      ${isLast
+        ? `<button class="btn btn-primary" onclick="finishCourse()">🏆 Complete Course</button>`
+        : `<button class="btn btn-primary" onclick="nextBlock()">Next Module →</button>`}
+      <button class="btn btn-outline" onclick="goBack()">← Back to Overview</button>
+    </div>`;
+  box.classList.add('show');
+  box.innerHTML = '✅ <strong>Confirmed.</strong> <span class="saving-badge">⏳ Saving…</span>';
+  markBlockCompleteLocally(block.id, { date: today, recordId: null, status: 'OK' });   // smooth UX; corrected below
+  try {
+    const result = await apiFetch('/api/complete', 'POST', { blockId: block.id, blockName: block.name, roleName: currentRoleName() });
+    markBlockCompleteLocally(block.id, { date: today, recordId: result.recordId, status: 'OK' });
+    awardCertificate(result.certificate);
+    box.innerHTML = `✅ <strong>Confirmed.</strong> This course is complete and recorded.${buttons}`;
+  } catch (err) {
+    queueCompletion(block);
+    box.innerHTML = `✅ <strong>Confirmed, and saved on this device.</strong> We couldn't record it in the course system just now (${escHtml(err.message)}), so we'll keep trying automatically.${buttons}`;
+  } finally {
+    confirmingBlocks.delete(block.id);
+  }
+  renderCourse(currentBlocks);
+}
+
 function markViewed() {
   document.getElementById('viewedConfirm').classList.add('show');
   document.getElementById('btnViewed').style.display = 'none';
   const block = currentBlocks[currentBlockIndex];
+
+  if (isConfirmationOnlyBlock(block)) {
+    confirmBlockRead(block);
+    return;
+  }
 
   if (isDocumentUploadBlock(block)) {
     // Show upload section instead of quiz
