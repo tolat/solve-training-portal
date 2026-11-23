@@ -100,6 +100,9 @@
       // The toast is `white-space: nowrap`, so a long message ("You can watch the
       // walkthrough again any time...") ran off both edges of a phone.
       '  .toast{white-space:normal;width:max-content;max-width:calc(100vw - 32px);box-sizing:border-box;text-align:center;line-height:1.4;}',
+      // Role cards: the Go to courses button sits beside a short title but wraps under a long one, so the cards
+      // on one page disagreed. On a phone it is always underneath, left-aligned under the title.
+      '  .role-card-head{flex-direction:column;align-items:flex-start;gap:10px;}',
       '  .module-info{min-width:0;}',
       // The indent is part of the row's width: a 100% basis plus a 46px margin
       // is 46px more than the row, which pushed the whole page sideways.
