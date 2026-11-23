@@ -243,7 +243,8 @@
       '  body.logged-in::after{content:"";position:fixed;left:0;right:0;bottom:0;height:calc(140px + env(safe-area-inset-bottom));z-index:8990;pointer-events:none;',
       '    background:linear-gradient(to bottom,rgba(242,245,242,0) 0%,rgba(242,245,242,.06) 20%,rgba(242,245,242,.2) 40%,rgba(242,245,242,.42) 60%,rgba(242,245,242,.64) 80%,rgba(242,245,242,.8) 100%);}',
       '  /* no top header on phones any more, so the usual 32px + 24px of headroom is just empty space */',
-      '  .screen{padding-top:12px;}',
+      // 28px, not 12: the status-bar area fades the first few pixels of the page, and at 12px the heading sat in it
+      '  .screen{padding-top:28px;}',
       '  #screenRoles .roles-page-header{padding-top:6px;padding-bottom:18px;}',
       '  /* room for the bar, and the page starts below the status bar */',
       '  body.logged-in{padding-bottom:calc(86px + env(safe-area-inset-bottom));padding-top:env(safe-area-inset-top);}',
