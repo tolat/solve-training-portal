@@ -82,6 +82,9 @@ Detected via normalised string matching in `app.js`:
 
 **Note**: The `Type` multi-select is what drives behaviour. The separate `Role Type` field is NOT used.
 
+## Archived courses (app.js — ensureArchivedRole / renderArchivedSection)
+A course the person has completed but that no longer sits in any of their roles (no profile gives it to them any more) is **not** shown on a role card. The server still puts everything the person has a record for, but no role gives them, into one `__supplement__` role ("Other Assigned Courses"). On every `renderRoles()` the client re-partitions that role: the **incomplete** ones stay on the "Other Assigned Courses" card (still owed), the **completed** ones move into an `__archived__` pseudo-role that has no card and is listed in a collapsed **Archived** section under My Courses (`#archivedSection`; the rows open the course read-only, Back lands on an "Archived" course list). Archived courses are excluded from the "N of M modules completed" total. The partition is rebuilt each render from the server's data, so a course completed this session moves on the next render and nothing is persisted that a sync would not recreate.
+
 ## Block Ordering & Locking Logic (app.js — renderCourse)
 Within each stage group:
 1. **Unordered blocks** (no `Ordering` value) → always accessible, sorted: completed → overdue → open

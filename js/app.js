@@ -452,8 +452,79 @@ function blockVisibleForRole(b, role, completedMap, empOrdering) {
   }
 }
 
+// Completed courses that are not linked to any of this person's profiles do not belong on a role card. The server
+// lumps everything the person has a record for, but no profile gives them, into the "Other Assigned Courses"
+// role; here the completed ones are moved into a separate "Archived" pseudo-role (listed by renderArchivedSection),
+// and the incomplete ones stay in Other Assigned Courses because they are still owed. Rebuilt from scratch on
+// every render, so it is safe to run repeatedly and after a completion.
+function ensureArchivedRole() {
+  const roles = trainingData?.roles;
+  if (!Array.isArray(roles)) return;
+  // Undo the previous pass: completed blocks go back to where they came from before being re-partitioned
+  const prev = roles.findIndex(r => r.id === '__archived__');
+  const restored = prev >= 0 ? roles.splice(prev, 1)[0].blockIds : [];
+  const done = (id) => (trainingData.completedMap || {})[id]?.status === 'OK';
+  let supp = roles.find(r => r.id === '__supplement__');
+  const pool = [...new Set([...(supp?.blockIds || []), ...restored])];
+  if (!pool.length) return;
+  const archived = pool.filter(done);
+  const stillOwed = pool.filter(id => !done(id));
+  if (supp) supp.blockIds = stillOwed;
+  else if (stillOwed.length) { supp = { id: '__supplement__', name: 'Other Assigned Courses', blockIds: stillOwed }; roles.push(supp); }
+  if (supp && !supp.blockIds.length) roles.splice(roles.indexOf(supp), 1);   // nothing left to show on a card
+  if (archived.length) roles.push({ id: '__archived__', name: 'Archived', blockIds: archived, isArchived: true });
+}
+
+function renderArchivedSection() {
+  const host = document.getElementById('archivedSection');
+  if (!host) return;
+  const role = (trainingData?.roles || []).find(r => r.id === '__archived__');
+  const blocks = role ? role.blockIds.map(id => trainingData.blocks.find(b => b.id === id)).filter(Boolean) : [];
+  if (!blocks.length) { host.style.display = 'none'; host.innerHTML = ''; return; }
+  if (!document.getElementById('archivedStyles')) {
+    const st = document.createElement('style');
+    st.id = 'archivedStyles';
+    st.textContent = `
+      .archived-section { margin: 8px 0 32px; }
+      .archived-head { display: flex; align-items: center; gap: 10px; width: 100%; background: none; border: 0; padding: 10px 2px;
+        cursor: pointer; font: 700 12px/1 inherit; font-family: inherit; letter-spacing: .08em; text-transform: uppercase; color: var(--gray); text-align: left; }
+      .archived-head .arch-count { background: var(--gray-light); border-radius: 999px; padding: 3px 9px; font-size: 11px; letter-spacing: 0; }
+      .archived-head .arch-chev { margin-left: auto; transition: transform .15s; }
+      .archived-section.open .arch-chev { transform: rotate(90deg); }
+      .archived-note { display: none; font-size: 12px; color: var(--gray); margin: 0 2px 10px; }
+      .archived-list { display: none; flex-direction: column; gap: 8px; }
+      .archived-section.open .archived-list, .archived-section.open .archived-note { display: flex; }
+      .archived-section.open .archived-note { display: block; }
+      .archived-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; cursor: pointer; padding: 12px 14px;
+        background: var(--white); border: 1px solid var(--border); border-radius: 14px; color: var(--text); font: 600 14px/1.35 inherit; font-family: inherit; }
+      .archived-row:hover { border-color: var(--green); }
+      .archived-row .arch-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+      .archived-row .arch-when { flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--success); white-space: nowrap; }`;
+    document.head.appendChild(st);
+  }
+  const wasOpen = host.classList.contains('open');
+  host.innerHTML = `
+    <button type="button" class="archived-head" aria-expanded="${wasOpen}">
+      <span>Archived</span><span class="arch-count">${blocks.length}</span><span class="arch-chev" aria-hidden="true">›</span>
+    </button>
+    <p class="archived-note">Courses you completed that are no longer part of your current profile.</p>
+    <div class="archived-list">
+      ${blocks.map(b => {
+        const d = (trainingData.completedMap || {})[b.id]?.date;
+        return `<button type="button" class="archived-row" data-id="${escHtml(b.id)}"><span class="arch-name">${escHtml(b.name)}</span><span class="arch-when">✓ ${d ? escHtml(prettyDay(d)) : 'Completed'}</span></button>`;
+      }).join('')}
+    </div>`;
+  host.style.display = '';
+  host.querySelector('.archived-head').onclick = (e) => {
+    const open = host.classList.toggle('open');
+    e.currentTarget.setAttribute('aria-expanded', String(open));
+  };
+  host.querySelectorAll('.archived-row').forEach(btn => { btn.onclick = () => openMemoBlock(btn.dataset.id, '__archived__'); });
+}
+
 function renderRoles() {
   if (!trainingData) return;
+  ensureArchivedRole();
   const { roles, completedMap, blocks } = trainingData;
 
   const firstName = String(currentUser.name || '').trim().split(/\s+/)[0];
@@ -481,6 +552,7 @@ function renderRoles() {
   const seenIds   = new Set();
   let totalVisible = 0, totalDone = 0;
   (roles || []).forEach(role => {
+    if (role.id === '__archived__') return;   // archived courses are not part of the current to-do total
     const roleMap = role.completedMap || completedMap;
     role.blockIds.map(id => blocks.find(b => b.id === id)).filter(Boolean)
       .filter(b => isVisibleForRole(b, role))
@@ -497,6 +569,7 @@ function renderRoles() {
   grid.innerHTML = '';
 
   (roles || []).forEach(role => {
+    if (role.id === '__archived__') return;   // shown in its own Archived section, never as a role card
     // Use the role's own completedMap when available (contractor roles carry one)
     const roleMap       = role.completedMap || completedMap;
     if (role.importContractorTrainings) {
@@ -530,6 +603,8 @@ function renderRoles() {
     if (total) card.onclick = () => openRole(role.id, role.name);
     grid.appendChild(card);
   });
+
+  renderArchivedSection();
 
   if (!grid.children.length) {
     grid.innerHTML = `
